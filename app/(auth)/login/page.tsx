@@ -16,7 +16,7 @@ export default function LoginPage() {
         </div>
         <h1 className="text-2xl font-bold text-white">HR Screener</h1>
         <p className="text-slate-400 text-sm">
-          AI 기반 채용 자산 관리 플랫폼
+          헤드헌터 전용 후보자 관리 플랫폼
         </p>
       </div>
 

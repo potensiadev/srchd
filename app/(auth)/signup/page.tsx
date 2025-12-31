@@ -16,7 +16,7 @@ export default function SignupPage() {
         </div>
         <h1 className="text-2xl font-bold text-white">회원가입</h1>
         <p className="text-slate-400 text-sm">
-          HR Screener를 시작하세요
+          HR Screener에 오신 것을 환영합니다
         </p>
       </div>
 
