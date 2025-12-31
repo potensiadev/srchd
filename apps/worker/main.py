@@ -11,11 +11,13 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from config import settings
+from config import settings, AnalysisMode
 from agents.router_agent import RouterAgent, FileType, RouterResult
+from agents.analyst_agent import AnalystAgent, get_analyst_agent, AnalysisResult
 from utils.hwp_parser import HWPParser, ParseMethod
 from utils.pdf_parser import PDFParser
 from utils.docx_parser import DOCXParser
+from services.llm_manager import get_llm_manager
 
 # 로깅 설정
 logging.basicConfig(
@@ -221,22 +223,90 @@ async def parse_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/analyze")
-async def analyze_resume(
-    text: str = Form(...),
-    user_id: str = Form(...),
-    job_id: Optional[str] = Form(None),
-    background_tasks: BackgroundTasks = None
-):
+class AnalyzeRequest(BaseModel):
+    """분석 요청 모델"""
+    text: str
+    user_id: str
+    job_id: Optional[str] = None
+    mode: Optional[str] = None  # "phase_1" or "phase_2"
+
+
+class AnalyzeResponse(BaseModel):
+    """분석 응답 모델"""
+    success: bool
+    data: Optional[dict] = None
+    confidence_score: float = 0.0
+    field_confidence: dict = {}
+    warnings: list = []
+    processing_time_ms: int = 0
+    mode: str = "phase_1"
+    error: Optional[str] = None
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze_resume(request: AnalyzeRequest):
     """
-    이력서 분석 엔드포인트 (Phase 1: GPT + Gemini Cross-Check)
-    - Week 4에서 구현 예정
+    이력서 분석 엔드포인트
+
+    2-Way Cross-Check (Phase 1): GPT-4o + Gemini 1.5 Pro
+    3-Way Cross-Check (Phase 2): + Claude 3.5 Sonnet
+
+    Args:
+        request: 분석 요청 (text, user_id, job_id, mode)
+
+    Returns:
+        AnalyzeResponse with extracted data and confidence scores
     """
-    # TODO: Week 4 - Analyst Agent 구현
-    return {
-        "status": "not_implemented",
-        "message": "Analyst Agent will be implemented in Week 4"
-    }
+    logger.info(f"Analyzing resume for user: {request.user_id}, job: {request.job_id}")
+
+    try:
+        # 텍스트 길이 검증
+        if len(request.text.strip()) < settings.MIN_TEXT_LENGTH:
+            return AnalyzeResponse(
+                success=False,
+                error=f"텍스트가 너무 짧습니다 ({len(request.text.strip())}자). 최소 {settings.MIN_TEXT_LENGTH}자 필요"
+            )
+
+        # 분석 모드 결정
+        analysis_mode = AnalysisMode.PHASE_1
+        if request.mode == "phase_2":
+            analysis_mode = AnalysisMode.PHASE_2
+
+        # Analyst Agent로 분석
+        analyst = get_analyst_agent()
+        result: AnalysisResult = await analyst.analyze(
+            resume_text=request.text,
+            mode=analysis_mode
+        )
+
+        logger.info(
+            f"Analysis complete: confidence={result.confidence_score:.2f}, "
+            f"warnings={len(result.warnings)}, time={result.processing_time_ms}ms"
+        )
+
+        return AnalyzeResponse(
+            success=result.success,
+            data=result.data,
+            confidence_score=result.confidence_score,
+            field_confidence=result.field_confidence,
+            warnings=[w.to_dict() for w in result.warnings],
+            processing_time_ms=result.processing_time_ms,
+            mode=result.mode.value,
+            error=result.error
+        )
+
+    except ValueError as e:
+        logger.warning(f"Analysis validation error: {e}")
+        return AnalyzeResponse(
+            success=False,
+            error=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Analysis error: {e}", exc_info=True)
+        return AnalyzeResponse(
+            success=False,
+            error=f"분석 중 오류 발생: {str(e)}"
+        )
 
 
 if __name__ == "__main__":
