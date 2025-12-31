@@ -1,9 +1,15 @@
+"use client";
+
 import SpotlightSearch from "@/components/dashboard/SpotlightSearch";
 import GravityGrid from "@/components/dashboard/GravityGrid";
 import PrivacyShield from "@/components/detail/PrivacyShield";
 import { Mail, Phone } from "lucide-react";
+import { useState } from "react";
 
 export default function Home() {
+  const [query, setQuery] = useState("");
+  const isSearchMode = query.length > 0;
+
   return (
     <div className="max-w-7xl mx-auto pt-10">
       <div className="text-center mb-16 space-y-2">
@@ -11,7 +17,7 @@ export default function Home() {
         <p className="text-slate-400">AI-Powered Screening & Risk Analysis</p>
       </div>
 
-      <SpotlightSearch />
+      <SpotlightSearch query={query} onQueryChange={setQuery} />
 
       <div className="mt-20">
         <div className="flex items-center justify-between mb-8">
@@ -21,7 +27,7 @@ export default function Home() {
             Live Updates
           </div>
         </div>
-        <GravityGrid />
+        <GravityGrid isSearchMode={isSearchMode} />
       </div>
 
       {/* Privacy Shield Demo */}

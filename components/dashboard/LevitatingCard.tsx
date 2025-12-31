@@ -4,16 +4,25 @@ import { motion, useMotionTemplate, useMotionValue } from "framer-motion";
 import { AlertTriangle, User, MoreHorizontal, ShieldCheck } from "lucide-react";
 import { FLOATING_PHYSICS, HEAVY_APPEAR } from "@/lib/physics";
 import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 
-interface LevitatingCardProps {
+export interface TalentProps {
+    id: string | number;
     name: string;
     role: string;
-    matchScore: number;
+    // New props for contextual scoring
+    aiConfidence: number; // 0-100
+    matchScore?: number;  // 0-100
     riskLevel: 'low' | 'medium' | 'high';
-    delay?: number; // For staggered entrance
 }
 
-export default function LevitatingCard({ name, role, matchScore, riskLevel, delay = 0 }: LevitatingCardProps) {
+interface LevitatingCardProps {
+    data: TalentProps;
+    index: number;
+    isSearchMode?: boolean; // Default to false
+}
+
+export default function LevitatingCard({ data, index, isSearchMode = false }: LevitatingCardProps) {
     const mouseX = useMotionValue(0);
     const mouseY = useMotionValue(0);
 
@@ -22,8 +31,8 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
         const x = (clientX - left) / width - 0.5;
         const y = (clientY - top) / height - 0.5;
 
-        mouseX.set(x * 10); // Rotate X degree limit
-        mouseY.set(y * 10); // Rotate Y degree limit
+        mouseX.set(x * 10);
+        mouseY.set(y * 10);
     }
 
     function handleMouseLeave() {
@@ -31,9 +40,24 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
         mouseY.set(0);
     }
 
-    const transform = useMotionTemplate`perspective(1000px) rotateX(${-1 * 0}deg) rotateY(${0}deg)`; // Simplified tilt for less jitter
-    // Ideally: rotateX(${mouseY}deg) rotateY(${mouseX}deg) - but simplified for stability without complex useSpring logic here. 
-    // Let's use a simpler tilt:
+    // Contextual Data Logic
+    const { displayScore, displayLabel, scoreColor } = useMemo(() => {
+        // If not in search mode, show AI Confidence. If in search mode, show Match Score (relevance).
+        const score = isSearchMode ? (data.matchScore || 0) : data.aiConfidence;
+        const label = isSearchMode ? "MATCH SCORE" : "AI CONFIDENCE";
+
+        // PRD v6.0 Color Logic
+        // High (95+): Emerald, Medium (80-94): Yellow, Low (<80): Rose
+        let color = "text-risk"; // Default Low (< 80)
+        if (score >= 95) color = "text-emerald-400";
+        else if (score >= 80) color = "text-yellow-400";
+
+        return { displayScore: score, displayLabel: label, scoreColor: color };
+    }, [isSearchMode, data.aiConfidence, data.matchScore]);
+
+    // Transform for simple 3D tilt
+    // Using explicit transform for performance and clarity
+    const transform = useMotionTemplate`perspective(1000px) rotateX(${mouseY}deg) rotateY(${mouseX}deg)`;
 
     return (
         <motion.div
@@ -43,26 +67,26 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
                 initial: HEAVY_APPEAR.initial,
                 animate: {
                     ...HEAVY_APPEAR.animate,
-                    transition: { ...HEAVY_APPEAR.transition, delay }
+                    transition: { ...HEAVY_APPEAR.transition, delay: index * 0.1 }
                 }
             }}
             className="relative group"
         >
-            {/* Floating Wrapper */}
             <motion.div
                 animate={FLOATING_PHYSICS.y}
-                // Add random delay to float to desynchronize cards
                 transition={{ ...FLOATING_PHYSICS.y, delay: Math.random() * 2 }}
+                style={{ transform, transformStyle: "preserve-3d" }}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
                 className={cn(
                     "relative p-6 rounded-2xl bg-[#0F0F24]/60 backdrop-blur-md border transition-all duration-300",
-                    // Risk Logic
-                    riskLevel === 'high'
+                    data.riskLevel === 'high'
                         ? "border-risk/50 shadow-[0_0_20px_rgba(244,63,94,0.15)] hover:border-risk hover:shadow-[0_0_30px_rgba(244,63,94,0.3)]"
                         : "border-white/5 hover:border-primary/30 hover:shadow-[0_0_30px_rgba(139,92,246,0.1)]"
                 )}
             >
                 {/* Pulsating Risk Indicator Overlay */}
-                {riskLevel === 'high' && (
+                {data.riskLevel === 'high' && (
                     <div className="absolute inset-0 rounded-2xl border border-risk/20 animate-pulse pointer-events-none" />
                 )}
 
@@ -72,11 +96,11 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
                             <User size={20} />
                         </div>
                         <div>
-                            <h3 className="text-white font-semibold leading-tight">{name}</h3>
-                            <p className="text-slate-400 text-xs">{role}</p>
+                            <h3 className="text-white font-semibold leading-tight">{data.name}</h3>
+                            <p className="text-slate-400 text-xs">{data.role}</p>
                         </div>
                     </div>
-                    {riskLevel === 'high' ? (
+                    {data.riskLevel === 'high' ? (
                         <div className="flex items-center gap-1 text-risk text-xs font-bold px-2 py-1 bg-risk/10 rounded-full border border-risk/20">
                             <AlertTriangle size={12} />
                             <span>RISK DETECTED</span>
@@ -88,10 +112,14 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
                     )}
                 </div>
 
-                {/* AI Score */}
-                <div className="flex items-end gap-2 mb-4">
-                    <span className="text-3xl font-bold text-white font-mono">{matchScore}%</span>
-                    <span className="text-xs text-ai mb-1.5 font-medium">MATCH SCORE</span>
+                {/* Dynamic Score Section */}
+                <div className="flex flex-col items-end mb-4">
+                    <span className={cn("text-3xl font-bold font-mono transition-colors duration-300", scoreColor)}>
+                        {displayScore}%
+                    </span>
+                    <span className="text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wider">
+                        {displayLabel}
+                    </span>
                 </div>
 
                 {/* Actions / Footer */}
@@ -99,7 +127,7 @@ export default function LevitatingCard({ name, role, matchScore, riskLevel, dela
                     <button className="flex-1 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-medium transition-colors border border-white/5">
                         View Profile
                     </button>
-                    {riskLevel !== 'high' && (
+                    {data.riskLevel !== 'high' && (
                         <button className="flex-1 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors border border-primary/20">
                             Contact
                         </button>

@@ -6,9 +6,13 @@ import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { MAGNETIC_SPRING } from "@/lib/physics";
 
-export default function SpotlightSearch() {
+interface SpotlightSearchProps {
+    query: string;
+    onQueryChange: (query: string) => void;
+}
+
+export default function SpotlightSearch({ query, onQueryChange }: SpotlightSearchProps) {
     const [isFocused, setIsFocused] = useState(false);
-    const [query, setQuery] = useState("");
     const inputRef = useRef<HTMLInputElement>(null);
 
     // Semantic Mode trigger
@@ -68,7 +72,7 @@ export default function SpotlightSearch() {
                     ref={inputRef}
                     type="text"
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => onQueryChange(e.target.value)}
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}
                     placeholder={isSemantic ? "Semantic Vector Search Active..." : "Search candidates by name, skills, or role..."}
