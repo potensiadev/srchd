@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     OPENAI_MINI_MODEL: str = "gpt-4o-mini"
 
     # Google Gemini
-    GOOGLE_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-pro"
 
     # Anthropic Claude (Phase 2)
@@ -82,3 +82,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# 싱글톤 인스턴스
+_settings_instance: Optional[Settings] = None
+
+
+def get_settings() -> Settings:
+    """Settings 싱글톤 인스턴스 반환"""
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = Settings()
+    return _settings_instance
