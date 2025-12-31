@@ -1,0 +1,123 @@
+/**
+ * Next.js Middleware
+ * 인증 + 동의 체크
+ */
+
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
+
+interface UserRow {
+  consents_completed: boolean | null;
+}
+
+// 보호된 경로
+const PROTECTED_PATHS = [
+  "/dashboard",
+  "/candidates",
+  "/upload",
+  "/search",
+  "/settings",
+];
+
+// 인증 경로
+const AUTH_PATHS = ["/login", "/signup"];
+
+// 동의 경로
+const CONSENT_PATH = "/consent";
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Supabase 세션 업데이트
+  const { supabase, user, response } = await updateSession(request);
+
+  // 보호된 경로 체크
+  const isProtectedPath = PROTECTED_PATHS.some((path) =>
+    pathname.startsWith(path)
+  );
+
+  // 인증 경로 체크
+  const isAuthPath = AUTH_PATHS.some((path) => pathname.startsWith(path));
+
+  // 동의 경로 체크
+  const isConsentPath = pathname === CONSENT_PATH;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 1. 보호된 경로 접근 시
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (isProtectedPath) {
+    // 로그인 안 됨 → 로그인 페이지로
+    if (!user) {
+      const redirectUrl = new URL("/login", request.url);
+      redirectUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    // 동의 완료 여부 체크
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("consents_completed")
+      .eq("id", user.id)
+      .single() as { data: UserRow | null };
+
+    // 동의 미완료 → 동의 페이지로
+    if (!userProfile?.consents_completed) {
+      return NextResponse.redirect(new URL("/consent", request.url));
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 2. 동의 페이지 접근 시
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (isConsentPath) {
+    // 로그인 안 됨 → 로그인 페이지로
+    if (!user) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    // 이미 동의 완료 → 대시보드로
+    const { data: consentProfile } = await supabase
+      .from("users")
+      .select("consents_completed")
+      .eq("id", user.id)
+      .single() as { data: UserRow | null };
+
+    if (consentProfile?.consents_completed) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 3. 인증 페이지 접근 시 (이미 로그인된 경우)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (isAuthPath && user) {
+    // 동의 완료 여부에 따라 리다이렉트
+    const { data: authProfile } = await supabase
+      .from("users")
+      .select("consents_completed")
+      .eq("id", user.id)
+      .single() as { data: UserRow | null };
+
+    if (authProfile?.consents_completed) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    } else {
+      return NextResponse.redirect(new URL("/consent", request.url));
+    }
+  }
+
+  return response;
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (images, etc.)
+     */
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
+};
