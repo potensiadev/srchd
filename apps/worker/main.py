@@ -20,6 +20,7 @@ from utils.pdf_parser import PDFParser
 from utils.docx_parser import DOCXParser
 from services.llm_manager import get_llm_manager
 from services.embedding_service import EmbeddingService, get_embedding_service, EmbeddingResult
+from services.database_service import DatabaseService, get_database_service, SaveResult
 
 # 로깅 설정
 logging.basicConfig(
@@ -319,11 +320,16 @@ class ProcessRequest(BaseModel):
     mode: Optional[str] = None
     generate_embeddings: bool = True
     mask_pii: bool = True
+    save_to_db: bool = True  # DB 저장 여부
+    source_file: Optional[str] = None  # 원본 파일 경로
+    file_type: Optional[str] = None  # 파일 타입
 
 
 class ProcessResponse(BaseModel):
     """전체 처리 응답 모델"""
     success: bool
+    # DB 저장 결과
+    candidate_id: Optional[str] = None
     # 분석 결과
     data: Optional[dict] = None
     confidence_score: float = 0.0
@@ -336,7 +342,7 @@ class ProcessResponse(BaseModel):
     encrypted_fields: list = []
     # 청킹/임베딩 결과
     chunk_count: int = 0
-    chunks_summary: list = []
+    chunks_saved: int = 0  # 실제 저장된 청크 수
     embedding_tokens: int = 0
     # 메타
     processing_time_ms: int = 0
@@ -352,6 +358,8 @@ async def process_resume(request: ProcessRequest):
     1. 분석 (Analyst Agent) - GPT-4o + Gemini Cross-Check
     2. PII 마스킹 (Privacy Agent)
     3. 청킹 + 임베딩 (Embedding Service)
+    4. DB 저장 (candidates + candidate_chunks)
+    5. 크레딧 차감
 
     Args:
         request: 처리 요청
@@ -394,15 +402,18 @@ async def process_resume(request: ProcessRequest):
                 error=analysis_result.error or "분석 실패"
             )
 
+        # 원본 데이터 보관 (암호화 전)
+        original_data = analysis_result.data.copy()
         analyzed_data = analysis_result.data
 
         # ─────────────────────────────────────────────────
-        # Step 2: PII 마스킹 (Privacy Agent)
+        # Step 2: PII 마스킹 + 암호화 (Privacy Agent)
         # ─────────────────────────────────────────────────
         pii_count = 0
         pii_types = []
         privacy_warnings = []
-        encrypted_fields = []
+        encrypted_store = {}
+        hash_store = {}
 
         if request.mask_pii:
             privacy_agent = get_privacy_agent()
@@ -413,14 +424,20 @@ async def process_resume(request: ProcessRequest):
                 pii_count = len(privacy_result.pii_found)
                 pii_types = list(set(p.pii_type.value for p in privacy_result.pii_found))
                 privacy_warnings = privacy_result.warnings
-                encrypted_fields = list(privacy_result.encrypted_store.keys())
+                encrypted_store = privacy_result.encrypted_store
+
+                # 원본 데이터로 해시 생성
+                if original_data.get("phone"):
+                    hash_store["phone"] = privacy_agent.hash_for_dedup(original_data["phone"])
+                if original_data.get("email"):
+                    hash_store["email"] = privacy_agent.hash_for_dedup(original_data["email"])
 
         # ─────────────────────────────────────────────────
         # Step 3: 청킹 + 임베딩 (Embedding Service)
         # ─────────────────────────────────────────────────
         chunk_count = 0
-        chunks_summary = []
         embedding_tokens = 0
+        embedding_chunks = []
 
         if request.generate_embeddings:
             embedding_service = get_embedding_service()
@@ -432,27 +449,68 @@ async def process_resume(request: ProcessRequest):
             if embedding_result.success:
                 chunk_count = len(embedding_result.chunks)
                 embedding_tokens = embedding_result.total_tokens
+                embedding_chunks = embedding_result.chunks
 
-                # 청크 요약 (임베딩 제외)
-                chunks_summary = [
-                    {
-                        "type": c.chunk_type.value,
-                        "index": c.chunk_index,
-                        "content_preview": c.content[:100] + "..." if len(c.content) > 100 else c.content,
-                        "has_embedding": c.embedding is not None
-                    }
-                    for c in embedding_result.chunks
-                ]
+        # ─────────────────────────────────────────────────
+        # Step 4: DB 저장 (candidates + candidate_chunks)
+        # ─────────────────────────────────────────────────
+        candidate_id = None
+        chunks_saved = 0
+
+        if request.save_to_db and request.job_id:
+            db_service = get_database_service()
+
+            # candidates 저장
+            save_result: SaveResult = db_service.save_candidate(
+                user_id=request.user_id,
+                job_id=request.job_id,
+                analyzed_data=analyzed_data,
+                confidence_score=analysis_result.confidence_score,
+                field_confidence=analysis_result.field_confidence,
+                warnings=[w.to_dict() for w in analysis_result.warnings],
+                encrypted_store=encrypted_store,
+                hash_store=hash_store,
+                source_file=request.source_file or "",
+                file_type=request.file_type or "",
+                analysis_mode=analysis_mode.value,
+            )
+
+            if save_result.success and save_result.candidate_id:
+                candidate_id = save_result.candidate_id
+
+                # candidate_chunks + embedding 저장
+                if embedding_chunks:
+                    chunks_saved = db_service.save_chunks_with_embeddings(
+                        candidate_id=candidate_id,
+                        chunks=embedding_chunks
+                    )
+
+                # processing_jobs 상태 업데이트
+                db_service.update_job_status(
+                    job_id=request.job_id,
+                    status="completed",
+                    candidate_id=candidate_id,
+                    confidence_score=analysis_result.confidence_score,
+                    chunk_count=chunks_saved,
+                    pii_count=pii_count,
+                )
+
+                # 크레딧 차감
+                db_service.deduct_credit(request.user_id)
+
+            else:
+                logger.error(f"Failed to save candidate: {save_result.error}")
 
         processing_time = int((time.time() - start_time) * 1000)
 
         logger.info(
-            f"Processing complete: confidence={analysis_result.confidence_score:.2f}, "
-            f"pii={pii_count}, chunks={chunk_count}, time={processing_time}ms"
+            f"Processing complete: candidate={candidate_id}, confidence={analysis_result.confidence_score:.2f}, "
+            f"pii={pii_count}, chunks={chunks_saved}/{chunk_count}, time={processing_time}ms"
         )
 
         return ProcessResponse(
             success=True,
+            candidate_id=candidate_id,
             data=analyzed_data,
             confidence_score=analysis_result.confidence_score,
             field_confidence=analysis_result.field_confidence,
@@ -460,9 +518,9 @@ async def process_resume(request: ProcessRequest):
             pii_count=pii_count,
             pii_types=pii_types,
             privacy_warnings=privacy_warnings,
-            encrypted_fields=encrypted_fields,
+            encrypted_fields=list(encrypted_store.keys()),
             chunk_count=chunk_count,
-            chunks_summary=chunks_summary,
+            chunks_saved=chunks_saved,
             embedding_tokens=embedding_tokens,
             processing_time_ms=processing_time,
             mode=analysis_mode.value

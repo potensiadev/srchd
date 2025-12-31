@@ -20,6 +20,7 @@ interface UploadResponse {
 
 interface ProcessResult {
   success: boolean;
+  candidate_id?: string;  // Worker가 저장한 candidate ID
   data?: CandidateData;
   confidence_score?: number;
   field_confidence?: Record<string, number>;
@@ -29,6 +30,7 @@ interface ProcessResult {
   privacy_warnings?: string[];
   encrypted_fields?: string[];
   chunk_count?: number;
+  chunks_saved?: number;  // 실제 저장된 청크 수
   chunks_summary?: ChunkSummary[];
   embedding_tokens?: number;
   processing_time_ms?: number;
@@ -265,10 +267,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       }
 
       // ─────────────────────────────────────────────────
-      // Step 2: /process 호출 (분석 + PII 마스킹 + 임베딩)
+      // Step 2: /process 호출 (분석 + PII + 임베딩 + DB 저장)
+      // Worker가 직접 DB 저장, 크레딧 차감까지 처리
       // ─────────────────────────────────────────────────
-      let candidateId: string | null = null;
-
       try {
         const processResponse = await fetch(`${WORKER_URL}/process`, {
           method: "POST",
@@ -280,6 +281,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
             mode: userInfo.plan === "enterprise" ? "phase_2" : "phase_1",
             generate_embeddings: true,
             mask_pii: true,
+            save_to_db: true,
+            source_file: storagePath,
+            file_type: ext.replace(".", ""),
           }),
         });
 
@@ -289,16 +293,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
 
         const processResult: ProcessResult = await processResponse.json();
 
-        if (!processResult.success || !processResult.data) {
-          // 분석 실패 시 job 상태만 업데이트하고 계속 진행
-          await supabaseAny
-            .from("processing_jobs")
-            .update({
-              status: "analysis_failed",
-              error_message: processResult.error || "Analysis failed",
-            })
-            .eq("id", jobData.id);
-
+        if (!processResult.success) {
+          // 분석 실패
           return NextResponse.json({
             success: false,
             jobId: jobData.id,
@@ -306,119 +302,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
           }, { status: 422 });
         }
 
-        // ─────────────────────────────────────────────────
-        // Step 3: candidates 테이블에 저장
-        // ─────────────────────────────────────────────────
-        const candidateData = processResult.data;
-
-        const { data: candidate, error: candidateError } = await supabaseAny
-          .from("candidates")
-          .insert({
-            user_id: user.id,
-            job_id: jobData.id,
-            // 기본 정보
-            name: candidateData.name || null,
-            birth_year: candidateData.birth_year || null,
-            gender: candidateData.gender || null,
-            phone: candidateData.phone || null, // 마스킹된 값
-            email: candidateData.email || null, // 마스킹된 값
-            address: candidateData.address || null,
-            location_city: candidateData.location_city || null,
-            // 경력 정보
-            exp_years: candidateData.exp_years || 0,
-            last_company: candidateData.last_company || null,
-            last_position: candidateData.last_position || null,
-            careers: candidateData.careers || [],
-            // 스킬
-            skills: candidateData.skills || [],
-            // 학력
-            education_level: candidateData.education_level || null,
-            education_school: candidateData.education_school || null,
-            education_major: candidateData.education_major || null,
-            educations: candidateData.educations || [],
-            // 프로젝트
-            projects: candidateData.projects || [],
-            // AI 생성
-            summary: candidateData.summary || null,
-            strengths: candidateData.strengths || [],
-            // 신뢰도
-            confidence_score: processResult.confidence_score || 0,
-            field_confidence: processResult.field_confidence || {},
-            warnings: processResult.analysis_warnings || [],
-            // 링크
-            portfolio_url: candidateData.portfolio_url || null,
-            github_url: candidateData.github_url || null,
-            linkedin_url: candidateData.linkedin_url || null,
-            // 파일 정보
-            source_file: storagePath,
-            file_type: ext.replace(".", ""),
-            // 상태
-            status: "analyzed",
-            analysis_mode: processResult.mode || "phase_1",
-          })
-          .select("id")
-          .single();
-
-        if (candidateError || !candidate) {
-          console.error("Failed to save candidate:", candidateError);
-          throw new Error("Failed to save candidate to database");
-        }
-
-        candidateId = candidate.id;
-
-        // ─────────────────────────────────────────────────
-        // Step 4: candidate_chunks 테이블에 임베딩 저장
-        // ─────────────────────────────────────────────────
-        if (processResult.chunks_summary && processResult.chunks_summary.length > 0) {
-          const chunksToInsert = processResult.chunks_summary.map((chunk) => ({
-            candidate_id: candidateId,
-            chunk_type: chunk.type,
-            chunk_index: chunk.index,
-            content: chunk.content_preview.replace(/\.\.\.$/g, ""), // 미리보기에서 ... 제거
-            // embedding은 Worker에서 반환하지 않음 (별도 저장 필요시 Worker 수정)
-          }));
-
-          const { error: chunksError } = await supabaseAny
-            .from("candidate_chunks")
-            .insert(chunksToInsert);
-
-          if (chunksError) {
-            console.error("Failed to save chunks:", chunksError);
-            // 청크 저장 실패는 치명적이지 않으므로 계속 진행
-          }
-        }
-
-        // ─────────────────────────────────────────────────
-        // Step 5: 크레딧 차감
-        // ─────────────────────────────────────────────────
-        const { error: creditError } = await supabaseAny
-          .from("users")
-          .update({
-            credits_used_this_month: userInfo.credits_used_this_month + 1,
-          })
-          .eq("id", user.id);
-
-        if (creditError) {
-          console.error("Failed to deduct credit:", creditError);
-        }
-
-        // processing_jobs 상태 업데이트
-        await supabaseAny
-          .from("processing_jobs")
-          .update({
-            status: "completed",
-            candidate_id: candidateId,
-            confidence_score: processResult.confidence_score,
-            chunk_count: processResult.chunk_count,
-            pii_count: processResult.pii_count,
-          })
-          .eq("id", jobData.id);
-
+        // Worker가 이미 DB 저장, 크레딧 차감을 완료함
         return NextResponse.json({
           success: true,
           jobId: jobData.id,
-          candidateId: candidateId || undefined,
-          message: `Resume processed successfully (confidence: ${Math.round((processResult.confidence_score || 0) * 100)}%)`,
+          candidateId: processResult.candidate_id || undefined,
+          message: `Resume processed successfully (confidence: ${Math.round((processResult.confidence_score || 0) * 100)}%, chunks: ${processResult.chunks_saved || 0})`,
         });
 
       } catch (processError) {
