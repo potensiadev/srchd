@@ -88,10 +88,16 @@ export interface CandidateDetail extends CandidateListItem {
   birthYear?: number;
   gender?: 'male' | 'female' | 'other';
 
-  // 연락처 (복호화 필요, RLS 보호)
+  // 연락처 (마스킹된 값, RLS 보호)
   phone?: string;
   email?: string;
   address?: string;
+
+  // 학력 (분리 필드)
+  educationLevel?: string;
+  educationSchool?: string;
+  educationMajor?: string;
+  locationCity?: string;
 
   // 상세 정보
   careers: Career[];
@@ -103,6 +109,9 @@ export interface CandidateDetail extends CandidateListItem {
 
   // 시각 자산
   portfolioThumbnailUrl?: string;
+  portfolioUrl?: string;
+  githubUrl?: string;
+  linkedinUrl?: string;
 
   // 버전 관리
   version: number;
@@ -112,6 +121,11 @@ export interface CandidateDetail extends CandidateListItem {
   // AI 분석 메타
   analysisMode: 'phase_1' | 'phase_2';
   warnings: string[];
+  fieldConfidence?: Record<string, number>;
+
+  // 파일 정보
+  sourceFile?: string;
+  fileType?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -50,16 +50,39 @@ function toCandidateDetail(row: Record<string, unknown>): CandidateDetail {
     gender: row.gender as "male" | "female" | "other" | undefined,
     phone: row.phone_masked as string | undefined,
     email: row.email_masked as string | undefined,
+    address: row.address_masked as string | undefined,
+
+    // 학력 분리 필드
+    educationLevel: row.education_level as string | undefined,
+    educationSchool: row.education_school as string | undefined,
+    educationMajor: row.education_major as string | undefined,
+    locationCity: row.location_city as string | undefined,
+
+    // 상세 정보
     careers: (row.careers as Career[]) ?? [],
     projects: (row.projects as Project[]) ?? [],
     education: (row.education as Education[]) ?? [],
     strengths: (row.strengths as string[]) ?? [],
+
+    // 시각 자산
     portfolioThumbnailUrl: row.portfolio_thumbnail_url as string | undefined,
+    portfolioUrl: row.portfolio_url as string | undefined,
+    githubUrl: row.github_url as string | undefined,
+    linkedinUrl: row.linkedin_url as string | undefined,
+
+    // 버전 관리
     version: (row.version as number) ?? 1,
     parentId: row.parent_id as string | undefined,
     isLatest: (row.is_latest as boolean) ?? true,
+
+    // AI 분석 메타
     analysisMode: (row.analysis_mode as "phase_1" | "phase_2") ?? "phase_1",
     warnings: (row.warnings as string[]) ?? [],
+    fieldConfidence: row.field_confidence as Record<string, number> | undefined,
+
+    // 파일 정보
+    sourceFile: row.source_file as string | undefined,
+    fileType: row.file_type as string | undefined,
   };
 }
 
@@ -101,16 +124,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const row = data as Record<string, unknown>;
     const candidate = toCandidateDetail(row);
 
-    // field_confidence 포함 (있는 경우)
-    const response: ApiResponse<CandidateDetail> & { field_confidence?: Record<string, number> } = {
+    return NextResponse.json<ApiResponse<CandidateDetail>>({
       data: candidate,
-    };
-
-    if (row.field_confidence) {
-      response.field_confidence = row.field_confidence as Record<string, number>;
-    }
-
-    return NextResponse.json(response);
+    });
   } catch (error) {
     console.error("Candidate detail API error:", error);
     return NextResponse.json<ApiResponse<null>>(

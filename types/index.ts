@@ -129,30 +129,53 @@ export interface Database {
           name: string;
           birth_year: number | null;
           gender: string | null;
+          // 암호화된 원본
           phone_encrypted: string | null;
           email_encrypted: string | null;
+          address_encrypted: string | null;
+          // 마스킹된 값 (표시용)
+          phone_masked: string | null;
+          email_masked: string | null;
+          address_masked: string | null;
+          // 해시 (중복 체크용)
           phone_hash: string | null;
           email_hash: string | null;
+          // 필터링용 정형 필드
           skills: string[];
           exp_years: number;
           last_company: string | null;
           last_position: string | null;
           education_level: string | null;
+          education_school: string | null;
+          education_major: string | null;
+          education: Record<string, unknown>[];
           location_city: string | null;
           summary: string | null;
           strengths: string[];
           careers: Record<string, unknown>[];
           projects: Record<string, unknown>[];
+          // 시각 자산
           photo_url: string | null;
           portfolio_thumbnail_url: string | null;
+          portfolio_url: string | null;
+          github_url: string | null;
+          linkedin_url: string | null;
+          // 버전 관리
           version: number;
           parent_id: string | null;
           is_latest: boolean;
+          // AI 분석 메타
           confidence_score: number;
+          field_confidence: Record<string, number> | null;
           analysis_mode: string;
           requires_review: boolean;
           warnings: string[];
+          // 파일 정보
+          source_file: string | null;
+          file_type: string | null;
+          // 상태
           status: string;
+          risk_level: string | null;
           created_at: string;
           updated_at: string;
         };

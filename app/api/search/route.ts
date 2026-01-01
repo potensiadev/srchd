@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
         let queryBuilder = supabase
           .from("candidates")
           .select("*", { count: "exact" })
+          .eq("user_id", user.id)
           .eq("status", "completed")
           .eq("is_latest", true)
           .or(`summary.ilike.%${query}%,last_position.ilike.%${query}%`);
@@ -169,6 +170,7 @@ export async function POST(request: NextRequest) {
       let queryBuilder = supabase
         .from("candidates")
         .select("*", { count: "exact" })
+        .eq("user_id", user.id)
         .eq("status", "completed")
         .eq("is_latest", true);
 

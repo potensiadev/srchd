@@ -97,9 +97,11 @@ class DatabaseService:
                 # 마스킹된 연락처 (표시용)
                 "phone_masked": analyzed_data.get("phone"),
                 "email_masked": analyzed_data.get("email"),
+                "address_masked": analyzed_data.get("address"),
                 # 암호화된 원본 (복호화 가능)
                 "phone_encrypted": encrypted_store.get("phone"),
                 "email_encrypted": encrypted_store.get("email"),
+                "address_encrypted": encrypted_store.get("address"),
                 # 해시 (중복 체크용)
                 "phone_hash": hash_store.get("phone"),
                 "email_hash": hash_store.get("email"),
@@ -114,7 +116,7 @@ class DatabaseService:
                 "education_level": analyzed_data.get("education_level"),
                 "education_school": analyzed_data.get("education_school"),
                 "education_major": analyzed_data.get("education_major"),
-                "education": analyzed_data.get("educations", []),
+                "education": analyzed_data.get("education", analyzed_data.get("educations", [])),
                 # 프로젝트
                 "projects": analyzed_data.get("projects", []),
                 # AI 생성
@@ -251,9 +253,13 @@ class DatabaseService:
             logger.error(f"Failed to update job status: {e}")
             return False
 
-    def deduct_credit(self, user_id: str) -> bool:
+    def deduct_credit(self, user_id: str, candidate_id: Optional[str] = None) -> bool:
         """
-        크레딧 차감
+        크레딧 차감 (SQL 함수 호출 + 트랜잭션 로깅)
+
+        PRD 요구사항:
+        - deduct_credit() SQL 함수 호출
+        - credit_transactions 테이블에 기록
 
         Returns:
             성공 여부
@@ -262,20 +268,132 @@ class DatabaseService:
             return False
 
         try:
-            # 현재 사용량 조회
-            result = self.client.table("users").select("credits_used_this_month").eq("id", user_id).single().execute()
+            # SQL 함수 deduct_credit 호출 (001 migration에 정의됨)
+            # 이 함수는 credits를 먼저 차감하고, 부족하면 credits_used_this_month 증가
+            result = self.client.rpc("deduct_credit", {"p_user_id": user_id}).execute()
 
-            if result.data:
-                current_used = result.data.get("credits_used_this_month", 0)
-                self.client.table("users").update({
-                    "credits_used_this_month": current_used + 1
-                }).eq("id", user_id).execute()
-                return True
+            if result.data is not None:
+                success = result.data
+                if success:
+                    # 트랜잭션 로깅
+                    self._log_credit_transaction(
+                        user_id=user_id,
+                        transaction_type="usage",
+                        amount=-1,
+                        description="이력서 분석",
+                        candidate_id=candidate_id
+                    )
+                    logger.info(f"Credit deducted for user {user_id}")
+                    return True
+                else:
+                    logger.warning(f"Credit deduction failed for user {user_id} - insufficient credits")
+                    return False
 
             return False
 
         except Exception as e:
             logger.error(f"Failed to deduct credit: {e}")
+            # Fallback: 기존 방식으로 시도
+            return self._deduct_credit_fallback(user_id, candidate_id)
+
+    def _deduct_credit_fallback(self, user_id: str, candidate_id: Optional[str] = None) -> bool:
+        """크레딧 차감 Fallback (RPC 실패 시)"""
+        try:
+            result = self.client.table("users").select(
+                "credits, credits_used_this_month"
+            ).eq("id", user_id).single().execute()
+
+            if result.data:
+                credits = result.data.get("credits", 0)
+                used = result.data.get("credits_used_this_month", 0)
+
+                # 우선 추가 크레딧에서 차감
+                if credits > 0:
+                    self.client.table("users").update({
+                        "credits": credits - 1
+                    }).eq("id", user_id).execute()
+                else:
+                    # 기본 크레딧 사용량 증가
+                    self.client.table("users").update({
+                        "credits_used_this_month": used + 1
+                    }).eq("id", user_id).execute()
+
+                # 트랜잭션 로깅
+                self._log_credit_transaction(
+                    user_id=user_id,
+                    transaction_type="usage",
+                    amount=-1,
+                    description="이력서 분석 (fallback)",
+                    candidate_id=candidate_id
+                )
+                return True
+
+            return False
+        except Exception as e:
+            logger.error(f"Fallback credit deduction failed: {e}")
+            return False
+
+    def _log_credit_transaction(
+        self,
+        user_id: str,
+        transaction_type: str,
+        amount: int,
+        description: str,
+        candidate_id: Optional[str] = None
+    ) -> None:
+        """credit_transactions 테이블에 기록"""
+        try:
+            # 현재 잔액 조회
+            result = self.client.table("users").select("credits").eq("id", user_id).single().execute()
+            balance_after = result.data.get("credits", 0) if result.data else 0
+
+            self.client.table("credit_transactions").insert({
+                "user_id": user_id,
+                "type": transaction_type,
+                "amount": amount,
+                "balance_after": balance_after,
+                "description": description,
+                "candidate_id": candidate_id
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to log credit transaction: {e}")
+
+    def check_credit_available(self, user_id: str) -> bool:
+        """
+        크레딧 사용 가능 여부 확인
+
+        Returns:
+            True if credits available, False otherwise
+        """
+        if not self.client:
+            return False
+
+        try:
+            result = self.client.table("users").select(
+                "credits, credits_used_this_month, plan"
+            ).eq("id", user_id).single().execute()
+
+            if result.data:
+                credits = result.data.get("credits", 0)
+                used = result.data.get("credits_used_this_month", 0)
+                plan = result.data.get("plan", "starter")
+
+                # 플랜별 기본 크레딧
+                base_credits = {
+                    "starter": 50,
+                    "pro": 150,
+                    "enterprise": 300
+                }
+
+                base = base_credits.get(plan, 50)
+                remaining = (base - used) + credits
+
+                return remaining > 0
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to check credit: {e}")
             return False
 
 

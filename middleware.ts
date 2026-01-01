@@ -11,6 +11,10 @@ interface UserRow {
   consents_completed: boolean | null;
 }
 
+interface ConsentRow {
+  third_party_data_guarantee: boolean | null;
+}
+
 // 보호된 경로
 const PROTECTED_PATHS = [
   "/dashboard",
@@ -77,6 +81,21 @@ export async function middleware(request: NextRequest) {
 
       // 동의 미완료 → 동의 페이지로
       if (!userProfile?.consents_completed) {
+        return NextResponse.redirect(new URL("/consent", request.url));
+      }
+
+      // PRD 요구사항: third_party_data_guarantee 필수 확인
+      // 이 동의 없이는 후보자 데이터 처리 불가 (법적 요건)
+      const { data: consentRecord } = await supabase
+        .from("user_consents")
+        .select("third_party_data_guarantee")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single() as { data: ConsentRow | null };
+
+      // 제3자 정보 보증 동의 미완료 → 동의 페이지로
+      if (!consentRecord?.third_party_data_guarantee) {
         return NextResponse.redirect(new URL("/consent", request.url));
       }
     } catch {
