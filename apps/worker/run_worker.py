@@ -15,9 +15,10 @@ Usage:
 """
 
 import sys
+import platform
 import logging
 from redis import Redis
-from rq import Worker, Queue
+from rq import Queue, SimpleWorker, Worker
 
 from config import get_settings
 
@@ -58,7 +59,13 @@ def run_worker(queues: list[str] = None, burst: bool = False):
         queues = ["parse", "process"]
 
     queue_list = [Queue(name, connection=redis_conn) for name in queues]
-    worker = Worker(queue_list, connection=redis_conn)
+
+    # Windows doesn't support os.fork(), use SimpleWorker instead
+    if platform.system() == "Windows":
+        logger.info("Using SimpleWorker (Windows mode)")
+        worker = SimpleWorker(queue_list, connection=redis_conn)
+    else:
+        worker = Worker(queue_list, connection=redis_conn)
 
     logger.info(f"Starting worker for queues: {queues}")
     logger.info(f"Burst mode: {burst}")
