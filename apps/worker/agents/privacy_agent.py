@@ -3,17 +3,18 @@ Privacy Agent - PII Masking & Data Protection
 
 개인정보 보호를 위한 마스킹 처리
 - 전화번호, 이메일, 주민번호 등 민감 정보 마스킹
-- AES-256 암호화 지원
+- AES-256-GCM 암호화 지원 (금융권 수준 보안)
 """
 
 import re
+import os
 import hashlib
 import base64
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -21,6 +22,12 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# AES-256-GCM 상수
+AES_KEY_SIZE = 32  # 256 bits
+NONCE_SIZE = 12    # 96 bits (GCM 권장)
+SALT_SIZE = 16     # 128 bits
+PBKDF2_ITERATIONS = 100000
 
 
 class PIIType(str, Enum):
@@ -109,35 +116,53 @@ class PrivacyAgent:
     def __init__(self, encryption_key: Optional[str] = None):
         """
         Args:
-            encryption_key: AES 암호화 키 (없으면 settings에서 가져옴)
+            encryption_key: AES 암호화 마스터 키 (64자 hex 또는 32바이트)
+                          없으면 settings에서 가져옴
         """
-        self.encryption_key = encryption_key or settings.ENCRYPTION_KEY
-        self.fernet = self._create_fernet() if self.encryption_key else None
+        self.master_key = encryption_key or settings.ENCRYPTION_KEY
+        self._validate_master_key()
 
-    def _create_fernet(self) -> Optional[Fernet]:
-        """Fernet 암호화 객체 생성"""
-        if not self.encryption_key:
-            return None
+    def _validate_master_key(self) -> None:
+        """마스터 키 유효성 검증"""
+        if not self.master_key:
+            logger.warning("No encryption key configured - encryption disabled")
+            return
 
-        try:
-            # 키가 이미 base64 인코딩된 32바이트인 경우
-            if len(self.encryption_key) == 44:  # base64 encoded 32 bytes
-                return Fernet(self.encryption_key.encode())
+        # 64자 hex 문자열 → 32바이트
+        if len(self.master_key) == 64:
+            try:
+                bytes.fromhex(self.master_key)
+            except ValueError:
+                raise ValueError("ENCRYPTION_KEY must be 64 hex characters")
+        elif len(self.master_key) != 32:
+            raise ValueError("ENCRYPTION_KEY must be 64 hex chars or 32 bytes")
 
-            # 아니면 PBKDF2로 키 유도
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=b'rai_salt_v1',  # 고정 salt (실제로는 랜덤 권장)
-                iterations=100000,
-            )
-            key = base64.urlsafe_b64encode(
-                kdf.derive(self.encryption_key.encode())
-            )
-            return Fernet(key)
-        except Exception as e:
-            logger.error(f"Failed to create Fernet: {e}")
-            return None
+    def _derive_key(self, salt: bytes) -> bytes:
+        """
+        PBKDF2로 데이터별 암호화 키 유도
+
+        Args:
+            salt: 랜덤 salt (각 암호화마다 다름)
+
+        Returns:
+            32바이트 AES-256 키
+        """
+        if not self.master_key:
+            raise ValueError("Encryption key not configured")
+
+        # 마스터 키를 바이트로 변환
+        if len(self.master_key) == 64:
+            master_bytes = bytes.fromhex(self.master_key)
+        else:
+            master_bytes = self.master_key.encode()
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=AES_KEY_SIZE,
+            salt=salt,
+            iterations=PBKDF2_ITERATIONS,
+        )
+        return kdf.derive(master_bytes)
 
     def process(
         self,
@@ -178,8 +203,8 @@ class PrivacyAgent:
                     masked_data[field_name] = masked_value
                     pii_found.extend(matches)
 
-                    # 암호화 저장
-                    if field_name in encrypt_fields and self.fernet:
+                    # 암호화 저장 (AES-256-GCM)
+                    if field_name in encrypt_fields and self.can_encrypt():
                         encrypted = self.encrypt(original_value)
                         if encrypted:
                             encrypted_store[field_name] = encrypted
@@ -403,28 +428,85 @@ class PrivacyAgent:
         return masked_text, matches
 
     def encrypt(self, value: str) -> Optional[str]:
-        """값 암호화"""
-        if not self.fernet or not value:
+        """
+        AES-256-GCM 암호화
+
+        Format: base64(salt + nonce + ciphertext + tag)
+        - salt: 16 bytes (PBKDF2용)
+        - nonce: 12 bytes (GCM IV)
+        - ciphertext: variable
+        - tag: 16 bytes (GCM auth tag, 자동 포함)
+
+        Returns:
+            Base64 인코딩된 암호문 또는 None
+        """
+        if not self.master_key or not value:
             return None
 
         try:
-            encrypted = self.fernet.encrypt(value.encode())
-            return encrypted.decode()
+            # 랜덤 salt와 nonce 생성
+            salt = os.urandom(SALT_SIZE)
+            nonce = os.urandom(NONCE_SIZE)
+
+            # salt로부터 키 유도
+            key = self._derive_key(salt)
+
+            # AES-256-GCM 암호화
+            aesgcm = AESGCM(key)
+            ciphertext = aesgcm.encrypt(nonce, value.encode('utf-8'), None)
+
+            # salt + nonce + ciphertext(tag 포함) 결합
+            encrypted_data = salt + nonce + ciphertext
+
+            # Base64 인코딩
+            return base64.b64encode(encrypted_data).decode('utf-8')
+
         except Exception as e:
-            logger.error(f"Encryption failed: {e}")
+            logger.error(f"AES-256-GCM encryption failed: {e}")
             return None
 
     def decrypt(self, encrypted_value: str) -> Optional[str]:
-        """값 복호화"""
-        if not self.fernet or not encrypted_value:
+        """
+        AES-256-GCM 복호화
+
+        Args:
+            encrypted_value: Base64 인코딩된 암호문 (encrypt 메서드 출력)
+
+        Returns:
+            복호화된 원문 또는 None
+        """
+        if not self.master_key or not encrypted_value:
             return None
 
         try:
-            decrypted = self.fernet.decrypt(encrypted_value.encode())
-            return decrypted.decode()
+            # Base64 디코딩
+            encrypted_data = base64.b64decode(encrypted_value.encode('utf-8'))
+
+            # salt, nonce, ciphertext 분리
+            if len(encrypted_data) < SALT_SIZE + NONCE_SIZE + 16:  # 최소 tag 크기
+                logger.error("Encrypted data too short")
+                return None
+
+            salt = encrypted_data[:SALT_SIZE]
+            nonce = encrypted_data[SALT_SIZE:SALT_SIZE + NONCE_SIZE]
+            ciphertext = encrypted_data[SALT_SIZE + NONCE_SIZE:]
+
+            # salt로부터 키 유도
+            key = self._derive_key(salt)
+
+            # AES-256-GCM 복호화
+            aesgcm = AESGCM(key)
+            plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+
+            return plaintext.decode('utf-8')
+
         except Exception as e:
-            logger.error(f"Decryption failed: {e}")
+            logger.error(f"AES-256-GCM decryption failed: {e}")
             return None
+
+    def can_encrypt(self) -> bool:
+        """암호화 가능 여부 확인"""
+        return bool(self.master_key)
 
     def hash_for_dedup(self, value: str) -> str:
         """중복 체크용 해시 생성"""

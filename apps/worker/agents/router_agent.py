@@ -8,6 +8,7 @@ Router Agent - 파일 타입 감지 및 유효성 검사
 """
 
 import io
+import re
 import struct
 import zipfile
 from enum import Enum
@@ -334,9 +335,12 @@ class RouterAgent:
             return self._count_pdf_pages(file_bytes)
         elif file_type == FileType.HWPX:
             return self._count_hwpx_pages(file_bytes)
-        elif file_type in [FileType.HWP, FileType.DOC, FileType.DOCX]:
-            # 파일 크기 기반 추정 (약 10KB/페이지)
-            return max(1, len(file_bytes) // (10 * 1024))
+        elif file_type == FileType.HWP:
+            return self._count_hwp_pages(file_bytes)
+        elif file_type == FileType.DOCX:
+            return self._count_docx_pages(file_bytes)
+        elif file_type == FileType.DOC:
+            return self._count_doc_pages(file_bytes)
 
         return 1
 
@@ -362,3 +366,123 @@ class RouterAgent:
                 return max(1, len(section_files))
         except Exception:
             return 1
+
+    def _count_hwp_pages(self, file_bytes: bytes) -> int:
+        """
+        HWP 페이지 수 카운트
+
+        HWP의 DocInfo 스트림에서 페이지 수 정보를 읽거나,
+        BodyText 섹션 수를 기반으로 추정
+        """
+        if olefile is None:
+            # olefile 없으면 보수적으로 추정 (5KB/페이지)
+            return max(1, len(file_bytes) // (5 * 1024))
+
+        try:
+            ole = olefile.OleFileIO(io.BytesIO(file_bytes))
+
+            # 방법 1: BodyText 섹션 수로 추정
+            body_sections = [
+                entry for entry in ole.listdir()
+                if len(entry) >= 2 and entry[0] == 'BodyText'
+            ]
+
+            if body_sections:
+                # 섹션당 평균 1-2페이지로 추정
+                # 작은 섹션은 1페이지, 큰 섹션은 여러 페이지
+                total_pages = 0
+                for section_path in body_sections:
+                    try:
+                        stream_name = '/'.join(section_path)
+                        data = ole.openstream(stream_name).read()
+                        # 섹션 크기로 페이지 수 추정 (압축 해제 후 약 3KB/페이지)
+                        section_pages = max(1, len(data) // (3 * 1024))
+                        total_pages += section_pages
+                    except Exception:
+                        total_pages += 1
+
+                ole.close()
+                return max(1, total_pages)
+
+            # 방법 2: 파일 전체 크기로 추정 (5KB/페이지, 보수적)
+            ole.close()
+            return max(1, len(file_bytes) // (5 * 1024))
+
+        except Exception:
+            # 파싱 실패 시 보수적 추정
+            return max(1, len(file_bytes) // (5 * 1024))
+
+    def _count_docx_pages(self, file_bytes: bytes) -> int:
+        """
+        DOCX 페이지 수 카운트
+
+        docProps/app.xml에서 Pages 속성을 읽거나,
+        document.xml 크기로 추정
+        """
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                # 방법 1: docProps/app.xml에서 Pages 읽기
+                if 'docProps/app.xml' in zf.namelist():
+                    try:
+                        app_xml = zf.read('docProps/app.xml').decode('utf-8')
+                        # <Pages>N</Pages> 패턴 찾기
+                        match = re.search(r'<Pages>(\d+)</Pages>', app_xml)
+                        if match:
+                            pages = int(match.group(1))
+                            if pages > 0:
+                                return pages
+                    except Exception:
+                        pass
+
+                # 방법 2: document.xml 크기로 추정 (10KB/페이지)
+                if 'word/document.xml' in zf.namelist():
+                    doc_size = zf.getinfo('word/document.xml').file_size
+                    return max(1, doc_size // (10 * 1024))
+
+                return 1
+
+        except Exception:
+            # 파싱 실패 시 보수적 추정
+            return max(1, len(file_bytes) // (15 * 1024))
+
+    def _count_doc_pages(self, file_bytes: bytes) -> int:
+        """
+        DOC 페이지 수 카운트
+
+        OLE 스트림에서 문서 속성 또는 크기로 추정
+        """
+        if olefile is None:
+            return max(1, len(file_bytes) // (10 * 1024))
+
+        try:
+            ole = olefile.OleFileIO(io.BytesIO(file_bytes))
+
+            # 방법 1: SummaryInformation에서 페이지 수 읽기
+            if ole.exists('\x05SummaryInformation'):
+                try:
+                    props = ole.getproperties('\x05SummaryInformation')
+                    # 페이지 수는 Property ID 14
+                    if props and 14 in props:
+                        pages = props[14]
+                        if isinstance(pages, int) and pages > 0:
+                            ole.close()
+                            return pages
+                except Exception:
+                    pass
+
+            # 방법 2: WordDocument 스트림 크기로 추정
+            if ole.exists('WordDocument'):
+                try:
+                    doc_stream = ole.openstream('WordDocument')
+                    doc_size = len(doc_stream.read())
+                    ole.close()
+                    # DOC는 약 8KB/페이지
+                    return max(1, doc_size // (8 * 1024))
+                except Exception:
+                    pass
+
+            ole.close()
+            return max(1, len(file_bytes) // (10 * 1024))
+
+        except Exception:
+            return max(1, len(file_bytes) // (10 * 1024))
