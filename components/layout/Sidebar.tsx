@@ -1,13 +1,16 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Home, Users, BarChart3, ShieldAlert, Settings, Hexagon } from "lucide-react";
+import { Home, Upload, Users, BarChart3, ShieldAlert, Settings, Hexagon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePathname } from "next/navigation";
+import Link from "next/link";
 import CreditCounter from "./CreditCounter";
 import { FLOATING_PHYSICS } from "@/lib/physics";
 
 const NAV_ITEMS = [
-    { icon: Home, label: "Dashboard", href: "/", active: true },
+    { icon: Home, label: "Dashboard", href: "/" },
+    { icon: Upload, label: "Upload", href: "/upload" },
     { icon: Users, label: "Candidates", href: "/candidates" },
     { icon: BarChart3, label: "Analytics", href: "/analytics" },
     { icon: ShieldAlert, label: "Risk Management", href: "/risk", alert: true },
@@ -15,6 +18,13 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar() {
+    const pathname = usePathname();
+
+    const isActive = (href: string) => {
+        if (href === "/") return pathname === "/";
+        return pathname.startsWith(href);
+    };
+
     return (
         <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-white/5 bg-white/[0.02] backdrop-blur-xl flex flex-col justify-between p-6">
             {/* Brand */}
@@ -33,36 +43,40 @@ export default function Sidebar() {
 
             {/* Navigation */}
             <nav className="flex-1 space-y-1">
-                {NAV_ITEMS.map((item) => (
-                    <button
-                        key={item.label}
-                        className={cn(
-                            "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors group relative",
-                            item.active
-                                ? "bg-white/5 text-white font-medium"
-                                : "text-slate-400 hover:text-white hover:bg-white/5"
-                        )}
-                    >
-                        <item.icon size={18} className={cn(
-                            "transition-colors",
-                            item.active ? "text-primary" : "text-slate-500 group-hover:text-white"
-                        )} />
-                        {item.label}
+                {NAV_ITEMS.map((item) => {
+                    const active = isActive(item.href);
+                    return (
+                        <Link
+                            key={item.label}
+                            href={item.href}
+                            className={cn(
+                                "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-colors group relative",
+                                active
+                                    ? "bg-white/5 text-white font-medium"
+                                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                            )}
+                        >
+                            <item.icon size={18} className={cn(
+                                "transition-colors",
+                                active ? "text-primary" : "text-slate-500 group-hover:text-white"
+                            )} />
+                            {item.label}
 
-                        {/* Active Indicator */}
-                        {item.active && (
-                            <motion.div
-                                layoutId="sidebar-active"
-                                className="absolute left-0 w-1 h-6 bg-primary rounded-r-full"
-                            />
-                        )}
+                            {/* Active Indicator */}
+                            {active && (
+                                <motion.div
+                                    layoutId="sidebar-active"
+                                    className="absolute left-0 w-1 h-6 bg-primary rounded-r-full"
+                                />
+                            )}
 
-                        {/* Risk Alert Badge */}
-                        {item.alert && (
-                            <span className="ml-auto w-2 h-2 rounded-full bg-risk animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
-                        )}
-                    </button>
-                ))}
+                            {/* Risk Alert Badge */}
+                            {item.alert && (
+                                <span className="ml-auto w-2 h-2 rounded-full bg-risk animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
+                            )}
+                        </Link>
+                    );
+                })}
             </nav>
 
             {/* Footer / Credits */}
