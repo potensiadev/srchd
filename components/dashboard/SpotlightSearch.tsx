@@ -6,7 +6,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { MAGNETIC_SPRING } from "@/lib/physics";
 import { useSearch } from "@/hooks";
-import type { CandidateSearchResult } from "@/types";
+import SearchFilters from "./SearchFilters";
+import type { CandidateSearchResult, SearchFilters as FilterType } from "@/types";
 
 interface SpotlightSearchProps {
     query: string;
@@ -22,6 +23,8 @@ export default function SpotlightSearch({
     onSearchModeChange,
 }: SpotlightSearchProps) {
     const [isFocused, setIsFocused] = useState(false);
+    const [filters, setFilters] = useState<FilterType>({});
+    const [isFiltersOpen, setIsFiltersOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -33,7 +36,7 @@ export default function SpotlightSearch({
 
     // 검색 실행
     const executeSearch = useCallback(
-        async (searchQuery: string) => {
+        async (searchQuery: string, searchFilters?: FilterType) => {
             if (!searchQuery.trim()) {
                 onSearchResults?.([], false);
                 onSearchModeChange?.(false);
@@ -46,6 +49,7 @@ export default function SpotlightSearch({
             try {
                 const response = await searchMutation.mutateAsync({
                     query: searchQuery,
+                    filters: searchFilters || filters,
                     limit: 20,
                 });
                 onSearchResults?.(response.results, false);
@@ -54,7 +58,18 @@ export default function SpotlightSearch({
                 onSearchResults?.([], false);
             }
         },
-        [searchMutation, onSearchResults, onSearchModeChange]
+        [searchMutation, onSearchResults, onSearchModeChange, filters]
+    );
+
+    // 필터 변경 핸들러
+    const handleFiltersChange = useCallback(
+        (newFilters: FilterType) => {
+            setFilters(newFilters);
+            if (query.trim()) {
+                executeSearch(query, newFilters);
+            }
+        },
+        [query, executeSearch]
     );
 
     // 디바운스된 검색
@@ -122,7 +137,7 @@ export default function SpotlightSearch({
     }, []);
 
     return (
-        <div className="relative z-50 flex justify-center mb-12">
+        <div className="relative z-50 mb-12">
             {/* Dimmed Backdrop */}
             <AnimatePresence>
                 {isFocused && (
@@ -136,65 +151,78 @@ export default function SpotlightSearch({
                 )}
             </AnimatePresence>
 
-            {/* Search Bar */}
-            <motion.div
-                layout
-                initial={{ width: 600 }}
-                animate={{ width: isFocused ? 800 : 600 }}
-                transition={MAGNETIC_SPRING}
-                className={cn(
-                    "relative z-50 h-16 rounded-2xl flex items-center px-6 gap-4 transition-colors",
-                    isFocused
-                        ? "bg-[#0A0A1B] border border-primary/50 shadow-[0_0_40px_rgba(139,92,246,0.15)]"
-                        : "bg-white/5 border border-white/10 hover:border-white/20"
-                )}
-            >
+            {/* Search Container */}
+            <div className="flex justify-center items-start gap-4">
+                {/* Search Bar */}
                 <motion.div
-                    animate={{ scale: isSemantic ? 1.1 : 1, rotate: isSemantic ? 15 : 0 }}
-                    className={cn("transition-colors", isSemantic ? "text-ai" : "text-slate-400")}
-                >
-                    {searchMutation.isPending ? (
-                        <Loader2 size={24} className="animate-spin text-primary" />
-                    ) : isSemantic ? (
-                        <Sparkles size={24} />
-                    ) : (
-                        <Search size={24} />
+                    layout
+                    initial={{ width: 600 }}
+                    animate={{ width: isFocused ? 700 : 600 }}
+                    transition={MAGNETIC_SPRING}
+                    className={cn(
+                        "relative z-50 h-14 rounded-2xl flex items-center px-5 gap-4 transition-colors",
+                        isFocused
+                            ? "bg-[#0A0A1B] border border-primary/50 shadow-[0_0_40px_rgba(139,92,246,0.15)]"
+                            : "bg-white/5 border border-white/10 hover:border-white/20"
                     )}
+                >
+                    <motion.div
+                        animate={{ scale: isSemantic ? 1.1 : 1, rotate: isSemantic ? 15 : 0 }}
+                        className={cn("transition-colors", isSemantic ? "text-ai" : "text-slate-400")}
+                    >
+                        {searchMutation.isPending ? (
+                            <Loader2 size={22} className="animate-spin text-primary" />
+                        ) : isSemantic ? (
+                            <Sparkles size={22} />
+                        ) : (
+                            <Search size={22} />
+                        )}
+                    </motion.div>
+
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={query}
+                        onChange={(e) => handleQueryChange(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        onFocus={() => setIsFocused(true)}
+                        onBlur={() => setIsFocused(false)}
+                        placeholder={
+                            isSemantic
+                                ? "Semantic Vector Search Active..."
+                                : "Search candidates by name, skills, or role..."
+                        }
+                        className="flex-1 bg-transparent border-none outline-none text-base text-white placeholder:text-slate-500 font-medium"
+                    />
+
+                    <div className="flex items-center gap-2">
+                        {isSemantic && (
+                            <span className="text-xs text-ai bg-ai/10 px-2 py-1 rounded border border-ai/20">
+                                AI
+                            </span>
+                        )}
+                        {isFocused ? (
+                            <span className="text-xs text-slate-500 bg-white/10 px-2 py-1 rounded">
+                                ESC
+                            </span>
+                        ) : (
+                            <span className="text-xs text-slate-500 bg-white/10 px-2 py-1 rounded">
+                                /
+                            </span>
+                        )}
+                    </div>
                 </motion.div>
 
-                <input
-                    ref={inputRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => handleQueryChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
-                    placeholder={
-                        isSemantic
-                            ? "Semantic Vector Search Active..."
-                            : "Search candidates by name, skills, or role..."
-                    }
-                    className="flex-1 bg-transparent border-none outline-none text-lg text-white placeholder:text-slate-500 font-medium"
-                />
-
-                <div className="flex items-center gap-2">
-                    {isSemantic && (
-                        <span className="text-xs text-ai bg-ai/10 px-2 py-1 rounded border border-ai/20">
-                            AI
-                        </span>
-                    )}
-                    {isFocused ? (
-                        <span className="text-xs text-slate-500 bg-white/10 px-2 py-1 rounded">
-                            ESC
-                        </span>
-                    ) : (
-                        <span className="text-xs text-slate-500 bg-white/10 px-2 py-1 rounded">
-                            /
-                        </span>
-                    )}
+                {/* Filters Button */}
+                <div className="relative z-50">
+                    <SearchFilters
+                        filters={filters}
+                        onFiltersChange={handleFiltersChange}
+                        isOpen={isFiltersOpen}
+                        onToggle={() => setIsFiltersOpen(!isFiltersOpen)}
+                    />
                 </div>
-            </motion.div>
+            </div>
         </div>
     );
 }

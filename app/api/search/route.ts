@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { generateEmbedding } from "@/lib/openai/embedding";
 import {
   type SearchRequest,
   type SearchResponse,
@@ -15,6 +16,7 @@ import {
   type ApiResponse,
   getConfidenceLevel,
   type RiskLevel,
+  type ChunkType,
 } from "@/types";
 
 /**
@@ -22,7 +24,8 @@ import {
  */
 function toSearchResult(
   row: Record<string, unknown>,
-  matchScore: number
+  matchScore: number,
+  matchedChunks: { type: ChunkType; content: string; score: number }[] = []
 ): CandidateSearchResult {
   const confidence = (row.confidence_score as number) ?? 0;
   const confidencePercent = Math.round(confidence * 100);
@@ -43,7 +46,7 @@ function toSearchResult(
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     matchScore: Math.round(matchScore * 100),
-    matchedChunks: [], // 추후 청크 매칭 시 채움
+    matchedChunks,
   };
 }
 
@@ -79,58 +82,82 @@ export async function POST(request: NextRequest) {
 
     if (isSemanticSearch) {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // Semantic Search (Vector)
-      // 실제 구현에서는 OpenAI Embedding API 호출 필요
+      // Semantic Search (Vector) with OpenAI Embeddings
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      // TODO: OpenAI API로 쿼리 임베딩 생성
-      // const embedding = await generateEmbedding(query);
+      try {
+        // Step 1: 쿼리 임베딩 생성
+        const queryEmbedding = await generateEmbedding(query);
 
-      // 현재는 RDB 기반 텍스트 검색으로 대체 (임베딩 없이)
-      // 실제 Vector 검색은 search_candidates RPC 함수 사용
-
-      // 일시적 Fallback: summary 필드에서 텍스트 검색
-      let queryBuilder = supabase
-        .from("candidates")
-        .select("*", { count: "exact" })
-        .eq("status", "completed")
-        .eq("is_latest", true)
-        .or(`summary.ilike.%${query}%,last_position.ilike.%${query}%`);
-
-      // RDB 필터 적용
-      if (filters?.expYearsMin) {
-        queryBuilder = queryBuilder.gte("exp_years", filters.expYearsMin);
-      }
-      if (filters?.expYearsMax) {
-        queryBuilder = queryBuilder.lte("exp_years", filters.expYearsMax);
-      }
-      if (filters?.skills && filters.skills.length > 0) {
-        queryBuilder = queryBuilder.overlaps("skills", filters.skills);
-      }
-      if (filters?.location) {
-        queryBuilder = queryBuilder.ilike("location_city", `%${filters.location}%`);
-      }
-
-      const { data, error, count } = await queryBuilder
-        .order("confidence_score", { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) {
-        console.error("Search error:", error);
-        return NextResponse.json<ApiResponse<null>>(
-          { error: { code: "DB_ERROR", message: error.message } },
-          { status: 500 }
+        // Step 2: search_candidates RPC 함수 호출
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: rpcData, error: rpcError } = await (supabase as any).rpc(
+          "search_candidates",
+          {
+            p_user_id: user.id,
+            p_query_embedding: queryEmbedding,
+            p_match_count: limit,
+            p_exp_years_min: filters?.expYearsMin || null,
+            p_exp_years_max: filters?.expYearsMax || null,
+            p_skills: filters?.skills?.length ? filters.skills : null,
+            p_location: filters?.location || null,
+          }
         );
+
+        if (rpcError) {
+          console.error("Vector search RPC error:", rpcError);
+          throw rpcError;
+        }
+
+        // RPC 결과를 CandidateSearchResult로 변환
+        results = (rpcData || []).map((row: Record<string, unknown>) => {
+          const matchScore = (row.match_score as number) || 0;
+          return toSearchResult(row, matchScore);
+        });
+
+        total = results.length;
+      } catch (embeddingError) {
+        // 임베딩 생성 실패 시 텍스트 검색으로 Fallback
+        console.warn("Embedding failed, falling back to text search:", embeddingError);
+
+        let queryBuilder = supabase
+          .from("candidates")
+          .select("*", { count: "exact" })
+          .eq("status", "completed")
+          .eq("is_latest", true)
+          .or(`summary.ilike.%${query}%,last_position.ilike.%${query}%`);
+
+        if (filters?.expYearsMin) {
+          queryBuilder = queryBuilder.gte("exp_years", filters.expYearsMin);
+        }
+        if (filters?.expYearsMax) {
+          queryBuilder = queryBuilder.lte("exp_years", filters.expYearsMax);
+        }
+        if (filters?.skills && filters.skills.length > 0) {
+          queryBuilder = queryBuilder.overlaps("skills", filters.skills);
+        }
+        if (filters?.location) {
+          queryBuilder = queryBuilder.ilike("location_city", `%${filters.location}%`);
+        }
+
+        const { data, error, count } = await queryBuilder
+          .order("confidence_score", { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        if (error) {
+          return NextResponse.json<ApiResponse<null>>(
+            { error: { code: "DB_ERROR", message: error.message } },
+            { status: 500 }
+          );
+        }
+
+        results = (data || []).map((row, index) => {
+          const score = Math.max(0.6, 0.95 - index * 0.03);
+          return toSearchResult(row as Record<string, unknown>, score);
+        });
+
+        total = count ?? 0;
       }
-
-      // 텍스트 매칭 기반 점수 계산 (임시)
-      results = (data || []).map((row, index) => {
-        // 간단한 점수: 순서에 따라 95 -> 60 범위
-        const score = Math.max(0.6, 0.95 - index * 0.03);
-        return toSearchResult(row as Record<string, unknown>, score);
-      });
-
-      total = count ?? 0;
     } else {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       // Keyword Search (RDB)

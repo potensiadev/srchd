@@ -10,6 +10,7 @@ interface GravityGridProps {
     isSearchMode?: boolean;
     searchResults?: CandidateSearchResult[];
     isSearching?: boolean;
+    searchQuery?: string;
 }
 
 /**
@@ -30,6 +31,7 @@ export default function GravityGrid({
     isSearchMode = false,
     searchResults,
     isSearching = false,
+    searchQuery = "",
 }: GravityGridProps) {
     // 검색 모드가 아닐 때만 후보자 목록 조회
     const { data, isLoading, error } = useCandidates({
@@ -90,6 +92,7 @@ export default function GravityGrid({
                     data={toTalentProps(candidate)}
                     index={index}
                     isSearchMode={isSearchMode}
+                    searchQuery={searchQuery}
                 />
             ))}
         </div>

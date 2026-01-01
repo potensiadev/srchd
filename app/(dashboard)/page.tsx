@@ -39,6 +39,7 @@ export default function DashboardPage() {
         isSearchMode={isSearchMode}
         searchResults={searchResults}
         isSearching={isSearching}
+        searchQuery={searchQuery}
       />
     </div>
   );

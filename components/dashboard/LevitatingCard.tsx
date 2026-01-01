@@ -1,10 +1,11 @@
 "use client";
 
 import { motion, useMotionTemplate, useMotionValue } from "framer-motion";
-import { AlertTriangle, User, MoreHorizontal, ShieldCheck } from "lucide-react";
+import { AlertTriangle, User, MoreHorizontal, ThumbsUp, ThumbsDown } from "lucide-react";
 import { FLOATING_PHYSICS, HEAVY_APPEAR } from "@/lib/physics";
 import { cn } from "@/lib/utils";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export interface TalentProps {
     id: string | number;
@@ -20,11 +21,15 @@ interface LevitatingCardProps {
     data: TalentProps;
     index: number;
     isSearchMode?: boolean; // Default to false
+    searchQuery?: string;   // For feedback
+    onFeedback?: (candidateId: string, type: 'relevant' | 'not_relevant') => void;
 }
 
-export default function LevitatingCard({ data, index, isSearchMode = false }: LevitatingCardProps) {
+export default function LevitatingCard({ data, index, isSearchMode = false, searchQuery, onFeedback }: LevitatingCardProps) {
     const mouseX = useMotionValue(0);
     const mouseY = useMotionValue(0);
+    const router = useRouter();
+    const [feedbackGiven, setFeedbackGiven] = useState<'relevant' | 'not_relevant' | null>(null);
 
     function handleMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent) {
         const { left, top, width, height } = currentTarget.getBoundingClientRect();
@@ -39,6 +44,34 @@ export default function LevitatingCard({ data, index, isSearchMode = false }: Le
         mouseX.set(0);
         mouseY.set(0);
     }
+
+    const handleViewProfile = () => {
+        router.push(`/candidates/${data.id}`);
+    };
+
+    const handleFeedback = async (type: 'relevant' | 'not_relevant') => {
+        if (feedbackGiven) return;
+
+        setFeedbackGiven(type);
+        onFeedback?.(String(data.id), type);
+
+        // API 호출
+        try {
+            await fetch('/api/search/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    candidateId: data.id,
+                    searchQuery: searchQuery || '',
+                    feedbackType: type,
+                    resultPosition: index,
+                    relevanceScore: data.matchScore || 0,
+                }),
+            });
+        } catch (error) {
+            console.error('Feedback error:', error);
+        }
+    };
 
     // Contextual Data Logic
     const { displayScore, displayLabel, scoreColor } = useMemo(() => {
@@ -124,15 +157,54 @@ export default function LevitatingCard({ data, index, isSearchMode = false }: Le
 
                 {/* Actions / Footer */}
                 <div className="flex gap-2">
-                    <button className="flex-1 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-medium transition-colors border border-white/5">
+                    <button
+                        onClick={handleViewProfile}
+                        className="flex-1 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-medium transition-colors border border-white/5"
+                    >
                         View Profile
                     </button>
-                    {data.riskLevel !== 'high' && (
+                    {data.riskLevel !== 'high' && !isSearchMode && (
                         <button className="flex-1 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors border border-primary/20">
                             Contact
                         </button>
                     )}
                 </div>
+
+                {/* Feedback Buttons (Search Mode Only) */}
+                {isSearchMode && (
+                    <div className="flex gap-2 mt-2 pt-2 border-t border-white/5">
+                        <button
+                            onClick={() => handleFeedback('relevant')}
+                            disabled={feedbackGiven !== null}
+                            className={cn(
+                                "flex-1 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                                feedbackGiven === 'relevant'
+                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                    : feedbackGiven
+                                    ? "bg-slate-700/30 text-slate-500 cursor-not-allowed"
+                                    : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
+                            )}
+                        >
+                            <ThumbsUp size={12} />
+                            Relevant
+                        </button>
+                        <button
+                            onClick={() => handleFeedback('not_relevant')}
+                            disabled={feedbackGiven !== null}
+                            className={cn(
+                                "flex-1 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5",
+                                feedbackGiven === 'not_relevant'
+                                    ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                                    : feedbackGiven
+                                    ? "bg-slate-700/30 text-slate-500 cursor-not-allowed"
+                                    : "bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20"
+                            )}
+                        >
+                            <ThumbsDown size={12} />
+                            Not Relevant
+                        </button>
+                    </div>
+                )}
             </motion.div>
         </motion.div>
     );
