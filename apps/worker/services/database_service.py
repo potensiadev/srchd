@@ -221,6 +221,7 @@ class DatabaseService:
         confidence_score: Optional[float] = None,
         chunk_count: Optional[int] = None,
         pii_count: Optional[int] = None,
+        error_code: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> bool:
         """
@@ -243,6 +244,8 @@ class DatabaseService:
                 update_data["chunk_count"] = chunk_count
             if pii_count is not None:
                 update_data["pii_count"] = pii_count
+            if error_code:
+                update_data["error_code"] = error_code
             if error_message:
                 update_data["error_message"] = error_message
 

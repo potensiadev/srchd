@@ -21,6 +21,7 @@ from utils.docx_parser import DOCXParser
 from services.llm_manager import get_llm_manager
 from services.embedding_service import EmbeddingService, get_embedding_service, EmbeddingResult
 from services.database_service import DatabaseService, get_database_service, SaveResult
+from services.queue_service import get_queue_service, QueuedJob
 
 # 로깅 설정
 logging.basicConfig(
@@ -533,6 +534,115 @@ async def process_resume(request: ProcessRequest):
             processing_time_ms=int((time.time() - start_time) * 1000),
             error=f"처리 중 오류 발생: {str(e)}"
         )
+
+
+# ─────────────────────────────────────────────────
+# Queue Endpoints (Redis RQ)
+# ─────────────────────────────────────────────────
+
+class EnqueueRequest(BaseModel):
+    """Queue 작업 추가 요청"""
+    job_id: str
+    user_id: str
+    file_path: str
+    file_name: str
+    mode: Optional[str] = "phase_1"
+
+
+class EnqueueResponse(BaseModel):
+    """Queue 작업 추가 응답"""
+    success: bool
+    job_id: Optional[str] = None
+    rq_job_id: Optional[str] = None
+    status: Optional[str] = None
+    error: Optional[str] = None
+
+
+class QueueStatusResponse(BaseModel):
+    """Queue 상태 응답"""
+    available: bool
+    parse_queue_size: int = 0
+    process_queue_size: int = 0
+
+
+@app.get("/queue/status", response_model=QueueStatusResponse)
+async def queue_status():
+    """Queue 상태 확인"""
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return QueueStatusResponse(available=False)
+
+    parse_size = len(queue_service.parse_queue) if queue_service.parse_queue else 0
+    process_size = len(queue_service.process_queue) if queue_service.process_queue else 0
+
+    return QueueStatusResponse(
+        available=True,
+        parse_queue_size=parse_size,
+        process_queue_size=process_size,
+    )
+
+
+@app.post("/queue/enqueue", response_model=EnqueueResponse)
+async def enqueue_job(request: EnqueueRequest):
+    """
+    Redis Queue에 작업 추가
+
+    full_pipeline 작업을 Queue에 추가하고 즉시 반환
+    Worker가 백그라운드에서 처리
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return EnqueueResponse(
+            success=False,
+            error="Queue service not available"
+        )
+
+    try:
+        queued_job: QueuedJob = queue_service.enqueue_full_pipeline(
+            job_id=request.job_id,
+            user_id=request.user_id,
+            file_path=request.file_path,
+            file_name=request.file_name,
+            mode=request.mode or "phase_1",
+        )
+
+        if queued_job:
+            logger.info(f"Job enqueued: {request.job_id} -> {queued_job.rq_job_id}")
+            return EnqueueResponse(
+                success=True,
+                job_id=queued_job.job_id,
+                rq_job_id=queued_job.rq_job_id,
+                status=queued_job.status,
+            )
+        else:
+            return EnqueueResponse(
+                success=False,
+                error="Failed to enqueue job"
+            )
+
+    except Exception as e:
+        logger.error(f"Enqueue error: {e}")
+        return EnqueueResponse(
+            success=False,
+            error=str(e)
+        )
+
+
+@app.get("/queue/job/{rq_job_id}")
+async def get_job_status(rq_job_id: str):
+    """RQ Job 상태 조회"""
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return {"error": "Queue service not available"}
+
+    status = queue_service.get_job_status(rq_job_id)
+    if status:
+        return status
+    else:
+        return {"error": "Job not found"}
 
 
 if __name__ == "__main__":
