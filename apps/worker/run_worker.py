@@ -17,7 +17,7 @@ Usage:
 import sys
 import logging
 from redis import Redis
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 
 from config import get_settings
 
@@ -57,14 +57,13 @@ def run_worker(queues: list[str] = None, burst: bool = False):
     if queues is None:
         queues = ["parse", "process"]
 
-    with Connection(redis_conn):
-        queue_list = [Queue(name) for name in queues]
-        worker = Worker(queue_list)
+    queue_list = [Queue(name, connection=redis_conn) for name in queues]
+    worker = Worker(queue_list, connection=redis_conn)
 
-        logger.info(f"Starting worker for queues: {queues}")
-        logger.info(f"Burst mode: {burst}")
+    logger.info(f"Starting worker for queues: {queues}")
+    logger.info(f"Burst mode: {burst}")
 
-        worker.work(burst=burst)
+    worker.work(burst=burst)
 
 
 if __name__ == "__main__":
