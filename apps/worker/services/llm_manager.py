@@ -6,6 +6,7 @@ Structured Outputs 및 JSON 응답 지원
 """
 
 import json
+import re
 import asyncio
 from typing import Dict, Any, Optional, List, Type
 from enum import Enum
@@ -13,7 +14,8 @@ from dataclasses import dataclass
 import logging
 
 from openai import AsyncOpenAI
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from anthropic import AsyncAnthropic
 
 from config import get_settings
@@ -61,9 +63,10 @@ class LLMManager:
         if settings.OPENAI_API_KEY:
             self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-        # Gemini 설정
+        # Gemini 클라이언트 (새 google-genai 패키지)
+        self.gemini_client: Optional[genai.Client] = None
         if settings.GEMINI_API_KEY:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
+            self.gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
         # Claude 클라이언트
         self.anthropic_client: Optional[AsyncAnthropic] = None
@@ -265,8 +268,8 @@ class LLMManager:
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
-        """Gemini JSON 모드 호출"""
-        if not settings.GEMINI_API_KEY:
+        """Gemini JSON 모드 호출 (새 google-genai 패키지)"""
+        if not self.gemini_client:
             return LLMResponse(
                 provider=LLMProvider.GEMINI,
                 content=None,
@@ -277,37 +280,43 @@ class LLMManager:
 
         try:
             model_name = model or self.models[LLMProvider.GEMINI]
-            gemini_model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config=genai.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                    response_mime_type="application/json",
-                )
-            )
 
             # OpenAI 메시지 형식을 Gemini 형식으로 변환
             prompt = self._convert_messages_to_prompt(messages)
 
-            # Gemini는 동기 API이므로 asyncio.to_thread 사용
+            # 새 google-genai API 사용
+            config = genai_types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                response_mime_type="application/json",
+            )
+
+            # google-genai는 동기 API이므로 asyncio.to_thread 사용
             response = await asyncio.to_thread(
-                gemini_model.generate_content,
-                prompt
+                self.gemini_client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=config
             )
 
             raw_content = response.text
             parsed_content = json.loads(raw_content)
+
+            # usage_metadata 접근
+            usage = {}
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                usage = {
+                    "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                    "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                    "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+                }
 
             return LLMResponse(
                 provider=LLMProvider.GEMINI,
                 content=parsed_content,
                 raw_response=raw_content,
                 model=model_name,
-                usage={
-                    "prompt_tokens": response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0,
-                    "completion_tokens": response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0,
-                    "total_tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0,
-                }
+                usage=usage if usage else None
             )
 
         except Exception as e:
@@ -466,8 +475,8 @@ class LLMManager:
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
-        """Gemini 텍스트 응답"""
-        if not settings.GEMINI_API_KEY:
+        """Gemini 텍스트 응답 (새 google-genai 패키지)"""
+        if not self.gemini_client:
             return LLMResponse(
                 provider=LLMProvider.GEMINI,
                 content=None,
@@ -478,27 +487,38 @@ class LLMManager:
 
         try:
             model_name = model or self.models[LLMProvider.GEMINI]
-            gemini_model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config=genai.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                )
+
+            # 새 google-genai API 사용
+            config = genai_types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
             )
 
             prompt = self._convert_messages_to_prompt(messages)
             response = await asyncio.to_thread(
-                gemini_model.generate_content,
-                prompt
+                self.gemini_client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=config
             )
 
             content = response.text
+
+            # usage_metadata 접근
+            usage = {}
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                usage = {
+                    "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                    "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                    "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+                }
 
             return LLMResponse(
                 provider=LLMProvider.GEMINI,
                 content=content,
                 raw_response=content,
                 model=model_name,
+                usage=usage if usage else None
             )
         except Exception as e:
             return LLMResponse(
@@ -591,7 +611,6 @@ class LLMManager:
             pass
 
         # 코드 블록에서 JSON 추출
-        import re
         json_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
         matches = re.findall(json_pattern, text)
 
@@ -618,7 +637,7 @@ class LLMManager:
         available = []
         if self.openai_client:
             available.append(LLMProvider.OPENAI)
-        if settings.GEMINI_API_KEY:
+        if self.gemini_client:
             available.append(LLMProvider.GEMINI)
         if self.anthropic_client:
             available.append(LLMProvider.CLAUDE)

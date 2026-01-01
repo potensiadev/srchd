@@ -9,7 +9,6 @@ HWP 파일 파서 - Fallback 전략 포함
 import io
 import os
 import tempfile
-import subprocess
 import zipfile
 import struct
 import zlib
@@ -17,6 +16,8 @@ import logging
 from typing import Tuple, Optional
 from enum import Enum
 from dataclasses import dataclass
+
+from utils.subprocess_utils import run_libreoffice_convert, LIBREOFFICE_TIMEOUT
 
 try:
     import olefile
@@ -275,6 +276,8 @@ class HWPParser:
         Requirements:
         - LibreOffice 설치 필요
         - pdfplumber 라이브러리 필요
+
+        강화된 타임아웃 및 프로세스 관리 적용
         """
         if pdfplumber is None:
             raise ImportError("pdfplumber is required for PDF text extraction")
@@ -285,26 +288,18 @@ class HWPParser:
             with open(hwp_path, 'wb') as f:
                 f.write(file_bytes)
 
-            # LibreOffice로 PDF 변환
-            try:
-                result = subprocess.run(
-                    [
-                        'soffice',
-                        '--headless',
-                        '--convert-to', 'pdf',
-                        '--outdir', temp_dir,
-                        hwp_path
-                    ],
-                    capture_output=True,
-                    timeout=60,  # 60초 타임아웃
-                    check=True
-                )
-            except subprocess.TimeoutExpired:
-                raise Exception("LibreOffice conversion timed out")
-            except subprocess.CalledProcessError as e:
-                raise Exception(f"LibreOffice conversion failed: {e.stderr.decode()}")
-            except FileNotFoundError:
-                raise Exception("LibreOffice not installed (soffice not found)")
+            # LibreOffice로 PDF 변환 (강화된 타임아웃)
+            result = run_libreoffice_convert(
+                input_path=hwp_path,
+                output_dir=temp_dir,
+                output_format="pdf",
+                timeout=LIBREOFFICE_TIMEOUT
+            )
+
+            if not result.success:
+                if result.timed_out:
+                    raise Exception(f"LibreOffice conversion timed out after {LIBREOFFICE_TIMEOUT}s")
+                raise Exception(f"LibreOffice conversion failed: {result.error_message}")
 
             # 변환된 PDF 찾기
             pdf_filename = os.path.splitext(filename)[0] + '.pdf'

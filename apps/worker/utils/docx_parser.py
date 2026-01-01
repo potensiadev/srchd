@@ -8,10 +8,15 @@ DOC/DOCX 파일 파서
 import io
 import os
 import tempfile
-import subprocess
 import logging
 from typing import Optional
 from dataclasses import dataclass
+
+from utils.subprocess_utils import (
+    run_libreoffice_convert,
+    run_antiword,
+    LIBREOFFICE_TIMEOUT,
+)
 
 try:
     from docx import Document
@@ -170,20 +175,22 @@ class DOCXParser:
 
         Requirements:
         - antiword 설치 필요 (apt install antiword)
+
+        강화된 타임아웃 및 프로세스 관리 적용
         """
         with tempfile.NamedTemporaryFile(suffix='.doc', delete=False) as f:
             f.write(file_bytes)
             temp_path = f.name
 
         try:
-            result = subprocess.run(
-                ['antiword', '-m', 'UTF-8', temp_path],
-                capture_output=True,
-                timeout=30,
-                check=True
-            )
+            result = run_antiword(temp_path, timeout=30)
 
-            text = result.stdout.decode('utf-8', errors='replace')
+            if not result.success:
+                if result.timed_out:
+                    raise Exception("antiword timed out")
+                raise Exception(f"antiword failed: {result.error_message}")
+
+            text = result.stdout
 
             if len(text.strip()) > 0:
                 page_count = max(1, len(text) // self.CHARS_PER_PAGE)
@@ -202,12 +209,6 @@ class DOCXParser:
                 error_message="antiword returned empty text"
             )
 
-        except FileNotFoundError:
-            raise Exception("antiword not installed")
-        except subprocess.TimeoutExpired:
-            raise Exception("antiword timed out")
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"antiword failed: {e.stderr.decode()}")
         finally:
             try:
                 os.unlink(temp_path)
@@ -220,6 +221,8 @@ class DOCXParser:
 
         Requirements:
         - LibreOffice 설치 필요
+
+        강화된 타임아웃 및 프로세스 관리 적용
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             # DOC 파일 저장
@@ -227,26 +230,18 @@ class DOCXParser:
             with open(doc_path, 'wb') as f:
                 f.write(file_bytes)
 
-            # LibreOffice로 DOCX 변환
-            try:
-                result = subprocess.run(
-                    [
-                        'soffice',
-                        '--headless',
-                        '--convert-to', 'docx',
-                        '--outdir', temp_dir,
-                        doc_path
-                    ],
-                    capture_output=True,
-                    timeout=60,
-                    check=True
-                )
-            except FileNotFoundError:
-                raise Exception("LibreOffice not installed (soffice not found)")
-            except subprocess.TimeoutExpired:
-                raise Exception("LibreOffice conversion timed out")
-            except subprocess.CalledProcessError as e:
-                raise Exception(f"LibreOffice conversion failed: {e.stderr.decode()}")
+            # LibreOffice로 DOCX 변환 (강화된 타임아웃)
+            conv_result = run_libreoffice_convert(
+                input_path=doc_path,
+                output_dir=temp_dir,
+                output_format="docx",
+                timeout=LIBREOFFICE_TIMEOUT
+            )
+
+            if not conv_result.success:
+                if conv_result.timed_out:
+                    raise Exception(f"LibreOffice conversion timed out after {LIBREOFFICE_TIMEOUT}s")
+                raise Exception(f"LibreOffice conversion failed: {conv_result.error_message}")
 
             # 변환된 DOCX 찾기
             docx_filename = os.path.splitext(filename)[0] + '.docx'
