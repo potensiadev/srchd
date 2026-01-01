@@ -2844,17 +2844,121 @@ WEBHOOK_SECRET=
 
 # Part 10: 개발 로드맵 (8주)
 
-| 주차 | 목표 | 주요 작업 |
-|------|------|-----------|
-| **Week 1** | 기반 구축 | Monorepo, Supabase, 인증 |
-| **Week 2** | 동의 + 업로드 | 동의 화면, 파일 업로드, Queue |
-| **Week 3** | 파싱 | HWP Parser (Fallback), PDF, DOCX |
-| **Week 4** | 분석 | Analyst Agent (Phase 1), LLM Manager |
-| **Week 5** | 후처리 | Privacy Agent, Embedding, 청킹 |
-| **Week 6** | 검토 UI | 신뢰도 표시, 편집 기능, 경고 |
-| **Week 7** | 검색 | 하이브리드 검색, 피드백 루프 |
-| **Week 8** | 결제 + 배포 | Stripe, Vercel, Railway |
+| 주차 | 목표 | 주요 작업 | 상태 |
+|------|------|-----------|------|
+| **Week 1** | 기반 구축 | Monorepo, Supabase, 인증 | ✅ 완료 |
+| **Week 2** | 동의 + 업로드 | 동의 화면, 파일 업로드, Queue | ✅ 완료 |
+| **Week 3** | 파싱 | HWP Parser (Fallback), PDF, DOCX | ✅ 완료 |
+| **Week 4** | 분석 | Analyst Agent (Phase 1), LLM Manager | ✅ 완료 |
+| **Week 5** | 후처리 | Privacy Agent, Embedding, 청킹 | ✅ 완료 |
+| **Week 6** | 검토 UI | 신뢰도 표시, 편집 기능, 경고 | ✅ 완료 |
+| **Week 7** | 검색 | 하이브리드 검색, 피드백 루프 | ✅ 완료 |
+| **Week 8** | 결제 + 배포 | Polar (결제), Vercel, Railway | 🔄 진행중 |
+
+---
+
+# Part 11: 구현 진척 현황 (2026년 1월)
+
+## 11.1 완료된 기능 (Production Ready)
+
+### 인프라 & 배포
+| 기능 | 상태 | 커밋 | 비고 |
+|------|------|------|------|
+| Next.js 15 + TypeScript | ✅ 완료 | - | App Router |
+| Supabase 통합 | ✅ 완료 | - | Auth + DB + Storage |
+| Redis Queue (RQ) | ✅ 완료 | - | Windows SimpleWorker 지원 |
+| Vercel 배포 설정 | ✅ 완료 | `f247bcd` | - |
+| Railway 배포 설정 | ✅ 완료 | `f247bcd` | Dockerfile + nixpacks |
+
+### 파일 처리 (Worker)
+| 기능 | 상태 | 파일 | 비고 |
+|------|------|------|------|
+| HWP Parser (Fallback) | ✅ 완료 | `utils/hwp_parser.py` | 직접→LibreOffice→한컴API |
+| DOCX/DOC Parser | ✅ 완료 | `utils/docx_parser.py` | python-docx + antiword |
+| PDF Parser | ✅ 완료 | - | pdfplumber |
+| LibreOffice 타임아웃 강화 | ✅ 완료 | `utils/subprocess_utils.py` | 프로세스 트리 종료, 120초 |
+
+### AI 분석 (Agents)
+| 기능 | 상태 | 파일 | 비고 |
+|------|------|------|------|
+| Router Agent | ✅ 완료 | `agents/router_agent.py` | Magic Number, 페이지 수 검증 |
+| Analyst Agent | ✅ 완료 | `agents/analyst_agent.py` | GPT-4o + Gemini Cross-Check |
+| Privacy Agent | ✅ 완료 | `agents/privacy_agent.py` | AES-256-GCM 암호화 |
+| Visual Agent | ✅ 완료 | `agents/visual_agent.py` | OpenCV 얼굴감지 + Playwright |
+| LLM Manager | ✅ 완료 | `services/llm_manager.py` | OpenAI + Gemini + Claude |
+
+### 프론트엔드 (UI)
+| 기능 | 상태 | 경로 | 비고 |
+|------|------|------|------|
+| 대시보드 | ✅ 완료 | `/dashboard` | 후보자 목록 + 통계 |
+| 후보자 상세 | ✅ 완료 | `/candidates/[id]` | AI 분석 결과 + 인라인 편집 |
+| 검토 UI | ✅ 완료 | - | 신뢰도 표시, 경고 배지 |
+| 하이브리드 검색 | ✅ 완료 | `/dashboard` | RDB 필터 + Vector 검색 |
+| 블라인드 내보내기 | ✅ 완료 | `/api/candidates/[id]/export` | 마스킹된 PDF 다운로드 |
+| 배치 업로드 UI | ✅ 완료 | `007204a` | 드래그앤드롭 다중 파일 |
+
+### 보안 & 크레딧
+| 기능 | 상태 | 파일 | 비고 |
+|------|------|------|------|
+| AES-256-GCM 암호화 | ✅ 완료 | `privacy_agent.py` | 랜덤 salt + PBKDF2 |
+| 월별 크레딧 리셋 | ✅ 완료 | `004_monthly_credit_reset.sql` | RPC 자동 리셋 |
+| 크레딧 차감 시스템 | ✅ 완료 | `deduct_credit()` | 플랜 크레딧 우선 사용 |
+| HWP 페이지 수 검증 | ✅ 완료 | `router_agent.py` | 50페이지 제한 강화 |
+
+## 11.2 최근 커밋 이력
+
+```
+3e42670 feat: Priority 2 Improvements - Library Migration, Timeout & Visual Agent
+a73e361 fix: Critical Security & Infrastructure Fixes
+007204a feat: Batch Upload UI - Drag & Drop Resume Uploader
+b1112d0 feat: Week 7 Hybrid Search + Feedback Loop
+97b55d0 feat: Week 6 Review UI - Confidence Display, Inline Edit, Warnings
+```
+
+## 11.3 남은 작업 (Priority 3)
+
+| 작업 | 우선순위 | 상태 | 비고 |
+|------|----------|------|------|
+| Polar 결제 연동 | 중 | ⏳ 대기 | Stripe 대체 |
+| 초과 사용량 과금 | 중 | ⏳ 대기 | Polar API |
+| 검색 피드백 랭킹 반영 | 낮 | ⏳ 대기 | 가중치 조정 |
+| Rate Limiting | 낮 | ⏳ 대기 | API 보호 |
+
+## 11.4 기술 스택 현황
+
+```
+Frontend:
+├── Next.js 15.1.3 (App Router)
+├── React 19
+├── TypeScript 5
+├── Tailwind CSS 3.4
+└── Shadcn/ui
+
+Backend:
+├── Supabase (Auth + PostgreSQL + Storage)
+├── Redis + RQ (Job Queue)
+└── Python 3.11 Worker
+
+AI/ML:
+├── OpenAI GPT-4o (Structured Outputs)
+├── Google Gemini 1.5 Pro (google-genai)
+├── Anthropic Claude 3.5 Sonnet
+└── OpenAI text-embedding-3-small
+
+File Processing:
+├── pdfplumber (PDF)
+├── python-docx (DOCX)
+├── olefile (HWP)
+├── LibreOffice (Fallback 변환)
+└── OpenCV (얼굴 감지)
+
+Deployment:
+├── Vercel (Frontend)
+├── Railway (Worker)
+└── Supabase Cloud (DB/Auth/Storage)
+```
 
 ---
 
 이 문서는 RAI v3.0의 완전한 기술 설계서입니다.
+최종 업데이트: 2026년 1월 2일
