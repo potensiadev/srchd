@@ -496,8 +496,8 @@ async def process_resume(request: ProcessRequest):
                     pii_count=pii_count,
                 )
 
-                # 크레딧 차감
-                db_service.deduct_credit(request.user_id)
+                # 크레딧 차감 (candidate_id 포함)
+                db_service.deduct_credit(request.user_id, candidate_id)
 
             else:
                 logger.error(f"Failed to save candidate: {save_result.error}")

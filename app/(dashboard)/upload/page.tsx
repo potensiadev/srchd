@@ -197,9 +197,6 @@ export default function UploadPage() {
                     업로드 완료: {stats.success}개 성공
                     {stats.error > 0 && `, ${stats.error}개 실패`}
                   </p>
-                  <p className="text-sm text-slate-400">
-                    AI 분석이 진행 중입니다. 잠시 후 대시보드에서 확인하세요.
-                  </p>
                 </div>
               </div>
               <button

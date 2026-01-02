@@ -276,7 +276,11 @@ class DatabaseService:
         try:
             # SQL 함수 deduct_credit 호출 (001 migration에 정의됨)
             # 이 함수는 credits를 먼저 차감하고, 부족하면 credits_used_this_month 증가
-            result = self.client.rpc("deduct_credit", {"p_user_id": user_id}).execute()
+            # p_candidate_id는 필수 파라미터이므로 반드시 전달해야 함
+            rpc_params = {"p_user_id": user_id}
+            if candidate_id:
+                rpc_params["p_candidate_id"] = candidate_id
+            result = self.client.rpc("deduct_credit", rpc_params).execute()
 
             if result.data is not None:
                 success = result.data
