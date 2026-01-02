@@ -1,11 +1,11 @@
 # FastAPI + Server
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
-httpx==0.25.2
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+httpx>=0.28.0
 
 # Supabase
-supabase==2.3.4
+supabase>=2.10.0
 
 # File Parsing
 olefile==0.47
