@@ -91,7 +91,7 @@ export default function ConsentPage() {
 
       if (userError) throw userError;
 
-      router.push("/dashboard");
+      router.push("/candidates");
       router.refresh();
     } catch (err) {
       console.error("Consent error:", err);

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Home, Upload, Users, BarChart3, ShieldAlert, Settings, Hexagon } from "lucide-react";
+import { Upload, Users, BarChart3, ShieldAlert, Settings, Hexagon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
@@ -9,9 +9,8 @@ import CreditCounter from "./CreditCounter";
 import { FLOATING_PHYSICS } from "@/lib/physics";
 
 const NAV_ITEMS = [
-    { icon: Home, label: "Dashboard", href: "/dashboard" },
-    { icon: Upload, label: "Upload", href: "/upload" },
     { icon: Users, label: "Candidates", href: "/candidates" },
+    { icon: Upload, label: "Upload", href: "/upload" },
     { icon: BarChart3, label: "Analytics", href: "/analytics" },
     { icon: ShieldAlert, label: "Risk Management", href: "/risk", alert: true },
     { icon: Settings, label: "Settings", href: "/settings" },
@@ -21,7 +20,6 @@ export default function Sidebar() {
     const pathname = usePathname();
 
     const isActive = (href: string) => {
-        if (href === "/dashboard") return pathname === "/dashboard";
         return pathname.startsWith(href);
     };
 

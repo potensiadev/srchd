@@ -17,11 +17,12 @@ interface ConsentRow {
 
 // 보호된 경로
 const PROTECTED_PATHS = [
-  "/dashboard",
   "/candidates",
   "/upload",
   "/search",
   "/settings",
+  "/analytics",
+  "/risk",
 ];
 
 // 인증 경로
@@ -122,7 +123,7 @@ export async function middleware(request: NextRequest) {
         .single() as { data: UserRow | null };
 
       if (consentProfile?.consents_completed) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        return NextResponse.redirect(new URL("/candidates", request.url));
       }
     } catch {
       // DB 오류 시 그냥 동의 페이지 표시
@@ -142,7 +143,7 @@ export async function middleware(request: NextRequest) {
         .single() as { data: UserRow | null };
 
       if (authProfile?.consents_completed) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        return NextResponse.redirect(new URL("/candidates", request.url));
       } else {
         return NextResponse.redirect(new URL("/consent", request.url));
       }
