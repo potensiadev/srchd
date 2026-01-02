@@ -7,9 +7,8 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     # LibreOffice (HWP → PDF 변환)
     libreoffice \
-    # 한글 폰트
+    # 한글 폰트 (fonts-nanum-coding은 fonts-nanum에 포함됨)
     fonts-nanum \
-    fonts-nanum-coding \
     fonts-nanum-extra \
     # PDF 처리
     poppler-utils \
@@ -19,10 +18,11 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     # antiword (DOC 파싱)
     antiword \
-    # 이미지 처리
-    libgl1-mesa-glx \
+    # 이미지 처리 (libgl1-mesa-glx → libgl1)
+    libgl1 \
     libglib2.0-0 \
-    # 기타
+    # curl for healthcheck
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Playwright 브라우저 설치 (포트폴리오 썸네일용)
