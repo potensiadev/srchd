@@ -113,6 +113,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     }
 
     // 크레딧 확인 (email로 조회 - auth.users.id와 public.users.id가 다를 수 있음)
+    if (!user.email) {
+      return NextResponse.json(
+        { success: false, error: "User email not found" },
+        { status: 400 }
+      );
+    }
+
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("id, credits, credits_used_this_month, plan")

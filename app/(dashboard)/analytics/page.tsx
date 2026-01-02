@@ -26,6 +26,14 @@ interface AnalyticsData {
   monthlyTrend: { month: string; count: number }[];
 }
 
+interface CandidateRow {
+  id: string;
+  skills: string[] | null;
+  exp_years: number | null;
+  confidence_score: number | null;
+  created_at: string;
+}
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,7 +51,7 @@ export default function AnalyticsPage() {
         .from("candidates")
         .select("id, skills, exp_years, confidence_score, created_at")
         .eq("status", "completed")
-        .eq("is_latest", true);
+        .eq("is_latest", true) as { data: CandidateRow[] | null; error: Error | null };
 
       if (error) throw error;
 

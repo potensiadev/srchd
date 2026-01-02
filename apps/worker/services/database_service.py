@@ -136,6 +136,9 @@ class DatabaseService:
                 # 상태 (candidate_status enum: processing, completed, failed, rejected)
                 "status": "completed",
                 "analysis_mode": analysis_mode,
+                # 버전 관리 - 새 후보자는 항상 최신 버전
+                "is_latest": True,
+                "version": 1,
             }
 
             # None 값 제거 (Supabase에서 에러 방지)

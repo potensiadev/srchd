@@ -58,18 +58,24 @@ export default function SettingsPage() {
 
       const { data, error } = await supabase
         .from("users")
-        .select("*")
+        .select("id, name, company, plan, created_at")
         .eq("id", user.id)
         .single();
 
       if (error) throw error;
+      if (!data) return;
 
+      const userData = data as { id: string; name: string | null; company: string | null; plan: string; created_at: string };
       setProfile({
-        ...data,
+        id: userData.id,
         email: user.email || "",
+        name: userData.name,
+        company: userData.company,
+        plan: userData.plan,
+        created_at: userData.created_at,
       });
-      setName(data.name || "");
-      setCompany(data.company || "");
+      setName(userData.name || "");
+      setCompany(userData.company || "");
     } catch (error) {
       console.error("Failed to fetch profile:", error);
     } finally {
@@ -82,7 +88,8 @@ export default function SettingsPage() {
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any)
         .from("users")
         .update({
           name: name || null,
