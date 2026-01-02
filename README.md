@@ -113,7 +113,15 @@ ENCRYPTION_KEY=  # 64자 hex
 | Week 3-4 | 파싱 + AI 분석 | ✅ 완료 |
 | Week 5-6 | 후처리 + 검토 UI | ✅ 완료 |
 | Week 7 | 하이브리드 검색 | ✅ 완료 |
-| Week 8 | 결제 + 배포 | 🔄 진행중 |
+| Week 8 | 결제 + 배포 | ✅ 완료 |
+
+### 배포 현황 (2025-01-02)
+
+| 서비스 | 플랫폼 | URL |
+|--------|--------|-----|
+| Frontend | Vercel | Production 배포 완료 |
+| Worker API | Railway | `raiprod.up.railway.app` |
+| Database | Supabase | PostgreSQL + pgvector |
 
 자세한 내용은 [개발 가이드](./docs/rai_development_guide.md)를 참조하세요.
 

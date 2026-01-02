@@ -1,5 +1,10 @@
 # RAI v6.0 Deployment Guide
 
+> **배포 완료**: 2025-01-02
+> - Frontend: Vercel (Production)
+> - Worker: Railway (`raiprod.up.railway.app`)
+> - Database: Supabase Cloud
+
 ## Architecture Overview
 
 ```
