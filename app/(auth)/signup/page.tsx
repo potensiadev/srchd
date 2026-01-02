@@ -21,21 +21,29 @@ export default function SignupPage() {
 
   const supabase = createClient();
 
-  // 이메일 중복 체크 및 가입 방법 확인
+  // 이메일 중복 체크 및 가입 방법 확인 (API 호출)
   const checkExistingUser = async (emailToCheck: string): Promise<{
     exists: boolean;
     provider: string | null;
   }> => {
-    const { data } = await supabase
-      .from("users")
-      .select("id, signup_provider")
-      .eq("email", emailToCheck)
-      .maybeSingle();
+    try {
+      const response = await fetch("/api/auth/check-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToCheck }),
+      });
 
-    if (!data) {
+      if (!response.ok) {
+        console.error("Email check failed:", response.status);
+        return { exists: false, provider: null };
+      }
+
+      const data = await response.json();
+      return { exists: data.exists, provider: data.provider };
+    } catch (error) {
+      console.error("Email check error:", error);
       return { exists: false, provider: null };
     }
-    return { exists: true, provider: (data as { signup_provider?: string }).signup_provider || "email" };
   };
 
   const handleEmailSignup = async (e: React.FormEvent) => {

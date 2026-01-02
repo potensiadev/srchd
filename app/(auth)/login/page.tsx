@@ -21,34 +21,46 @@ function LoginForm() {
 
   const supabase = createClient();
 
-  // 사용자 가입 방법 확인
+  // 사용자 가입 방법 확인 (API 호출)
   const checkUserSignupProvider = async (emailToCheck: string): Promise<{
     exists: boolean;
     provider: string | null;
     maskedEmail: string | null;
   }> => {
-    const { data: user } = await supabase
-      .from("users")
-      .select("email, signup_provider")
-      .eq("email", emailToCheck)
-      .maybeSingle();
+    try {
+      const response = await fetch("/api/auth/check-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToCheck }),
+      });
 
-    if (!user) {
+      if (!response.ok) {
+        console.error("Email check failed:", response.status);
+        return { exists: false, provider: null, maskedEmail: null };
+      }
+
+      const data = await response.json();
+
+      if (!data.exists) {
+        return { exists: false, provider: null, maskedEmail: null };
+      }
+
+      // 이메일 마스킹: test@example.com -> te**@example.com
+      const [localPart, domain] = emailToCheck.split("@");
+      const maskedLocal = localPart.length > 2
+        ? localPart.slice(0, 2) + "***"
+        : localPart + "***";
+      const maskedEmail = `${maskedLocal}@${domain}`;
+
+      return {
+        exists: true,
+        provider: data.provider,
+        maskedEmail,
+      };
+    } catch (error) {
+      console.error("Email check error:", error);
       return { exists: false, provider: null, maskedEmail: null };
     }
-
-    // 이메일 마스킹: test@example.com -> te**@example.com
-    const [localPart, domain] = emailToCheck.split("@");
-    const maskedLocal = localPart.length > 2
-      ? localPart.slice(0, 2) + "***"
-      : localPart + "***";
-    const maskedEmail = `${maskedLocal}@${domain}`;
-
-    return {
-      exists: true,
-      provider: (user as { signup_provider?: string }).signup_provider || "email",
-      maskedEmail,
-    };
   };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
