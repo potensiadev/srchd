@@ -9,7 +9,7 @@ import CreditCounter from "./CreditCounter";
 import { FLOATING_PHYSICS } from "@/lib/physics";
 
 const NAV_ITEMS = [
-    { icon: Home, label: "Dashboard", href: "/" },
+    { icon: Home, label: "Dashboard", href: "/dashboard" },
     { icon: Upload, label: "Upload", href: "/upload" },
     { icon: Users, label: "Candidates", href: "/candidates" },
     { icon: BarChart3, label: "Analytics", href: "/analytics" },
@@ -21,7 +21,7 @@ export default function Sidebar() {
     const pathname = usePathname();
 
     const isActive = (href: string) => {
-        if (href === "/") return pathname === "/";
+        if (href === "/dashboard") return pathname === "/dashboard";
         return pathname.startsWith(href);
     };
 

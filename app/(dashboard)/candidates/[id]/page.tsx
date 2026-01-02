@@ -10,8 +10,12 @@ import {
   Loader2,
   AlertCircle,
   FileDown,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import { CandidateReviewPanel } from "@/components/review";
+import SplitViewer from "@/components/detail/SplitViewer";
+import VersionStack from "@/components/detail/VersionStack";
 import type { CandidateDetail, ConfidenceLevel } from "@/types";
 
 // Transform DB row to CandidateDetail
@@ -72,6 +76,12 @@ export default function CandidateDetailPage() {
     limit: number | "unlimited";
     used: number;
   } | null>(null);
+  const [showSplitView, setShowSplitView] = useState(false);
+  const [versions, setVersions] = useState<Array<{
+    id: string;
+    version: number;
+    createdAt: string;
+  }>>([]);
 
   // Fetch candidate data
   const fetchCandidate = useCallback(async () => {
@@ -89,11 +99,28 @@ export default function CandidateDetailPage() {
       }
 
       const data = await response.json();
-      setCandidate(transformCandidate(data.data));
+      const transformedCandidate = transformCandidate(data.data);
+      setCandidate(transformedCandidate);
 
       // Set field confidence if available (at root level of response)
       if (data.field_confidence) {
         setFieldConfidence(data.field_confidence);
+      }
+
+      // Set versions (mock data - 실제로는 API에서 가져와야 함)
+      if (transformedCandidate.version > 1) {
+        const mockVersions = Array.from({ length: transformedCandidate.version }, (_, i) => ({
+          id: i === transformedCandidate.version - 1 ? transformedCandidate.id : `${transformedCandidate.id}-v${i + 1}`,
+          version: i + 1,
+          createdAt: new Date(Date.now() - (transformedCandidate.version - i - 1) * 7 * 24 * 60 * 60 * 1000).toISOString(),
+        }));
+        setVersions(mockVersions);
+      } else {
+        setVersions([{
+          id: transformedCandidate.id,
+          version: 1,
+          createdAt: transformedCandidate.createdAt,
+        }]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "알 수 없는 오류");
@@ -259,6 +286,20 @@ export default function CandidateDetailPage() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          {/* Split View Toggle */}
+          <button
+            onClick={() => setShowSplitView(!showSplitView)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+              showSplitView
+                ? "bg-primary/20 border-primary/30 text-primary"
+                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
+            }`}
+            title={showSplitView ? "분할 보기 끄기" : "분할 보기 켜기"}
+          >
+            {showSplitView ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+            <span className="text-sm">Split View</span>
+          </button>
+
           {/* Blind Export Button */}
           <button
             onClick={handleBlindExport}
@@ -326,13 +367,35 @@ export default function CandidateDetailPage() {
         </span>
       </div>
 
-      {/* Review Panel */}
-      <CandidateReviewPanel
-        candidate={candidate}
-        fieldConfidence={fieldConfidence}
-        onSave={handleSave}
-        isLoading={isSaving}
-      />
+      {/* Version Stack (다중 버전이 있을 때만 표시) */}
+      {versions.length > 1 && (
+        <VersionStack
+          versions={versions}
+          currentVersion={candidate.version}
+          onVersionSelect={(id) => {
+            router.push(`/candidates/${id}`);
+          }}
+        />
+      )}
+
+      {/* Main Content - Split View or Regular */}
+      {showSplitView ? (
+        <SplitViewer pdfUrl={undefined /* 실제로는 원본 PDF URL을 전달 */}>
+          <CandidateReviewPanel
+            candidate={candidate}
+            fieldConfidence={fieldConfidence}
+            onSave={handleSave}
+            isLoading={isSaving}
+          />
+        </SplitViewer>
+      ) : (
+        <CandidateReviewPanel
+          candidate={candidate}
+          fieldConfidence={fieldConfidence}
+          onSave={handleSave}
+          isLoading={isSaving}
+        />
+      )}
     </div>
   );
 }

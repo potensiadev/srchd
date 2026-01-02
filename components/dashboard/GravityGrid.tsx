@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Loader2, AlertCircle, Search } from "lucide-react";
+import { Loader2, AlertCircle, Search, Upload, FolderOpen } from "lucide-react";
+import Link from "next/link";
 import LevitatingCard from "./LevitatingCard";
 import { useCandidates } from "@/hooks";
 import type { CandidateListItem, CandidateSearchResult } from "@/types";
@@ -21,6 +22,7 @@ function toTalentProps(candidate: CandidateListItem | CandidateSearchResult) {
         id: candidate.id,
         name: candidate.name,
         role: candidate.role || "Unknown",
+        photoUrl: candidate.photoUrl,
         aiConfidence: candidate.aiConfidence,
         matchScore: "matchScore" in candidate ? candidate.matchScore : 0,
         riskLevel: candidate.riskLevel,
@@ -72,15 +74,48 @@ export default function GravityGrid({
 
     // 빈 상태
     if (candidates.length === 0) {
+        // 검색 모드: 검색 결과 없음
+        if (isSearchMode) {
+            return (
+                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                    <Search className="w-12 h-12 text-slate-600" />
+                    <p className="text-slate-400 text-sm">
+                        검색 결과가 없습니다. 다른 검색어를 시도해보세요.
+                    </p>
+                </div>
+            );
+        }
+
+        // 일반 모드: 후보자 없음 - 업로드 유도
         return (
-            <div className="flex flex-col items-center justify-center py-20 gap-4">
-                <Search className="w-12 h-12 text-slate-600" />
-                <p className="text-slate-400 text-sm">
-                    {isSearchMode
-                        ? "No candidates found. Try a different search."
-                        : "No candidates yet. Upload resumes to get started."}
-                </p>
-            </div>
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col items-center justify-center py-20 gap-6"
+            >
+                <div className="p-6 rounded-full bg-primary/10 border border-primary/20">
+                    <FolderOpen className="w-16 h-16 text-primary/60" />
+                </div>
+                <div className="text-center space-y-2">
+                    <h3 className="text-xl font-semibold text-white">
+                        아직 등록된 후보자가 없습니다
+                    </h3>
+                    <p className="text-slate-400 text-sm max-w-md">
+                        이력서를 업로드하면 AI가 자동으로 분석하여<br />
+                        후보자 정보를 추출하고 검색 가능하게 만듭니다.
+                    </p>
+                </div>
+                <Link
+                    href="/upload"
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl
+                             bg-primary hover:bg-primary/90 text-white font-medium
+                             transition-all shadow-lg shadow-primary/25
+                             hover:shadow-xl hover:shadow-primary/30 hover:scale-105"
+                >
+                    <Upload size={20} />
+                    첫 이력서 업로드하기
+                </Link>
+            </motion.div>
         );
     }
 

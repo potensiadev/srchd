@@ -21,6 +21,23 @@ export default function SignupPage() {
 
   const supabase = createClient();
 
+  // 이메일 중복 체크 및 가입 방법 확인
+  const checkExistingUser = async (emailToCheck: string): Promise<{
+    exists: boolean;
+    provider: string | null;
+  }> => {
+    const { data } = await supabase
+      .from("users")
+      .select("id, signup_provider")
+      .eq("email", emailToCheck)
+      .maybeSingle();
+
+    if (!data) {
+      return { exists: false, provider: null };
+    }
+    return { exists: true, provider: data.signup_provider || "email" };
+  };
+
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -37,6 +54,18 @@ export default function SignupPage() {
     }
 
     setIsLoading(true);
+
+    // 이메일 중복 체크 및 가입 방법 확인
+    const existingUser = await checkExistingUser(email);
+    if (existingUser.exists) {
+      if (existingUser.provider === "google") {
+        setError("이 이메일은 Google 계정으로 이미 가입되어 있습니다. Google로 로그인해주세요.");
+      } else {
+        setError("이미 가입된 이메일입니다. 로그인 페이지에서 로그인해주세요.");
+      }
+      setIsLoading(false);
+      return;
+    }
 
     const { error } = await supabase.auth.signUp({
       email,

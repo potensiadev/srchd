@@ -5,10 +5,20 @@
 
 import OpenAI from "openai";
 
-// OpenAI 클라이언트 (서버 사이드에서만 사용)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// OpenAI 클라이언트 (Lazy initialization - 빌드 시 에러 방지)
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is not configured");
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openaiClient;
+}
 
 // 임베딩 모델
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -18,9 +28,7 @@ const EMBEDDING_DIMENSION = 1536;
  * 텍스트를 임베딩 벡터로 변환
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
+  const openai = getOpenAIClient();
 
   // 텍스트 전처리: 줄바꿈 정리, 길이 제한
   const cleanText = text
@@ -56,9 +64,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  * 여러 텍스트를 배치로 임베딩 생성
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
+  const openai = getOpenAIClient();
 
   // 텍스트 전처리
   const cleanTexts = texts.map((text) =>

@@ -200,7 +200,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     const jobData = job as { id: string };
 
     // Supabase Storage에 파일 업로드
-    const storagePath = `uploads/${user.id}/${jobData.id}/${file.name}`;
+    // 한글 파일명 문제 방지: UUID + 확장자로 저장
+    const safeFileName = `${jobData.id}${ext}`;
+    const storagePath = `uploads/${user.id}/${safeFileName}`;
     const fileBuffer = await file.arrayBuffer();
 
     const { error: uploadError } = await supabase.storage

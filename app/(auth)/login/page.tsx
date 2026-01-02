@@ -21,10 +21,56 @@ function LoginForm() {
 
   const supabase = createClient();
 
+  // 사용자 가입 방법 확인
+  const checkUserSignupProvider = async (emailToCheck: string): Promise<{
+    exists: boolean;
+    provider: string | null;
+    maskedEmail: string | null;
+  }> => {
+    const { data: user } = await supabase
+      .from("users")
+      .select("email, signup_provider")
+      .eq("email", emailToCheck)
+      .maybeSingle();
+
+    if (!user) {
+      return { exists: false, provider: null, maskedEmail: null };
+    }
+
+    // 이메일 마스킹: test@example.com -> te**@example.com
+    const [localPart, domain] = user.email.split("@");
+    const maskedLocal = localPart.length > 2
+      ? localPart.slice(0, 2) + "***"
+      : localPart + "***";
+    const maskedEmail = `${maskedLocal}@${domain}`;
+
+    return {
+      exists: true,
+      provider: user.signup_provider || "email",
+      maskedEmail,
+    };
+  };
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
+
+    // 사용자 존재 여부 및 가입 방법 확인
+    const userInfo = await checkUserSignupProvider(email);
+
+    if (!userInfo.exists) {
+      setError("등록되지 않은 이메일입니다. 회원가입을 진행해주세요.");
+      setIsLoading(false);
+      return;
+    }
+
+    // Google로 가입한 사용자가 이메일 로그인 시도
+    if (userInfo.provider === "google") {
+      setError(`이 계정은 Google로 가입되었습니다. 아래 'Google로 계속하기' 버튼을 사용해주세요.`);
+      setIsLoading(false);
+      return;
+    }
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -32,7 +78,11 @@ function LoginForm() {
     });
 
     if (error) {
-      setError(error.message);
+      if (error.message.includes("Invalid login credentials")) {
+        setError("비밀번호가 올바르지 않습니다. 다시 확인해주세요.");
+      } else {
+        setError(error.message);
+      }
       setIsLoading(false);
     } else {
       router.push(next);

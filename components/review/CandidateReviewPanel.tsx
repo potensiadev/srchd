@@ -13,10 +13,11 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar,
 } from "lucide-react";
 import ReviewBanner from "./ReviewBanner";
 import EditableField from "./EditableField";
+import PrivacyShield from "@/components/detail/PrivacyShield";
+import CareerTimelineOrbit from "@/components/detail/CareerTimelineOrbit";
 import type { CandidateDetail, ConfidenceLevel, Career, Education, Project } from "@/types";
 
 interface FieldConfidence {
@@ -185,26 +186,31 @@ export default function CandidateReviewPanel({
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-            <Phone className="w-4 h-4 text-slate-400" />
-            <span className="text-sm text-slate-300">
-              {candidate.phone || "비공개"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-            <Mail className="w-4 h-4 text-slate-400" />
-            <span className="text-sm text-slate-300">
-              {candidate.email || "비공개"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-            <MapPin className="w-4 h-4 text-slate-400" />
-            <span className="text-sm text-slate-300">
-              {candidate.address || "비공개"}
-            </span>
-          </div>
-        </div>
+        {/* 개인정보 보호 영역 - PrivacyShield 적용 */}
+        <PrivacyShield
+          content={
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+                <Phone className="w-4 h-4 text-slate-400" />
+                <span className="text-sm text-slate-300 font-mono">
+                  {candidate.phone || "010-****-****"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+                <Mail className="w-4 h-4 text-slate-400" />
+                <span className="text-sm text-slate-300 font-mono">
+                  {candidate.email || "****@****.com"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+                <MapPin className="w-4 h-4 text-slate-400" />
+                <span className="text-sm text-slate-300">
+                  {candidate.address || "비공개"}
+                </span>
+              </div>
+            </div>
+          }
+        />
       </section>
 
       {/* Career Section */}
@@ -228,14 +234,8 @@ export default function CandidateReviewPanel({
           onSave={handleFieldChange}
         />
 
-        <div className="mt-4 space-y-3">
-          {candidate.careers?.map((career: Career, index: number) => (
-            <CareerItem key={index} career={career} index={index} />
-          ))}
-          {(!candidate.careers || candidate.careers.length === 0) && (
-            <p className="text-sm text-slate-500 italic">경력 정보가 없습니다</p>
-          )}
-        </div>
+        {/* Career Timeline with Orbit Animation */}
+        <CareerTimelineOrbit careers={candidate.careers || []} />
       </section>
 
       {/* Education Section */}
@@ -333,28 +333,6 @@ export default function CandidateReviewPanel({
   );
 }
 
-// Career Item Component
-function CareerItem({ career, index }: { career: Career; index: number }) {
-  return (
-    <div className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/50">
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-medium text-white">{career.position}</h3>
-          <p className="text-sm text-slate-400">{career.company}</p>
-        </div>
-        <div className="flex items-center gap-1 text-xs text-slate-500">
-          <Calendar className="w-3 h-3" />
-          <span>
-            {career.startDate} - {career.isCurrent ? "현재" : career.endDate}
-          </span>
-        </div>
-      </div>
-      {career.description && (
-        <p className="mt-2 text-sm text-slate-400">{career.description}</p>
-      )}
-    </div>
-  );
-}
 
 // Education Item Component
 function EducationItem({ education }: { education: Education }) {

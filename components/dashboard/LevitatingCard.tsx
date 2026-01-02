@@ -6,11 +6,13 @@ import { FLOATING_PHYSICS, HEAVY_APPEAR } from "@/lib/physics";
 import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import MagneticButton from "@/components/ui/magnetic-button";
 
 export interface TalentProps {
     id: string | number;
     name: string;
     role: string;
+    photoUrl?: string;    // 프로필 사진 URL
     // New props for contextual scoring
     aiConfidence: number; // 0-100
     matchScore?: number;  // 0-100
@@ -125,9 +127,20 @@ export default function LevitatingCard({ data, index, isSearchMode = false, sear
 
                 <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center border border-white/10 text-slate-300">
-                            <User size={20} />
-                        </div>
+                        {/* Profile Photo or Initial Avatar */}
+                        {data.photoUrl ? (
+                            <div className="w-10 h-10 rounded-full overflow-hidden border border-white/10 bg-slate-700">
+                                <img
+                                    src={data.photoUrl}
+                                    alt={data.name}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
+                        ) : (
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center border border-primary/20 text-primary font-semibold text-sm">
+                                {data.name.charAt(0)}
+                            </div>
+                        )}
                         <div>
                             <h3 className="text-white font-semibold leading-tight">{data.name}</h3>
                             <p className="text-slate-400 text-xs">{data.role}</p>
@@ -157,16 +170,20 @@ export default function LevitatingCard({ data, index, isSearchMode = false, sear
 
                 {/* Actions / Footer */}
                 <div className="flex gap-2">
-                    <button
+                    <MagneticButton
                         onClick={handleViewProfile}
-                        className="flex-1 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-medium transition-colors border border-white/5"
+                        strength={0.4}
+                        className="flex-1 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-medium border border-white/5"
                     >
                         View Profile
-                    </button>
+                    </MagneticButton>
                     {data.riskLevel !== 'high' && !isSearchMode && (
-                        <button className="flex-1 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium transition-colors border border-primary/20">
+                        <MagneticButton
+                            strength={0.5}
+                            className="flex-1 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-xs text-primary font-medium border border-primary/20"
+                        >
                             Contact
-                        </button>
+                        </MagneticButton>
                     )}
                 </div>
 

@@ -7,10 +7,19 @@ import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "@/types";
 
 export function createClient() {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // 빌드 시 환경변수가 없을 수 있음 - 더미 값 사용
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // 빌드 타임에는 더미 클라이언트 반환 (실제 사용되지 않음)
+    return createBrowserClient<Database>(
+      "https://placeholder.supabase.co",
+      "placeholder-key"
+    );
+  }
+
+  return createBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
 }
 
 // 싱글톤 인스턴스 (옵션)
