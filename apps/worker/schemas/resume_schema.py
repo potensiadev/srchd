@@ -16,20 +16,20 @@ from typing import Dict, Any
 PROFILE_SCHEMA: Dict[str, Any] = {
     "name": "profile_extraction",
     "description": "Extract candidate's personal profile information",
-    "strict": True,
+    "strict": False,  # Allow nullable fields
     "schema": {
         "type": "object",
         "properties": {
-            "name": {"type": ["string", "null"], "description": "후보자 이름"},
-            "birth_year": {"type": ["integer", "null"], "description": "출생 연도 (4자리)"},
-            "gender": {"type": ["string", "null"], "description": "성별 (male/female)"},
-            "phone": {"type": ["string", "null"], "description": "휴대폰 번호"},
-            "email": {"type": ["string", "null"], "description": "이메일 주소"},
-            "address": {"type": ["string", "null"], "description": "거주지 주소"},
-            "location_city": {"type": ["string", "null"], "description": "거주 도시"},
+            "name": {"type": "string", "description": "후보자 이름"},
+            "birth_year": {"type": "integer", "description": "출생 연도 (4자리)"},
+            "gender": {"type": "string", "description": "성별 (male/female)"},
+            "phone": {"type": "string", "description": "휴대폰 번호"},
+            "email": {"type": "string", "description": "이메일 주소"},
+            "address": {"type": "string", "description": "거주지 주소"},
+            "location_city": {"type": "string", "description": "거주 도시"},
         },
-        "required": ["name", "birth_year", "gender", "phone", "email", "address", "location_city"],
-        "additionalProperties": False
+        "required": ["name"],  # Only name is required
+        "additionalProperties": True
     }
 }
 
@@ -39,13 +39,13 @@ PROFILE_SCHEMA: Dict[str, Any] = {
 CAREER_SCHEMA: Dict[str, Any] = {
     "name": "career_extraction",
     "description": "Extract candidate's work experience and career history",
-    "strict": True,
+    "strict": False,
     "schema": {
         "type": "object",
         "properties": {
             "exp_years": {"type": "number", "description": "총 경력 연수"},
-            "last_company": {"type": ["string", "null"], "description": "최근 직장명"},
-            "last_position": {"type": ["string", "null"], "description": "최근 직책"},
+            "last_company": {"type": "string", "description": "최근 직장명"},
+            "last_position": {"type": "string", "description": "최근 직책"},
             "careers": {
                 "type": "array",
                 "description": "경력 목록",
@@ -53,20 +53,19 @@ CAREER_SCHEMA: Dict[str, Any] = {
                     "type": "object",
                     "properties": {
                         "company": {"type": "string", "description": "회사명"},
-                        "position": {"type": ["string", "null"], "description": "직책"},
-                        "department": {"type": ["string", "null"], "description": "부서"},
-                        "start_date": {"type": ["string", "null"], "description": "입사일 (YYYY-MM)"},
-                        "end_date": {"type": ["string", "null"], "description": "퇴사일 (YYYY-MM)"},
+                        "position": {"type": "string", "description": "직책"},
+                        "department": {"type": "string", "description": "부서"},
+                        "start_date": {"type": "string", "description": "입사일 (YYYY-MM)"},
+                        "end_date": {"type": "string", "description": "퇴사일 (YYYY-MM)"},
                         "is_current": {"type": "boolean", "description": "현재 재직 여부"},
-                        "description": {"type": ["string", "null"], "description": "업무 내용"}
+                        "description": {"type": "string", "description": "업무 내용"}
                     },
-                    "required": ["company", "position", "department", "start_date", "end_date", "is_current", "description"],
-                    "additionalProperties": False
+                    "required": ["company"]
                 }
             }
         },
-        "required": ["exp_years", "last_company", "last_position", "careers"],
-        "additionalProperties": False
+        "required": ["careers"],
+        "additionalProperties": True
     }
 }
 
@@ -76,13 +75,13 @@ CAREER_SCHEMA: Dict[str, Any] = {
 SPEC_SCHEMA: Dict[str, Any] = {
     "name": "spec_extraction",
     "description": "Extract candidate's education, skills, and projects",
-    "strict": True,
+    "strict": False,
     "schema": {
         "type": "object",
         "properties": {
-            "education_level": {"type": ["string", "null"], "description": "최종 학력"},
-            "education_school": {"type": ["string", "null"], "description": "최종 학교명"},
-            "education_major": {"type": ["string", "null"], "description": "전공"},
+            "education_level": {"type": "string", "description": "최종 학력"},
+            "education_school": {"type": "string", "description": "최종 학교명"},
+            "education_major": {"type": "string", "description": "전공"},
             "educations": {
                 "type": "array",
                 "description": "학력 목록",
@@ -90,13 +89,12 @@ SPEC_SCHEMA: Dict[str, Any] = {
                     "type": "object",
                     "properties": {
                         "school": {"type": "string", "description": "학교명"},
-                        "degree": {"type": ["string", "null"], "description": "학위"},
-                        "major": {"type": ["string", "null"], "description": "전공"},
-                        "graduation_year": {"type": ["integer", "null"], "description": "졸업 연도"},
+                        "degree": {"type": "string", "description": "학위"},
+                        "major": {"type": "string", "description": "전공"},
+                        "graduation_year": {"type": "integer", "description": "졸업 연도"},
                         "is_graduated": {"type": "boolean", "description": "졸업 여부"}
                     },
-                    "required": ["school", "degree", "major", "graduation_year", "is_graduated"],
-                    "additionalProperties": False
+                    "required": ["school"]
                 }
             },
             "skills": {"type": "array", "description": "기술 스택 목록", "items": {"type": "string"}},
@@ -107,24 +105,20 @@ SPEC_SCHEMA: Dict[str, Any] = {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "프로젝트명"},
-                        "role": {"type": ["string", "null"], "description": "역할"},
-                        "period": {"type": ["string", "null"], "description": "기간"},
-                        "description": {"type": ["string", "null"], "description": "설명"},
+                        "role": {"type": "string", "description": "역할"},
+                        "period": {"type": "string", "description": "기간"},
+                        "description": {"type": "string", "description": "설명"},
                         "technologies": {"type": "array", "items": {"type": "string"}, "description": "사용 기술"}
                     },
-                    "required": ["name", "role", "period", "description", "technologies"],
-                    "additionalProperties": False
+                    "required": ["name"]
                 }
             },
-            "portfolio_url": {"type": ["string", "null"], "description": "포트폴리오 URL"},
-            "github_url": {"type": ["string", "null"], "description": "GitHub URL"},
-            "linkedin_url": {"type": ["string", "null"], "description": "LinkedIn URL"}
+            "portfolio_url": {"type": "string", "description": "포트폴리오 URL"},
+            "github_url": {"type": "string", "description": "GitHub URL"},
+            "linkedin_url": {"type": "string", "description": "LinkedIn URL"}
         },
-        "required": [
-            "education_level", "education_school", "education_major", "educations",
-            "skills", "projects", "portfolio_url", "github_url", "linkedin_url"
-        ],
-        "additionalProperties": False
+        "required": [],
+        "additionalProperties": True
     }
 }
 
@@ -134,7 +128,7 @@ SPEC_SCHEMA: Dict[str, Any] = {
 SUMMARY_SCHEMA: Dict[str, Any] = {
     "name": "summary_generation",
     "description": "Generate summary and analysis of the candidate",
-    "strict": True,
+    "strict": False,
     "schema": {
         "type": "object",
         "properties": {
@@ -142,7 +136,45 @@ SUMMARY_SCHEMA: Dict[str, Any] = {
             "strengths": {"type": "array", "description": "주요 강점 3~5가지", "items": {"type": "string"}}
         },
         "required": ["summary", "strengths"],
-        "additionalProperties": False
+        "additionalProperties": True
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Legacy: Combined Schema (for backward compatibility)
+# ─────────────────────────────────────────────────────────────────────────────
+RESUME_JSON_SCHEMA: Dict[str, Any] = {
+    "name": "resume_extraction",
+    "description": "Extract structured information from a resume",
+    "strict": False,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "후보자 이름"},
+            "birth_year": {"type": "integer", "description": "출생 연도 (4자리)"},
+            "gender": {"type": "string", "description": "성별 (male/female)"},
+            "phone": {"type": "string", "description": "휴대폰 번호"},
+            "email": {"type": "string", "description": "이메일 주소"},
+            "address": {"type": "string", "description": "거주지 주소"},
+            "location_city": {"type": "string", "description": "거주 도시"},
+            "exp_years": {"type": "number", "description": "총 경력 연수"},
+            "last_company": {"type": "string", "description": "최근 직장명"},
+            "last_position": {"type": "string", "description": "최근 직책"},
+            "careers": {"type": "array", "description": "경력 목록", "items": {"type": "object"}},
+            "skills": {"type": "array", "description": "기술 스택 목록", "items": {"type": "string"}},
+            "education_level": {"type": "string", "description": "최종 학력"},
+            "education_school": {"type": "string", "description": "최종 학교명"},
+            "education_major": {"type": "string", "description": "전공"},
+            "educations": {"type": "array", "description": "학력 목록", "items": {"type": "object"}},
+            "projects": {"type": "array", "description": "프로젝트 목록", "items": {"type": "object"}},
+            "summary": {"type": "string", "description": "후보자 요약 (300자 이내)"},
+            "strengths": {"type": "array", "description": "강점 목록", "items": {"type": "string"}},
+            "portfolio_url": {"type": "string", "description": "포트폴리오 URL"},
+            "github_url": {"type": "string", "description": "GitHub URL"},
+            "linkedin_url": {"type": "string", "description": "LinkedIn URL"}
+        },
+        "required": ["name"],
+        "additionalProperties": True
     }
 }
 
@@ -160,6 +192,6 @@ RESUME_SCHEMA_PROMPT = """
 
 ### 추출 원칙
 - 명시적 라벨이 없어도 문맥을 통해 추론하세요.
-- 정보가 없으면 명시적으로 null을 반환하세요.
+- 정보가 없으면 해당 필드를 생략하세요 (null 대신 생략).
 - 반드시 JSON 포맷을 준수하세요.
 """
