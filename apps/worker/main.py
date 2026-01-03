@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -838,17 +838,23 @@ async def run_pipeline(
 
         logger.info(f"[Pipeline] PII processed: {pii_count} items found")
 
-        # Step 5: 임베딩 생성
+        # Step 5: 임베딩 생성 (실패해도 DB 저장은 진행)
         logger.info(f"[Pipeline] Generating embeddings...")
 
-        embedding_service = get_embedding_service()
-        embedding_result = await embedding_service.process_candidate(
-            data=analyzed_data,
-            generate_embeddings=True
-        )
-
-        chunk_count = len(embedding_result.chunks) if embedding_result.success else 0
-        logger.info(f"[Pipeline] Embeddings generated: {chunk_count} chunks")
+        embedding_result = None
+        chunk_count = 0
+        try:
+            embedding_service = get_embedding_service()
+            embedding_result = await embedding_service.process_candidate(
+                data=analyzed_data,
+                generate_embeddings=True
+            )
+            chunk_count = len(embedding_result.chunks) if embedding_result and embedding_result.success else 0
+            logger.info(f"[Pipeline] Embeddings generated: {chunk_count} chunks")
+        except Exception as embed_error:
+            logger.warning(f"[Pipeline] Embedding generation failed (continuing to DB save): {embed_error}")
+            embedding_result = None
+            chunk_count = 0
 
         # Step 6: DB 저장
         logger.info(f"[Pipeline] Saving to database...")
@@ -874,14 +880,19 @@ async def run_pipeline(
         candidate_id = save_result.candidate_id
         logger.info(f"[Pipeline] Saved candidate: {candidate_id}")
 
-        # 청크 저장
+        # 청크 저장 (임베딩 성공 시에만)
         chunks_saved = 0
-        if embedding_result.success and embedding_result.chunks:
-            chunks_saved = db_service.save_chunks_with_embeddings(
-                candidate_id=candidate_id,
-                chunks=embedding_result.chunks
-            )
-        logger.info(f"[Pipeline] Saved {chunks_saved} chunks")
+        if embedding_result and embedding_result.success and embedding_result.chunks:
+            try:
+                chunks_saved = db_service.save_chunks_with_embeddings(
+                    candidate_id=candidate_id,
+                    chunks=embedding_result.chunks
+                )
+                logger.info(f"[Pipeline] Saved {chunks_saved} chunks")
+            except Exception as chunk_error:
+                logger.warning(f"[Pipeline] Chunk saving failed: {chunk_error}")
+        else:
+            logger.info(f"[Pipeline] Skipping chunk save (no embeddings)")
 
         # Step 7: Job 상태 업데이트
         db_service.update_job_status(
@@ -917,19 +928,17 @@ async def run_pipeline(
 @app.post("/pipeline", response_model=PipelineResponse)
 async def pipeline_endpoint(
     request: PipelineRequest,
-    background_tasks: BackgroundTasks,
 ):
     """
-    전체 파이프라인 엔드포인트 (비동기)
+    전체 파이프라인 엔드포인트 (동기 처리)
 
-    즉시 응답 반환 후 백그라운드에서 처리:
+    파이프라인 완료 후 응답 반환:
     파일 다운로드 → 파싱 → 분석 → PII → 임베딩 → DB 저장 → 크레딧 차감
     """
     logger.info(f"[Pipeline] Received request for job {request.job_id}")
 
-    # 백그라운드 태스크로 파이프라인 실행
-    background_tasks.add_task(
-        run_pipeline,
+    # 동기로 파이프라인 실행 (완료 보장)
+    await run_pipeline(
         file_url=request.file_url,
         file_name=request.file_name,
         user_id=request.user_id,
@@ -940,7 +949,7 @@ async def pipeline_endpoint(
 
     return PipelineResponse(
         success=True,
-        message="Pipeline started in background",
+        message="Pipeline completed",
         job_id=request.job_id,
     )
 
