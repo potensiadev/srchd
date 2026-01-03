@@ -48,9 +48,10 @@ function toCandidateDetail(row: Record<string, unknown>): CandidateDetail {
     // Detail specific fields
     birthYear: row.birth_year as number | undefined,
     gender: row.gender as "male" | "female" | "other" | undefined,
-    phone: row.phone_masked as string | undefined,
-    email: row.email_masked as string | undefined,
-    address: row.address_masked as string | undefined,
+    // Issue #4: PII는 UI에서 전체 표시 (row.phone, email, address 사용)
+    phone: (row.phone as string) || (row.phone_masked as string) || undefined,
+    email: (row.email as string) || (row.email_masked as string) || undefined,
+    address: (row.address as string) || (row.address_masked as string) || undefined,
 
     // 학력 분리 필드
     educationLevel: row.education_level as string | undefined,

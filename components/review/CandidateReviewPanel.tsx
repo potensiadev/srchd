@@ -186,31 +186,27 @@ export default function CandidateReviewPanel({
           />
         </div>
 
-        {/* 개인정보 보호 영역 - PrivacyShield 적용 */}
-        <PrivacyShield
-          content={
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-                <Phone className="w-4 h-4 text-slate-400" />
-                <span className="text-sm text-slate-300 font-mono">
-                  {candidate.phone || "010-****-****"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-                <Mail className="w-4 h-4 text-slate-400" />
-                <span className="text-sm text-slate-300 font-mono">
-                  {candidate.email || "****@****.com"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
-                <MapPin className="w-4 h-4 text-slate-400" />
-                <span className="text-sm text-slate-300">
-                  {candidate.address || "비공개"}
-                </span>
-              </div>
-            </div>
-          }
-        />
+        {/* 개인정보 영역 - Issue #4: PII는 DB만 보호, UI는 전체 표시 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+            <Phone className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-300 font-mono">
+              {candidate.phone || "미등록"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+            <Mail className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-300 font-mono">
+              {candidate.email || "미등록"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-700/50">
+            <MapPin className="w-4 h-4 text-slate-400" />
+            <span className="text-sm text-slate-300">
+              {candidate.address || "미등록"}
+            </span>
+          </div>
+        </div>
       </section>
 
       {/* Career Section */}

@@ -96,7 +96,11 @@ class DatabaseService:
                 "birth_year": analyzed_data.get("birth_year"),
                 "gender": analyzed_data.get("gender"),
                 "location_city": analyzed_data.get("location_city"),
-                # 마스킹된 연락처 (표시용)
+                # 원본 연락처 (UI 표시용) - Issue #4: UI는 전체 표시
+                "phone": analyzed_data.get("phone"),
+                "email": analyzed_data.get("email"),
+                "address": analyzed_data.get("address"),
+                # 마스킹된 연락처 (보안 검토용)
                 "phone_masked": analyzed_data.get("phone"),
                 "email_masked": analyzed_data.get("email"),
                 "address_masked": analyzed_data.get("address"),

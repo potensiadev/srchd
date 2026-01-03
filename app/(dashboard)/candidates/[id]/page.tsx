@@ -27,6 +27,19 @@ function transformCandidate(row: Record<string, unknown>): CandidateDetail {
   if (confidencePercent >= 95) confidenceLevel = "high";
   else if (confidencePercent >= 80) confidenceLevel = "medium";
 
+  // Transform careers from snake_case to camelCase
+  const rawCareers = (row.careers as Array<Record<string, unknown>>) || [];
+  const transformedCareers = rawCareers.map((career) => ({
+    company: career.company as string || "",
+    position: career.position as string || "",
+    department: career.department as string | undefined,
+    startDate: (career.start_date as string) || (career.startDate as string) || "",
+    endDate: (career.end_date as string) || (career.endDate as string) || undefined,
+    isCurrent: (career.is_current as boolean) || (career.isCurrent as boolean) || false,
+    description: career.description as string | undefined,
+    skills: career.skills as string[] | undefined,
+  }));
+
   return {
     id: row.id as string,
     name: (row.name as string) || "이름 미확인",
@@ -46,18 +59,27 @@ function transformCandidate(row: Record<string, unknown>): CandidateDetail {
     // Detail fields
     birthYear: row.birth_year as number | undefined,
     gender: row.gender as "male" | "female" | "other" | undefined,
-    phone: row.phone_masked as string | undefined,
-    email: row.email_masked as string | undefined,
-    careers: (row.careers as CandidateDetail["careers"]) || [],
+    // Issue #4: Show full PII in UI (not masked) - use encrypted values if available, otherwise masked
+    phone: (row.phone as string) || (row.phone_masked as string) || undefined,
+    email: (row.email as string) || (row.email_masked as string) || undefined,
+    address: (row.address as string) || (row.address_masked as string) || undefined,
+    // Issue #5: Use exp_years from DB
+    careers: transformedCareers,
     projects: (row.projects as CandidateDetail["projects"]) || [],
     education: (row.education as CandidateDetail["education"]) || [],
     strengths: (row.strengths as string[]) || [],
     portfolioThumbnailUrl: row.portfolio_thumbnail_url as string | undefined,
+    // Issue #3: Get URL fields for conditional rendering
+    portfolioUrl: row.portfolio_url as string | undefined,
+    githubUrl: row.github_url as string | undefined,
+    linkedinUrl: row.linkedin_url as string | undefined,
     version: (row.version as number) || 1,
     parentId: row.parent_id as string | undefined,
     isLatest: (row.is_latest as boolean) ?? true,
     analysisMode: (row.analysis_mode as "phase_1" | "phase_2") || "phase_1",
     warnings: (row.warnings as string[]) || [],
+    // Issue #2: Get source file for split view
+    sourceFile: row.source_file as string | undefined,
   };
 }
 
@@ -262,6 +284,12 @@ export default function CandidateDetailPage() {
     );
   }
 
+  // Issue #3: Check if GitHub/LinkedIn URLs exist
+  const hasGithub = !!candidate.githubUrl;
+  const hasLinkedin = !!candidate.linkedinUrl;
+  const hasPortfolio = !!candidate.portfolioUrl;
+  const hasExternalLinks = hasGithub || hasLinkedin || hasPortfolio;
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -280,25 +308,51 @@ export default function CandidateDetailPage() {
             <p className="text-slate-400">
               {candidate.role}
               {candidate.company && ` @ ${candidate.company}`}
+              {/* Issue #5: Show experience years in header */}
+              {candidate.expYears > 0 && ` • ${candidate.expYears}년`}
             </p>
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions - Issue #3: Conditional rendering with layout adjustment */}
         <div className="flex items-center gap-2">
-          {/* Split View Toggle */}
-          <button
-            onClick={() => setShowSplitView(!showSplitView)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
-              showSplitView
-                ? "bg-primary/20 border-primary/30 text-primary"
-                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
-            }`}
-            title={showSplitView ? "분할 보기 끄기" : "분할 보기 켜기"}
-          >
-            {showSplitView ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
-            <span className="text-sm">Split View</span>
-          </button>
+          {/* External Links - Only show if URLs exist */}
+          {hasPortfolio && (
+            <a
+              href={candidate.portfolioUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
+                       text-slate-400 hover:text-neon-cyan transition-colors"
+              title="포트폴리오"
+            >
+              <Globe className="w-5 h-5" />
+            </a>
+          )}
+          {hasGithub && (
+            <a
+              href={candidate.githubUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
+                       text-slate-400 hover:text-white transition-colors"
+              title="GitHub"
+            >
+              <Github className="w-5 h-5" />
+            </a>
+          )}
+          {hasLinkedin && (
+            <a
+              href={candidate.linkedinUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
+                       text-slate-400 hover:text-blue-400 transition-colors"
+              title="LinkedIn"
+            >
+              <Linkedin className="w-5 h-5" />
+            </a>
+          )}
 
           {/* Blind Export Button */}
           <button
@@ -322,33 +376,18 @@ export default function CandidateDetailPage() {
             )}
           </button>
 
-          {/* External Links */}
-          {candidate.portfolioThumbnailUrl && (
-            <a
-              href="#"
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
-                       text-slate-400 hover:text-neon-cyan transition-colors"
-              title="포트폴리오"
-            >
-              <Globe className="w-5 h-5" />
-            </a>
-          )}
-          <a
-            href="#"
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
-                     text-slate-400 hover:text-white transition-colors"
-            title="GitHub"
+          {/* Split View Toggle */}
+          <button
+            onClick={() => setShowSplitView(!showSplitView)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${showSplitView
+                ? "bg-primary/20 border-primary/30 text-primary"
+                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
+              }`}
+            title={showSplitView ? "분할 보기 끄기" : "분할 보기 켜기"}
           >
-            <Github className="w-5 h-5" />
-          </a>
-          <a
-            href="#"
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700
-                     text-slate-400 hover:text-blue-400 transition-colors"
-            title="LinkedIn"
-          >
-            <Linkedin className="w-5 h-5" />
-          </a>
+            {showSplitView ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+            <span className="text-sm">Split View</span>
+          </button>
         </div>
       </div>
 
@@ -380,7 +419,7 @@ export default function CandidateDetailPage() {
 
       {/* Main Content - Split View or Regular */}
       {showSplitView ? (
-        <SplitViewer pdfUrl={undefined /* 실제로는 원본 PDF URL을 전달 */}>
+        <SplitViewer pdfUrl={candidate.sourceFile}>
           <CandidateReviewPanel
             candidate={candidate}
             fieldConfidence={fieldConfidence}
