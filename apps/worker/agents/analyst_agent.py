@@ -130,7 +130,8 @@ class AnalystAgent:
     async def analyze(
         self,
         resume_text: str,
-        mode: Optional[AnalysisMode] = None
+        mode: Optional[AnalysisMode] = None,
+        filename: Optional[str] = None
     ) -> AnalysisResult:
         """
         이력서 텍스트 분석
@@ -170,7 +171,7 @@ class AnalystAgent:
 
             # Step 2: 메시지 생성
             logger.info("[AnalystAgent] Step 2: LLM 프롬프트 메시지 생성")
-            messages = self._create_extraction_messages(resume_text)
+            messages = self._create_extraction_messages(resume_text, filename)
             logger.debug(f"[AnalystAgent] 시스템 프롬프트 길이: {len(messages[0]['content'])} chars")
             logger.debug(f"[AnalystAgent] 유저 프롬프트 길이: {len(messages[1]['content'])} chars")
 
@@ -261,17 +262,38 @@ class AnalystAgent:
 
         return providers
 
-    def _create_extraction_messages(self, resume_text: str) -> List[Dict[str, str]]:
+    def _create_extraction_messages(self, resume_text: str, filename: Optional[str] = None) -> List[Dict[str, str]]:
         """이력서 추출용 메시지 생성"""
+        # 파일명 힌트 생성
+        filename_hint = ""
+        if filename:
+            # 파일명에서 이름 추출 힌트
+            import re
+            # 확장자 제거
+            name_part = re.sub(r'\.(pdf|hwp|hwpx|doc|docx)$', '', filename, flags=re.IGNORECASE)
+            # 이력서, 경력기술서 등 일반 키워드 제거
+            name_part = re.sub(r'[_\-\s]*(이력서|경력기술서|resume|cv|자기소개서)[_\-\s]*', '', name_part, flags=re.IGNORECASE)
+            name_part = name_part.strip('_- ')
+            if name_part:
+                filename_hint = f"""
+### 파일명 정보
+원본 파일명: {filename}
+파일명에서 추정되는 이름: {name_part}
+(파일명에 이름이 포함되어 있을 수 있으니 참고하세요)
+"""
+        
         system_prompt = """당신은 전문 이력서 분석가입니다.
 주어진 이력서에서 구조화된 정보를 정확하게 추출해주세요.
-모든 정보는 이력서에 명시된 내용만 사용하며, 추측하지 마세요.
-정보가 없으면 null을 사용하세요.
+
+중요: 한국 이력서는 "이름:" 같은 라벨 없이 이름이 단독으로 표시됩니다.
+- 문서 상단에 2~4글자 한글 이름이 있으면 그것이 이름입니다
+- 파일명에 이름이 포함된 경우가 많습니다 (예: 김경민_이력서.pdf)
+- 라벨이 없어도 문맥에서 정보를 추론하세요
 
 """ + RESUME_SCHEMA_PROMPT
 
         user_prompt = f"""다음 이력서를 분석하고 JSON 형식으로 정보를 추출해주세요:
-
+{filename_hint}
 ---
 {resume_text}
 ---

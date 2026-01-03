@@ -761,7 +761,8 @@ async def run_pipeline(
         analyst = get_analyst_agent()
         analysis_result = await analyst.analyze(
             resume_text=text,
-            mode=analysis_mode
+            mode=analysis_mode,
+            filename=file_name
         )
 
         if not analysis_result.success or not analysis_result.data:

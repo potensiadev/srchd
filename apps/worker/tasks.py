@@ -234,6 +234,7 @@ def process_resume(
     mode: str = "phase_1",
     source_file: str = "",
     file_type: str = "",
+    file_name: str = "",
 ) -> dict:
     """
     이력서 분석 작업 (RQ Task)
@@ -284,7 +285,7 @@ def process_resume(
 
         # RQ는 동기 환경이므로 asyncio.run 사용
         analysis_result: AnalysisResult = asyncio.run(
-            analyst.analyze(resume_text=text, mode=analysis_mode)
+            analyst.analyze(resume_text=text, mode=analysis_mode, filename=file_name)
         )
 
         if not analysis_result.success or not analysis_result.data:
@@ -485,6 +486,7 @@ def full_pipeline(
             mode=mode,
             source_file=file_path,
             file_type=parse_result.get("file_type", ""),
+            file_name=file_name,
         )
 
         return process_result
