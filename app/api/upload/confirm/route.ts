@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Worker 파이프라인 호출 (fire-and-forget)
+        // Worker 파이프라인 호출 (await로 실제 요청이 완료되었는지 확인)
         const workerPayload = {
             file_url: storagePath,
             file_name: fileName,
@@ -42,13 +42,28 @@ export async function POST(request: NextRequest) {
             mode: plan === "enterprise" ? "phase_2" : "phase_1",
         };
 
-        fetch(`${WORKER_URL}/pipeline`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(workerPayload),
-        }).catch((error) => {
-            console.error("Worker pipeline request failed:", error);
+        console.log("[Upload Confirm] Calling Worker pipeline:", {
+            url: `${WORKER_URL}/pipeline`,
+            payload: workerPayload,
         });
+
+        try {
+            const workerRes = await fetch(`${WORKER_URL}/pipeline`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(workerPayload),
+            });
+
+            console.log("[Upload Confirm] Worker response status:", workerRes.status);
+
+            if (!workerRes.ok) {
+                const errorText = await workerRes.text();
+                console.error("[Upload Confirm] Worker error:", errorText);
+            }
+        } catch (workerError) {
+            console.error("[Upload Confirm] Worker pipeline request failed:", workerError);
+            // Worker 실패해도 사용자에게는 성공 반환 (비동기 처리)
+        }
 
         return NextResponse.json({
             success: true,
