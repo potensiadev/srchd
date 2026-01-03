@@ -236,7 +236,7 @@ RESUME_JSON_SCHEMA: Dict[str, Any] = {
             "github_url": {"type": "string", "description": "GitHub URL"},
             "linkedin_url": {"type": "string", "description": "LinkedIn URL"}
         },
-        "required": ["name", "careers", "summary", "strengths"],
+        "required": ["name"],  # 최소 필수 필드만 - 나머지는 선택적 추출
         "additionalProperties": True
     }
 }
