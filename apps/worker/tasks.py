@@ -16,9 +16,14 @@ from config import get_settings, AnalysisMode
 from agents.router_agent import RouterAgent, FileType, RouterResult
 from agents.analyst_agent import get_analyst_agent, AnalysisResult
 from agents.privacy_agent import get_privacy_agent, PrivacyResult
+from agents.identity_checker import get_identity_checker, IdentityCheckResult
+from agents.visual_agent import get_visual_agent
 from utils.hwp_parser import HWPParser, ParseMethod
 from utils.pdf_parser import PDFParser
 from utils.docx_parser import DOCXParser
+from utils.url_extractor import extract_urls_from_text
+from utils.career_calculator import calculate_total_experience, format_experience_korean
+from utils.education_parser import determine_graduation_status, determine_degree_level
 from services.embedding_service import get_embedding_service, EmbeddingResult
 from services.database_service import get_database_service, SaveResult
 
@@ -274,6 +279,31 @@ def process_resume(
             notify_webhook(job_id, "failed", error=error_msg)
             return {"success": False, "error": error_msg}
 
+        # ─────────────────────────────────────────────────
+        # Step 0: Multi-Identity 체크 (악용 방지)
+        # PRD: "2명 이상의 정보 감지 시 처리 거절, 크레딧 미차감"
+        # ─────────────────────────────────────────────────
+        identity_checker = get_identity_checker()
+        identity_result = asyncio.run(identity_checker.check(text))
+
+        if identity_result.should_reject:
+            error_msg = f"다중 신원 감지: {identity_result.person_count}명의 정보가 포함되어 있습니다. ({identity_result.reason})"
+            logger.warning(f"[Task] Multi-identity detected: {error_msg}")
+            db_service.update_job_status(
+                job_id,
+                status="rejected",
+                error_code="MULTI_IDENTITY",
+                error_message=error_msg
+            )
+            notify_webhook(job_id, "rejected", error=error_msg)
+            # 크레딧 미차감 (rejected 상태)
+            return {
+                "success": False,
+                "error": error_msg,
+                "error_code": "MULTI_IDENTITY",
+                "person_count": identity_result.person_count
+            }
+
         # 분석 모드
         analysis_mode = AnalysisMode.PHASE_2 if mode == "phase_2" else AnalysisMode.PHASE_1
 
@@ -300,6 +330,88 @@ def process_resume(
 
         original_data = analysis_result.data.copy()
         analyzed_data = analysis_result.data
+
+        # ─────────────────────────────────────────────────
+        # Step 1.5: URL 추출 (LLM 대신 정규식 사용)
+        # GitHub/LinkedIn URL은 텍스트에서 직접 추출하여 정확도 보장
+        # ─────────────────────────────────────────────────
+        extracted_urls = extract_urls_from_text(text)
+
+        # GitHub URL: 텍스트 추출 우선 (github.com 포함 URL만)
+        if extracted_urls.github_url:
+            analyzed_data["github_url"] = extracted_urls.github_url
+            original_data["github_url"] = extracted_urls.github_url
+            logger.info(f"[Task] GitHub URL extracted: {extracted_urls.github_url}")
+        elif analyzed_data.get("github_url") and "github.com" not in analyzed_data["github_url"].lower():
+            # LLM이 추출한 URL이 github.com이 아니면 제거
+            analyzed_data["github_url"] = None
+            original_data["github_url"] = None
+            logger.warning("[Task] Invalid github_url from LLM removed (not github.com)")
+
+        # LinkedIn URL: 텍스트 추출 우선 (linkedin.com 포함 URL만)
+        if extracted_urls.linkedin_url:
+            analyzed_data["linkedin_url"] = extracted_urls.linkedin_url
+            original_data["linkedin_url"] = extracted_urls.linkedin_url
+            logger.info(f"[Task] LinkedIn URL extracted: {extracted_urls.linkedin_url}")
+        elif analyzed_data.get("linkedin_url") and "linkedin.com" not in analyzed_data["linkedin_url"].lower():
+            # LLM이 추출한 URL이 linkedin.com이 아니면 제거
+            analyzed_data["linkedin_url"] = None
+            original_data["linkedin_url"] = None
+            logger.warning("[Task] Invalid linkedin_url from LLM removed (not linkedin.com)")
+
+        # Portfolio URL: 텍스트 추출 우선, 없으면 LLM 결과 유지
+        if extracted_urls.portfolio_url and not analyzed_data.get("portfolio_url"):
+            analyzed_data["portfolio_url"] = extracted_urls.portfolio_url
+            original_data["portfolio_url"] = extracted_urls.portfolio_url
+            logger.info(f"[Task] Portfolio URL extracted: {extracted_urls.portfolio_url}")
+
+        # ─────────────────────────────────────────────────
+        # Step 1.6: 경력 개월수 계산 + 학력 상태 판별
+        # 다양한 날짜 형식 지원 (date_parser 사용)
+        # ─────────────────────────────────────────────────
+        try:
+            # 경력 개월수 계산
+            careers = analyzed_data.get("careers", [])
+            if careers:
+                career_summary = calculate_total_experience(careers)
+                analyzed_data["exp_total_months"] = career_summary.total_months
+                analyzed_data["exp_display"] = career_summary.format_korean()
+                analyzed_data["has_current_job"] = career_summary.has_current_job
+                original_data["exp_total_months"] = career_summary.total_months
+                original_data["exp_display"] = career_summary.format_korean()
+                logger.info(
+                    f"[Task] Career calculated: {career_summary.total_months} months "
+                    f"({career_summary.format_korean()})"
+                )
+
+            # 학력 졸업 상태 판별
+            educations = analyzed_data.get("educations", [])
+            for edu in educations:
+                # 종료일에서 졸업 상태 자동 판별
+                end_date = edu.get("end_date") or edu.get("end") or edu.get("graduation_date")
+                explicit_status = edu.get("status") or edu.get("graduation_status")
+
+                status = determine_graduation_status(
+                    end_date_text=end_date,
+                    explicit_status=explicit_status
+                )
+                edu["graduation_status"] = status.value
+
+                # 학위 수준 판별
+                degree_text = " ".join(filter(None, [
+                    edu.get("school", ""),
+                    edu.get("degree", ""),
+                    edu.get("major", "")
+                ]))
+                degree_level = determine_degree_level(degree_text)
+                edu["degree_level"] = degree_level.value
+
+            if educations:
+                logger.info(f"[Task] Education parsed: {len(educations)} entries")
+
+        except Exception as parse_error:
+            # 파싱 실패해도 전체 처리는 계속
+            logger.warning(f"[Task] Career/Education parsing skipped: {parse_error}")
 
         # ─────────────────────────────────────────────────
         # Step 2: PII 마스킹 + 암호화 (Privacy Agent)
@@ -339,6 +451,7 @@ def process_resume(
 
         # ─────────────────────────────────────────────────
         # Step 4: DB 저장 (candidates + candidate_chunks)
+        # 중복 체크 + 버전 스태킹 포함
         # ─────────────────────────────────────────────────
         save_result: SaveResult = db_service.save_candidate(
             user_id=user_id,
@@ -352,6 +465,7 @@ def process_resume(
             source_file=source_file,
             file_type=file_type,
             analysis_mode=analysis_mode.value,
+            original_data=original_data,  # 중복 체크용 원본 데이터
         )
 
         if not save_result.success or not save_result.candidate_id:
@@ -375,6 +489,42 @@ def process_resume(
                 chunks=embedding_chunks
             )
 
+        # ─────────────────────────────────────────────────
+        # Step 5: Visual Agent (포트폴리오 썸네일 캡처)
+        # PRD: "Playwright URL 스크린샷 + OpenCV 얼굴 블러"
+        # ─────────────────────────────────────────────────
+        portfolio_thumbnail_url = None
+        try:
+            portfolio_url = analyzed_data.get("portfolio_url")
+            if portfolio_url and portfolio_url.startswith(("http://", "https://")):
+                visual_agent = get_visual_agent()
+                thumbnail_result = asyncio.run(
+                    visual_agent.capture_portfolio_thumbnail(portfolio_url)
+                )
+
+                if thumbnail_result.success and thumbnail_result.thumbnail:
+                    # Storage에 썸네일 업로드
+                    uploaded_url = db_service.upload_image_to_storage(
+                        image_bytes=thumbnail_result.thumbnail,
+                        user_id=user_id,
+                        candidate_id=candidate_id,
+                        image_type="portfolio_thumbnail"
+                    )
+                    if uploaded_url:
+                        portfolio_thumbnail_url = uploaded_url
+                        db_service.update_candidate_images(
+                            candidate_id=candidate_id,
+                            portfolio_thumbnail_url=portfolio_thumbnail_url
+                        )
+                        logger.info(f"[Task] Portfolio thumbnail saved: {portfolio_url}")
+                else:
+                    logger.warning(
+                        f"[Task] Portfolio thumbnail failed: {thumbnail_result.error}"
+                    )
+        except Exception as visual_error:
+            # Visual Agent 실패해도 전체 처리는 계속
+            logger.warning(f"[Task] Visual processing skipped: {visual_error}")
+
         # processing_jobs 상태 업데이트
         db_service.update_job_status(
             job_id=job_id,
@@ -390,10 +540,17 @@ def process_resume(
 
         processing_time = int((time.time() - start_time) * 1000)
 
-        logger.info(
+        # 버전 업데이트 정보
+        is_update = save_result.is_update
+        parent_id = save_result.parent_id
+
+        log_msg = (
             f"[Task] process_resume completed: candidate={candidate_id}, "
             f"confidence={analysis_result.confidence_score:.2f}, time={processing_time}ms"
         )
+        if is_update:
+            log_msg += f" (updated from {parent_id})"
+        logger.info(log_msg)
 
         # Webhook 알림
         notify_webhook(job_id, "completed", result={
@@ -402,6 +559,9 @@ def process_resume(
             "chunk_count": chunks_saved,
             "pii_count": pii_count,
             "processing_time_ms": processing_time,
+            "is_update": is_update,
+            "parent_id": parent_id,
+            "portfolio_thumbnail_url": portfolio_thumbnail_url,
         })
 
         return {
@@ -411,6 +571,9 @@ def process_resume(
             "chunks_saved": chunks_saved,
             "pii_count": pii_count,
             "processing_time_ms": processing_time,
+            "is_update": is_update,
+            "parent_id": parent_id,
+            "portfolio_thumbnail_url": portfolio_thumbnail_url,
         }
 
     except Exception as e:

@@ -5,11 +5,14 @@ Worker에서 직접 Supabase에 데이터 저장
 - candidates 테이블 저장
 - candidate_chunks 테이블 + embedding 저장
 - 암호화 필드 저장
+- 중복 체크 + 버전 스태킹
 """
 
+import hashlib
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
+from enum import Enum
 
 from supabase import create_client, Client
 
@@ -19,6 +22,25 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+class DuplicateMatchType(str, Enum):
+    """중복 매칭 타입 (Waterfall 순서)"""
+    PHONE_HASH = "phone_hash"           # 1순위: 전화번호 해시
+    EMAIL_HASH = "email_hash"           # 2순위: 이메일 해시
+    NAME_PHONE_PREFIX = "name_phone"    # 3순위: 이름 + 전화번호 앞4자리
+    NAME_BIRTH = "name_birth"           # 4순위: 이름 + 생년
+    NONE = "none"                       # 매칭 없음
+
+
+@dataclass
+class DuplicateCheckResult:
+    """중복 체크 결과"""
+    is_duplicate: bool
+    match_type: DuplicateMatchType
+    existing_candidate_id: Optional[str] = None
+    existing_candidate_name: Optional[str] = None
+    confidence: float = 0.0  # 매칭 신뢰도
+
+
 @dataclass
 class SaveResult:
     """저장 결과"""
@@ -26,6 +48,8 @@ class SaveResult:
     candidate_id: Optional[str] = None
     chunk_count: int = 0
     error: Optional[str] = None
+    is_update: bool = False  # 기존 후보자 업데이트 여부
+    parent_id: Optional[str] = None  # 이전 버전 ID
 
 
 class DatabaseService:
@@ -35,6 +59,7 @@ class DatabaseService:
     - candidates 테이블에 분석 결과 저장
     - candidate_chunks 테이블에 청크 + 임베딩 저장
     - 암호화/해시 필드 저장
+    - 중복 체크 + 버전 스태킹 (PRD 요구사항)
     """
 
     def __init__(self):
@@ -44,6 +69,232 @@ class DatabaseService:
                 settings.SUPABASE_URL,
                 settings.SUPABASE_SERVICE_KEY
             )
+
+    def _normalize_phone(self, phone: Optional[str]) -> Optional[str]:
+        """전화번호 정규화 (숫자만 추출)"""
+        if not phone:
+            return None
+        import re
+        digits = re.sub(r'\D', '', phone)
+        # 한국 휴대폰: 010으로 시작하는 11자리
+        if len(digits) == 11 and digits.startswith('010'):
+            return digits
+        # 한국 휴대폰 국가코드 포함: 82-10-xxxx-xxxx
+        if len(digits) == 12 and digits.startswith('82'):
+            return '0' + digits[2:]
+        return digits if len(digits) >= 10 else None
+
+    def _get_phone_prefix(self, phone: Optional[str]) -> Optional[str]:
+        """전화번호 앞 4자리 추출 (이름+전화 매칭용)"""
+        normalized = self._normalize_phone(phone)
+        if normalized and len(normalized) >= 7:
+            # 010 제외한 뒷 8자리 중 앞 4자리
+            return normalized[3:7]
+        return None
+
+    def _create_name_phone_hash(self, name: Optional[str], phone: Optional[str]) -> Optional[str]:
+        """이름 + 전화번호 앞4자리 해시 생성"""
+        if not name or not phone:
+            return None
+        phone_prefix = self._get_phone_prefix(phone)
+        if not phone_prefix:
+            return None
+        # 이름 정규화 (공백 제거, 소문자)
+        normalized_name = ''.join(name.split()).lower()
+        combined = f"{normalized_name}:{phone_prefix}"
+        return hashlib.sha256(combined.encode()).hexdigest()
+
+    def _create_name_birth_hash(self, name: Optional[str], birth_year: Optional[int]) -> Optional[str]:
+        """이름 + 생년 해시 생성"""
+        if not name or not birth_year:
+            return None
+        normalized_name = ''.join(name.split()).lower()
+        combined = f"{normalized_name}:{birth_year}"
+        return hashlib.sha256(combined.encode()).hexdigest()
+
+    def check_duplicate(
+        self,
+        user_id: str,
+        phone_hash: Optional[str] = None,
+        email_hash: Optional[str] = None,
+        name: Optional[str] = None,
+        phone: Optional[str] = None,
+        birth_year: Optional[int] = None,
+    ) -> DuplicateCheckResult:
+        """
+        Waterfall 방식 중복 체크
+
+        PRD 요구사항:
+        1순위: 전화번호 해시 매칭
+        2순위: 이메일 해시 매칭
+        3순위: 이름 + 전화번호 앞4자리 매칭
+        4순위: 이름 + 생년 매칭
+
+        Args:
+            user_id: 사용자 ID (같은 사용자 내에서만 중복 체크)
+            phone_hash: 전화번호 SHA-256 해시
+            email_hash: 이메일 SHA-256 해시
+            name: 이름 (마스킹 전 원본)
+            phone: 전화번호 (마스킹 전 원본)
+            birth_year: 생년
+
+        Returns:
+            DuplicateCheckResult
+        """
+        if not self.client:
+            return DuplicateCheckResult(
+                is_duplicate=False,
+                match_type=DuplicateMatchType.NONE,
+                confidence=0.0
+            )
+
+        try:
+            # 1순위: 전화번호 해시
+            if phone_hash:
+                result = self.client.table("candidates").select(
+                    "id, name, is_latest"
+                ).eq("user_id", user_id).eq("phone_hash", phone_hash).eq(
+                    "is_latest", True
+                ).execute()
+
+                if result.data and len(result.data) > 0:
+                    existing = result.data[0]
+                    logger.info(f"Duplicate found by phone_hash: {existing['id']}")
+                    return DuplicateCheckResult(
+                        is_duplicate=True,
+                        match_type=DuplicateMatchType.PHONE_HASH,
+                        existing_candidate_id=existing['id'],
+                        existing_candidate_name=existing.get('name'),
+                        confidence=1.0  # 전화번호 해시는 확실
+                    )
+
+            # 2순위: 이메일 해시
+            if email_hash:
+                result = self.client.table("candidates").select(
+                    "id, name, is_latest"
+                ).eq("user_id", user_id).eq("email_hash", email_hash).eq(
+                    "is_latest", True
+                ).execute()
+
+                if result.data and len(result.data) > 0:
+                    existing = result.data[0]
+                    logger.info(f"Duplicate found by email_hash: {existing['id']}")
+                    return DuplicateCheckResult(
+                        is_duplicate=True,
+                        match_type=DuplicateMatchType.EMAIL_HASH,
+                        existing_candidate_id=existing['id'],
+                        existing_candidate_name=existing.get('name'),
+                        confidence=0.95  # 이메일도 거의 확실
+                    )
+
+            # 3순위: 이름 + 전화번호 앞4자리
+            name_phone_hash = self._create_name_phone_hash(name, phone)
+            if name_phone_hash:
+                # 같은 조합 검색을 위해 모든 후보자 조회 후 비교
+                # (DB에 name_phone_hash 컬럼이 없으므로 런타임 비교)
+                result = self.client.table("candidates").select(
+                    "id, name, phone_masked, is_latest"
+                ).eq("user_id", user_id).eq("is_latest", True).execute()
+
+                if result.data:
+                    for candidate in result.data:
+                        # 마스킹된 전화번호에서 앞부분 추출 (010-1234-****)
+                        masked_phone = candidate.get('phone_masked', '')
+                        cand_name = candidate.get('name', '')
+                        # 전화번호 앞 4자리 추출 (마스킹 패턴: 010-1234-****)
+                        if masked_phone and len(masked_phone) >= 8:
+                            # 010-1234 형태에서 1234 추출
+                            import re
+                            match = re.search(r'010[- ]?(\d{4})', masked_phone)
+                            if match:
+                                cand_prefix = match.group(1)
+                                my_prefix = self._get_phone_prefix(phone)
+                                # 이름 비교 (정규화)
+                                if (cand_prefix == my_prefix and
+                                    cand_name and name and
+                                    ''.join(cand_name.split()).lower() == ''.join(name.split()).lower()):
+                                    logger.info(f"Duplicate found by name+phone prefix: {candidate['id']}")
+                                    return DuplicateCheckResult(
+                                        is_duplicate=True,
+                                        match_type=DuplicateMatchType.NAME_PHONE_PREFIX,
+                                        existing_candidate_id=candidate['id'],
+                                        existing_candidate_name=cand_name,
+                                        confidence=0.85
+                                    )
+
+            # 4순위: 이름 + 생년
+            if name and birth_year:
+                # 이름과 생년이 같은 후보자 검색
+                normalized_name = ''.join(name.split()).lower()
+                result = self.client.table("candidates").select(
+                    "id, name, birth_year, is_latest"
+                ).eq("user_id", user_id).eq("birth_year", birth_year).eq(
+                    "is_latest", True
+                ).execute()
+
+                if result.data:
+                    for candidate in result.data:
+                        cand_name = candidate.get('name', '')
+                        if cand_name and ''.join(cand_name.split()).lower() == normalized_name:
+                            logger.info(f"Duplicate found by name+birth_year: {candidate['id']}")
+                            return DuplicateCheckResult(
+                                is_duplicate=True,
+                                match_type=DuplicateMatchType.NAME_BIRTH,
+                                existing_candidate_id=candidate['id'],
+                                existing_candidate_name=cand_name,
+                                confidence=0.7  # 동명이인 가능성
+                            )
+
+            # 중복 없음
+            return DuplicateCheckResult(
+                is_duplicate=False,
+                match_type=DuplicateMatchType.NONE,
+                confidence=0.0
+            )
+
+        except Exception as e:
+            logger.error(f"Duplicate check failed: {e}")
+            # 오류 시 중복 없음으로 처리 (false positive 방지)
+            return DuplicateCheckResult(
+                is_duplicate=False,
+                match_type=DuplicateMatchType.NONE,
+                confidence=0.0
+            )
+
+    def _update_version_stacking(
+        self,
+        existing_candidate_id: str,
+        match_type: DuplicateMatchType,
+    ) -> bool:
+        """
+        버전 스태킹: 기존 후보자를 이전 버전으로 설정
+
+        Args:
+            existing_candidate_id: 기존 후보자 ID
+            match_type: 매칭 타입 (로그용)
+
+        Returns:
+            성공 여부
+        """
+        if not self.client:
+            return False
+
+        try:
+            # 기존 후보자의 is_latest를 False로 업데이트
+            self.client.table("candidates").update({
+                "is_latest": False,
+                "updated_at": "now()"
+            }).eq("id", existing_candidate_id).execute()
+
+            logger.info(
+                f"Version stacking: {existing_candidate_id} marked as old version "
+                f"(match_type: {match_type.value})"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Version stacking failed: {e}")
+            return False
 
     def save_candidate(
         self,
@@ -58,9 +309,10 @@ class DatabaseService:
         source_file: str,
         file_type: str,
         analysis_mode: str,
+        original_data: Optional[Dict[str, Any]] = None,  # 마스킹 전 원본 데이터 (중복 체크용)
     ) -> SaveResult:
         """
-        candidates 테이블에 저장
+        candidates 테이블에 저장 (중복 체크 + 버전 스태킹 포함)
 
         Args:
             user_id: 사용자 ID
@@ -74,6 +326,7 @@ class DatabaseService:
             source_file: 원본 파일 경로
             file_type: 파일 타입
             analysis_mode: 분석 모드 (phase_1/phase_2)
+            original_data: 마스킹 전 원본 데이터 (중복 체크용)
 
         Returns:
             SaveResult with candidate_id
@@ -85,7 +338,39 @@ class DatabaseService:
             )
 
         try:
-            # candidates 테이블 데이터 구성
+            # ─────────────────────────────────────────────────
+            # Step 0: 중복 체크 (Waterfall)
+            # ─────────────────────────────────────────────────
+            parent_id: Optional[str] = None
+            is_update = False
+
+            # 중복 체크에 필요한 데이터 추출
+            orig = original_data or analyzed_data
+            dup_result = self.check_duplicate(
+                user_id=user_id,
+                phone_hash=hash_store.get("phone"),
+                email_hash=hash_store.get("email"),
+                name=orig.get("name"),
+                phone=orig.get("phone"),
+                birth_year=orig.get("birth_year"),
+            )
+
+            if dup_result.is_duplicate and dup_result.existing_candidate_id:
+                # 버전 스태킹: 기존 레코드를 이전 버전으로 설정
+                self._update_version_stacking(
+                    dup_result.existing_candidate_id,
+                    dup_result.match_type
+                )
+                parent_id = dup_result.existing_candidate_id
+                is_update = True
+                logger.info(
+                    f"Duplicate detected: updating {dup_result.existing_candidate_name} "
+                    f"(match: {dup_result.match_type.value}, confidence: {dup_result.confidence})"
+                )
+
+            # ─────────────────────────────────────────────────
+            # Step 1: candidates 테이블 데이터 구성
+            # ─────────────────────────────────────────────────
             candidate_record = {
                 "user_id": user_id,
                 # 기본 정보 (마스킹된 값)
@@ -136,6 +421,9 @@ class DatabaseService:
                 # 상태 (candidate_status enum: processing, completed, failed, rejected)
                 "status": "completed",
                 "analysis_mode": analysis_mode,
+                # 버전 스태킹 (중복 체크 결과)
+                "is_latest": True,  # 새 레코드는 항상 최신
+                "parent_id": parent_id,  # 이전 버전 ID (없으면 None)
             }
 
             # None 값 제거 (Supabase에서 에러 방지)
@@ -148,10 +436,15 @@ class DatabaseService:
 
             if result.data and len(result.data) > 0:
                 candidate_id = result.data[0].get("id")
-                logger.info(f"Saved candidate: {candidate_id}")
+                log_msg = f"Saved candidate: {candidate_id}"
+                if is_update:
+                    log_msg += f" (updated from {parent_id})"
+                logger.info(log_msg)
                 return SaveResult(
                     success=True,
-                    candidate_id=candidate_id
+                    candidate_id=candidate_id,
+                    is_update=is_update,
+                    parent_id=parent_id
                 )
             else:
                 return SaveResult(
@@ -397,6 +690,95 @@ class DatabaseService:
 
         except Exception as e:
             logger.error(f"Failed to check credit: {e}")
+            return False
+
+    def upload_image_to_storage(
+        self,
+        image_bytes: bytes,
+        user_id: str,
+        candidate_id: str,
+        image_type: str,  # "photo" or "portfolio_thumbnail"
+    ) -> Optional[str]:
+        """
+        Supabase Storage에 이미지 업로드
+
+        Args:
+            image_bytes: 이미지 바이트
+            user_id: 사용자 ID
+            candidate_id: 후보자 ID
+            image_type: 이미지 타입 ("photo", "portfolio_thumbnail")
+
+        Returns:
+            업로드된 이미지의 public URL 또는 None
+        """
+        if not self.client or not image_bytes:
+            return None
+
+        try:
+            # 파일 경로 생성
+            extension = "jpg" if image_type == "photo" else "png"
+            file_path = f"candidates/{user_id}/{candidate_id}/{image_type}.{extension}"
+
+            # Storage 업로드
+            content_type = f"image/{extension}"
+            result = self.client.storage.from_("resumes").upload(
+                file_path,
+                image_bytes,
+                file_options={"content-type": content_type, "upsert": "true"}
+            )
+
+            # Public URL 생성
+            public_url = self.client.storage.from_("resumes").get_public_url(file_path)
+            logger.info(f"Uploaded {image_type} for candidate {candidate_id}")
+            return public_url
+
+        except Exception as e:
+            logger.error(f"Failed to upload image: {e}")
+            return None
+
+    def update_candidate_images(
+        self,
+        candidate_id: str,
+        photo_url: Optional[str] = None,
+        portfolio_thumbnail_url: Optional[str] = None,
+    ) -> bool:
+        """
+        후보자의 이미지 URL 업데이트
+
+        Args:
+            candidate_id: 후보자 ID
+            photo_url: 프로필 사진 URL
+            portfolio_thumbnail_url: 포트폴리오 썸네일 URL
+
+        Returns:
+            성공 여부
+        """
+        if not self.client:
+            return False
+
+        try:
+            update_data: Dict[str, Any] = {}
+
+            if photo_url:
+                update_data["photo_url"] = photo_url
+            if portfolio_thumbnail_url:
+                update_data["portfolio_thumbnail_url"] = portfolio_thumbnail_url
+
+            if not update_data:
+                return True  # 업데이트할 내용 없음
+
+            self.client.table("candidates").update(update_data).eq(
+                "id", candidate_id
+            ).execute()
+
+            logger.info(
+                f"Updated images for candidate {candidate_id}: "
+                f"photo={bool(photo_url)}, thumbnail={bool(portfolio_thumbnail_url)}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update candidate images: {e}")
             return False
 
 
