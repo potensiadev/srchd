@@ -59,9 +59,17 @@ export async function getUserProfile() {
     return null;
   }
 
+  // 필요한 사용자 프로필 컬럼만 선택
+  const USER_PROFILE_COLUMNS = `
+    id, email, name, plan,
+    credits, credits_used_this_month, credits_reserved,
+    consents_completed, company, role,
+    created_at, updated_at
+  `;
+
   const { data, error } = await supabase
     .from("users")
-    .select("*")
+    .select(USER_PROFILE_COLUMNS)
     .eq("id", user.id)
     .single();
 

@@ -16,6 +16,7 @@ import {
   apiInternalError,
   apiFileValidationError,
 } from "@/lib/api-response";
+import { createRequestLogger } from "@/lib/logger";
 
 // App Router Route Segment Config: Allow large file uploads
 export const runtime = "nodejs";
@@ -116,6 +117,9 @@ interface ChunkSummary {
 }
 
 export async function POST(request: NextRequest) {
+  // 요청별 구조화된 로거 생성
+  const log = createRequestLogger();
+
   try {
     // 레이트 제한 체크 (인증 전 IP 기반)
     const rateLimitResponse = withRateLimit(request, "upload");
@@ -143,7 +147,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (userError || !userData) {
-      console.error("[Upload] User not found:", userError, "email:", user.email);
+      log.error("User not found", userError, { email: user.email, action: "upload" });
       return apiNotFound("사용자를 찾을 수 없습니다.");
     }
 
@@ -196,7 +200,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (jobError || !job) {
-      console.error("Failed to create job:", jobError);
+      log.error("Failed to create job", jobError, { userId: publicUserId });
       return apiInternalError("작업 생성에 실패했습니다.");
     }
 
@@ -222,7 +226,7 @@ export async function POST(request: NextRequest) {
         .update({ status: "failed", error_message: uploadError.message })
         .eq("id", jobData.id);
 
-      console.error("Storage upload failed:", uploadError);
+      log.error("Storage upload failed", uploadError, { jobId: jobData.id });
       return apiInternalError("파일 업로드에 실패했습니다.");
     }
 
@@ -244,7 +248,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (candidateError || !candidate) {
-      console.error("Failed to create candidate:", candidateError);
+      log.warn("Failed to create candidate (non-blocking)", { jobId: jobData.id, error: candidateError?.message });
       // 실패해도 진행은 가능하지만, UI 즉시 반영은 안됨. 로그만 남김.
     }
 
@@ -276,7 +280,7 @@ export async function POST(request: NextRequest) {
 
     // 비동기 호출: 재시도 로직 포함, 실패 시 job 상태 업데이트
     callWorkerPipelineAsync(WORKER_URL, workerPayload, async (error, attempts) => {
-      console.error(`[Upload] Worker pipeline failed after ${attempts} attempts: ${error}`);
+      log.error(`Worker pipeline failed after ${attempts} attempts`, new Error(error), { jobId: jobData.id, attempts });
       // 모든 재시도 실패 시 job 상태를 failed로 업데이트
       await supabaseAny
         .from("processing_jobs")
@@ -302,7 +306,7 @@ export async function POST(request: NextRequest) {
       message: "파일이 업로드되었습니다. 백그라운드에서 분석 중입니다.",
     });
   } catch (error) {
-    console.error("Upload error:", error);
+    log.error("Upload failed", error, { action: "upload" });
     return apiInternalError();
   }
 }
@@ -321,11 +325,18 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get("jobId");
 
+  // processing_jobs 조회에 필요한 컬럼
+  const JOB_COLUMNS = `
+    id, status, file_name, file_size, file_type,
+    candidate_id, confidence_score, chunk_count, pii_count,
+    error_code, error_message, created_at, updated_at
+  `;
+
   if (jobId) {
     // 특정 job 조회
     const { data, error } = await supabaseAny
       .from("processing_jobs")
-      .select("*")
+      .select(JOB_COLUMNS)
       .eq("id", jobId)
       .eq("user_id", user.id)
       .single();
@@ -340,7 +351,7 @@ export async function GET(request: NextRequest) {
   // 최근 job 목록 조회
   const { data, error } = await supabaseAny
     .from("processing_jobs")
-    .select("*")
+    .select(JOB_COLUMNS)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(20);

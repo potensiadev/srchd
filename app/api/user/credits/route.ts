@@ -13,6 +13,7 @@ import {
   apiNotFound,
   apiInternalError,
 } from "@/lib/api-response";
+import { PLAN_CONFIG } from "@/lib/file-validation";
 
 interface CreditsResponse {
   credits: number;           // 추가 구매 크레딧
@@ -24,12 +25,8 @@ interface CreditsResponse {
   wasReset?: boolean;        // 이번 요청에서 리셋되었는지
 }
 
-// 플랜별 기본 크레딧 (fallback용)
-const PLAN_BASE_CREDITS: Record<PlanType, number> = {
-  starter: 50,
-  pro: 150,
-  enterprise: 300,
-};
+// 중앙화된 플랜 설정 사용
+const PLAN_BASE_CREDITS = PLAN_CONFIG.BASE_CREDITS;
 
 export async function GET() {
   try {

@@ -7,6 +7,8 @@ import {
   apiInternalError,
   apiRateLimitExceeded,
 } from "@/lib/api-response";
+import { PLAN_CONFIG } from "@/lib/file-validation";
+import { type PlanType } from "@/types/auth";
 
 /**
  * Blind Export API
@@ -17,12 +19,21 @@ import {
  * - 내보내기 기록 저장
  */
 
-// 플랜별 월 내보내기 제한
-const PLAN_LIMITS: Record<string, number> = {
-  starter: 30,
-  pro: Infinity,
-  enterprise: Infinity,
-};
+// 중앙화된 플랜 설정 사용
+const PLAN_LIMITS = PLAN_CONFIG.EXPORT_LIMITS;
+
+// 내보내기에 필요한 후보자 컬럼
+const EXPORT_CANDIDATE_COLUMNS = `
+  id, user_id, name, last_position, last_company, exp_years, skills,
+  photo_url, summary, confidence_score, birth_year, gender,
+  phone_masked, email_masked, address_masked,
+  phone_encrypted, email_encrypted, address_encrypted,
+  phone_hash, email_hash,
+  education_level, education_school, education_major, location_city,
+  careers, projects, education, strengths,
+  portfolio_thumbnail_url, portfolio_url, github_url, linkedin_url,
+  created_at
+`;
 
 interface ExportRequest {
   format?: "pdf" | "docx";
@@ -61,8 +72,8 @@ export async function POST(
       return apiNotFound("사용자를 찾을 수 없습니다.");
     }
 
-    const plan = (userData as { plan: string }).plan || "starter";
-    const monthlyLimit = PLAN_LIMITS[plan] || 30;
+    const plan = ((userData as { plan: string }).plan || "starter") as PlanType;
+    const monthlyLimit = PLAN_LIMITS[plan] ?? 30;
 
     // 월별 내보내기 횟수 체크
     if (monthlyLimit !== Infinity) {
@@ -82,7 +93,7 @@ export async function POST(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: candidate, error: candidateError } = await (supabase as any)
       .from("candidates")
-      .select("*")
+      .select(EXPORT_CANDIDATE_COLUMNS)
       .eq("id", candidateId)
       .eq("user_id", user.id)
       .single();
@@ -177,8 +188,8 @@ export async function GET(
       .eq("id", user.id)
       .single();
 
-    const plan = ((userData as { plan?: string } | null)?.plan) || "starter";
-    const monthlyLimit = PLAN_LIMITS[plan] || 30;
+    const plan = (((userData as { plan?: string } | null)?.plan) || "starter") as PlanType;
+    const monthlyLimit = PLAN_LIMITS[plan] ?? 30;
 
     // 월별 사용량 조회
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

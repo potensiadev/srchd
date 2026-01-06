@@ -93,6 +93,19 @@ function toCandidateDetail(row: Record<string, unknown>): CandidateDetail {
   };
 }
 
+// 후보자 상세 조회에 필요한 컬럼
+const CANDIDATE_DETAIL_COLUMNS = `
+  id, name, last_position, last_company, exp_years, skills,
+  photo_url, summary, confidence_score, risk_level, requires_review,
+  created_at, updated_at, birth_year, gender,
+  phone, phone_masked, email, email_masked, address, address_masked,
+  education_level, education_school, education_major, location_city,
+  careers, projects, education, strengths,
+  portfolio_thumbnail_url, portfolio_url, github_url, linkedin_url,
+  version, parent_id, is_latest, analysis_mode, warnings, field_confidence,
+  source_file, file_type
+`;
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -107,7 +120,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // 후보자 상세 조회 (RLS가 user_id 필터 자동 적용)
     const { data, error } = await supabase
       .from("candidates")
-      .select("*")
+      .select(CANDIDATE_DETAIL_COLUMNS)
       .eq("id", id)
       .single();
 
@@ -201,7 +214,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .from("candidates")
       .update(updateData)
       .eq("id", id)
-      .select("*")
+      .select(CANDIDATE_DETAIL_COLUMNS)
       .single();
 
     if (error) {

@@ -7,6 +7,8 @@
  * - 파일 크기 검증
  */
 
+import { PLANS, type PlanType } from "@/types/auth";
+
 // ─────────────────────────────────────────────────
 // 설정 상수
 // ─────────────────────────────────────────────────
@@ -16,17 +18,14 @@ export const FILE_CONFIG = {
   MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
 } as const;
 
+// PLANS에서 파생된 플랜 설정 (단일 소스)
 export const PLAN_CONFIG = {
-  BASE_CREDITS: {
-    starter: 50,
-    pro: 150,
-    enterprise: 300,
-  } as const,
-  EXPORT_LIMITS: {
-    starter: 30,
-    pro: Infinity,
-    enterprise: Infinity,
-  } as const,
+  BASE_CREDITS: Object.fromEntries(
+    Object.entries(PLANS).map(([plan, config]) => [plan, config.baseCredits])
+  ) as Record<PlanType, number>,
+  EXPORT_LIMITS: Object.fromEntries(
+    Object.entries(PLANS).map(([plan, config]) => [plan, config.blindExportLimit])
+  ) as Record<PlanType, number>,
 } as const;
 
 // ─────────────────────────────────────────────────

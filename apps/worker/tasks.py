@@ -27,6 +27,7 @@ from utils.career_calculator import calculate_total_experience, format_experienc
 from utils.education_parser import determine_graduation_status, determine_degree_level
 from services.embedding_service import get_embedding_service, EmbeddingResult
 from services.database_service import get_database_service, SaveResult
+from services.credit_service import get_credit_service, CreditResult
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,11 +39,26 @@ pdf_parser = PDFParser()
 docx_parser = DOCXParser()
 
 
-def notify_webhook(job_id: str, status: str, result: Optional[dict] = None, error: Optional[str] = None):
+def notify_webhook(
+    job_id: str,
+    status: str,
+    result: Optional[dict] = None,
+    error: Optional[str] = None,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+):
     """
-    Webhook으로 작업 완료 알림 전송 (동기)
+    Webhook으로 작업 완료 알림 전송 (동기, 지수 백오프 재시도)
 
     Next.js API의 /api/webhooks/worker 로 전송
+
+    Args:
+        job_id: 작업 ID
+        status: 작업 상태
+        result: 결과 데이터
+        error: 에러 메시지
+        max_retries: 최대 재시도 횟수
+        base_delay: 기본 대기 시간 (초)
     """
     webhook_url = settings.WEBHOOK_URL
     if not webhook_url:
@@ -55,22 +71,71 @@ def notify_webhook(job_id: str, status: str, result: Optional[dict] = None, erro
         "error": error,
     }
 
-    try:
-        with httpx.Client() as client:
-            response = client.post(
-                webhook_url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Webhook-Secret": settings.WEBHOOK_SECRET,
-                },
-                timeout=10,
-            )
+    last_error = None
 
-            if response.status_code != 200:
-                logger.warning(f"Webhook notification failed: {response.status_code}")
+    for attempt in range(max_retries + 1):
+        try:
+            with httpx.Client() as client:
+                response = client.post(
+                    webhook_url,
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Webhook-Secret": settings.WEBHOOK_SECRET,
+                    },
+                    timeout=10,
+                )
+
+                if response.status_code == 200:
+                    if attempt > 0:
+                        logger.info(f"Webhook succeeded after {attempt + 1} attempts: job={job_id}")
+                    return  # 성공
+                else:
+                    last_error = f"HTTP {response.status_code}"
+                    logger.warning(f"Webhook failed (attempt {attempt + 1}): {last_error}")
+
+        except httpx.TimeoutException:
+            last_error = "Timeout"
+            logger.warning(f"Webhook timeout (attempt {attempt + 1}): job={job_id}")
+        except httpx.ConnectError:
+            last_error = "Connection refused"
+            logger.warning(f"Webhook connection failed (attempt {attempt + 1}): job={job_id}")
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Webhook error (attempt {attempt + 1}): {e}")
+
+        # 마지막 시도가 아니면 지수 백오프 대기
+        if attempt < max_retries:
+            delay = base_delay * (2 ** attempt)  # 1s, 2s, 4s...
+            time.sleep(delay)
+
+    # 모든 재시도 실패 시 Dead Letter Queue에 저장
+    _save_failed_webhook(job_id, status, payload, last_error)
+
+
+def _save_failed_webhook(job_id: str, status: str, payload: dict, error: str):
+    """
+    실패한 Webhook을 DB에 저장 (Dead Letter Queue)
+
+    나중에 수동 재처리 또는 배치 작업으로 재시도 가능
+    """
+    try:
+        from supabase import create_client
+        client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+
+        client.table("webhook_failures").insert({
+            "job_id": job_id,
+            "status": status,
+            "payload": payload,
+            "error": error,
+            "retry_count": 0,
+        }).execute()
+
+        logger.error(f"Webhook failed permanently, saved to DLQ: job={job_id}, error={error}")
+
     except Exception as e:
-        logger.error(f"Webhook notification error: {e}")
+        # DLQ 저장도 실패하면 로그만 남김
+        logger.error(f"Failed to save to DLQ: job={job_id}, error={e}")
 
 
 def download_file_from_storage(file_path: str) -> bytes:
@@ -563,8 +628,8 @@ def process_resume(
             pii_count=pii_count,
         )
 
-        # 크레딧 차감
-        db_service.deduct_credit(user_id, candidate_id)
+        # 크레딧 차감은 full_pipeline에서 reserve/confirm 패턴으로 처리
+        # (기존 deduct_credit 호출 제거)
 
         processing_time = int((time.time() - start_time) * 1000)
 
@@ -631,6 +696,11 @@ def full_pipeline(
 
     Next.js API에서 호출하는 주요 작업
 
+    크레딧 예약 패턴:
+    1. 시작 시 크레딧 예약 (reserve)
+    2. 성공 시 크레딧 확정 (confirm)
+    3. 실패 시 크레딧 해제 (release)
+
     Args:
         job_id: processing_jobs ID
         user_id: 사용자 ID
@@ -644,11 +714,17 @@ def full_pipeline(
     logger.info(f"[Task] full_pipeline started: job={job_id}, file={file_name}")
 
     db_service = get_database_service()
+    credit_service = get_credit_service()
+    reservation_id = None
 
     try:
-        # 크레딧 확인
-        if not db_service.check_credit_available(user_id):
-            error_msg = "크레딧이 부족합니다"
+        # ─────────────────────────────────────────────────
+        # Step 0: 크레딧 예약 (처리 시작 전)
+        # ─────────────────────────────────────────────────
+        reserve_result = credit_service.reserve(user_id=user_id, job_id=job_id)
+
+        if not reserve_result.success:
+            error_msg = reserve_result.error or "크레딧이 부족합니다"
             db_service.update_job_status(
                 job_id,
                 status="failed",
@@ -657,6 +733,9 @@ def full_pipeline(
             )
             notify_webhook(job_id, "failed", error=error_msg)
             return {"success": False, "error": error_msg}
+
+        reservation_id = reserve_result.reservation_id
+        logger.info(f"[Task] Credit reserved: reservation={reservation_id}")
 
         # Step 1: 파일 파싱
         parse_result = parse_file(
@@ -667,9 +746,16 @@ def full_pipeline(
         )
 
         if not parse_result.get("success"):
+            # 파싱 실패 시 크레딧 해제
+            credit_service.release(
+                user_id=user_id,
+                job_id=job_id,
+                reservation_id=reservation_id,
+                reason=f"파싱 실패: {parse_result.get('error', 'unknown')}"
+            )
             return parse_result
 
-        # Step 2: 이력서 처리
+        # Step 2: 이력서 처리 (크레딧 예약 ID 전달)
         process_result = process_resume(
             job_id=job_id,
             user_id=user_id,
@@ -681,10 +767,47 @@ def full_pipeline(
             candidate_id=candidate_id,
         )
 
+        # 처리 결과에 따라 크레딧 확정/해제
+        if process_result.get("success"):
+            credit_service.confirm(
+                user_id=user_id,
+                job_id=job_id,
+                reservation_id=reservation_id,
+                candidate_id=process_result.get("candidate_id")
+            )
+        else:
+            # 처리 실패 시 크레딧 해제 (rejected 상태 포함)
+            error_code = process_result.get("error_code", "")
+            if error_code != "MULTI_IDENTITY":  # 다중 신원은 이미 rejected로 처리됨
+                credit_service.release(
+                    user_id=user_id,
+                    job_id=job_id,
+                    reservation_id=reservation_id,
+                    reason=f"처리 실패: {process_result.get('error', 'unknown')}"
+                )
+            else:
+                # Multi-identity rejection: 크레딧 해제
+                credit_service.release(
+                    user_id=user_id,
+                    job_id=job_id,
+                    reservation_id=reservation_id,
+                    reason="다중 신원 감지로 거부"
+                )
+
         return process_result
 
     except Exception as e:
         logger.error(f"[Task] full_pipeline error: {e}", exc_info=True)
+
+        # 예외 발생 시 크레딧 해제
+        if reservation_id:
+            credit_service.release(
+                user_id=user_id,
+                job_id=job_id,
+                reservation_id=reservation_id,
+                reason=f"예외 발생: {str(e)}"
+            )
+
         db_service.update_job_status(
             job_id,
             status="failed",

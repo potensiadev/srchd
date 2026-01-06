@@ -6,6 +6,7 @@ Worker에서 직접 Supabase에 데이터 저장
 - candidate_chunks 테이블 + embedding 저장
 - 암호화 필드 저장
 - 중복 체크 + 버전 스태킹
+- 트랜잭션 롤백 패턴 (Compensating Transaction)
 """
 
 import hashlib
@@ -13,6 +14,7 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+from contextlib import contextmanager
 
 from supabase import create_client, Client
 
@@ -50,6 +52,79 @@ class SaveResult:
     error: Optional[str] = None
     is_update: bool = False  # 기존 후보자 업데이트 여부
     parent_id: Optional[str] = None  # 이전 버전 ID
+
+
+@dataclass
+class RollbackAction:
+    """롤백 액션 정보"""
+    table: str
+    action: str  # "delete" | "restore"
+    record_id: str
+    previous_data: Optional[Dict[str, Any]] = None
+
+
+class SaveContext:
+    """
+    트랜잭션 컨텍스트 (Compensating Transaction 패턴)
+
+    Supabase는 네이티브 트랜잭션을 지원하지 않으므로,
+    성공한 작업을 추적하고 실패 시 롤백 액션을 실행합니다.
+
+    Usage:
+        ctx = SaveContext(client)
+        try:
+            ctx.track_insert("candidates", candidate_id)
+            ctx.track_update("candidates", old_candidate_id, old_data)
+            # ... 작업 수행
+            ctx.commit()  # 성공 시 롤백 액션 클리어
+        except Exception:
+            ctx.rollback()  # 실패 시 보상 트랜잭션 실행
+    """
+
+    def __init__(self, client: Client):
+        self.client = client
+        self.actions: List[RollbackAction] = []
+        self.committed = False
+
+    def track_insert(self, table: str, record_id: str) -> None:
+        """INSERT 작업 추적 (롤백 시 DELETE)"""
+        self.actions.append(RollbackAction(
+            table=table,
+            action="delete",
+            record_id=record_id
+        ))
+
+    def track_update(self, table: str, record_id: str, previous_data: Dict[str, Any]) -> None:
+        """UPDATE 작업 추적 (롤백 시 이전 데이터 복원)"""
+        self.actions.append(RollbackAction(
+            table=table,
+            action="restore",
+            record_id=record_id,
+            previous_data=previous_data
+        ))
+
+    def commit(self) -> None:
+        """트랜잭션 성공 - 롤백 액션 클리어"""
+        self.actions.clear()
+        self.committed = True
+
+    def rollback(self) -> None:
+        """실패 시 보상 트랜잭션 실행 (역순으로)"""
+        if self.committed:
+            return
+
+        for action in reversed(self.actions):
+            try:
+                if action.action == "delete":
+                    self.client.table(action.table).delete().eq("id", action.record_id).execute()
+                    logger.info(f"[Rollback] Deleted {action.table}:{action.record_id}")
+                elif action.action == "restore" and action.previous_data:
+                    self.client.table(action.table).update(action.previous_data).eq("id", action.record_id).execute()
+                    logger.info(f"[Rollback] Restored {action.table}:{action.record_id}")
+            except Exception as e:
+                logger.error(f"[Rollback] Failed to rollback {action.table}:{action.record_id}: {e}")
+
+        self.actions.clear()
 
 
 class DatabaseService:
@@ -310,6 +385,7 @@ class DatabaseService:
         file_type: str,
         analysis_mode: str,
         original_data: Optional[Dict[str, Any]] = None,  # 마스킹 전 원본 데이터 (중복 체크용)
+        candidate_id: Optional[str] = None,  # 미리 생성된 candidate ID (업로드 시 생성됨)
     ) -> SaveResult:
         """
         candidates 테이블에 저장 (중복 체크 + 버전 스태킹 포함)
@@ -337,6 +413,9 @@ class DatabaseService:
                 error="Supabase client not initialized"
             )
 
+        # 트랜잭션 컨텍스트 생성
+        ctx = SaveContext(self.client)
+
         try:
             # ─────────────────────────────────────────────────
             # Step 0: 중복 체크 (Waterfall)
@@ -356,6 +435,18 @@ class DatabaseService:
             )
 
             if dup_result.is_duplicate and dup_result.existing_candidate_id:
+                # 버전 스태킹 전 기존 데이터 백업 (롤백용)
+                existing_data = self.client.table("candidates").select(
+                    "is_latest, updated_at"
+                ).eq("id", dup_result.existing_candidate_id).single().execute()
+
+                if existing_data.data:
+                    ctx.track_update(
+                        "candidates",
+                        dup_result.existing_candidate_id,
+                        existing_data.data
+                    )
+
                 # 버전 스태킹: 기존 레코드를 이전 버전으로 설정
                 self._update_version_stacking(
                     dup_result.existing_candidate_id,
@@ -432,28 +523,46 @@ class DatabaseService:
                 if v is not None
             }
 
-            result = self.client.table("candidates").insert(candidate_record).execute()
-
-            if result.data and len(result.data) > 0:
-                candidate_id = result.data[0].get("id")
-                log_msg = f"Saved candidate: {candidate_id}"
-                if is_update:
-                    log_msg += f" (updated from {parent_id})"
-                logger.info(log_msg)
-                return SaveResult(
-                    success=True,
-                    candidate_id=candidate_id,
-                    is_update=is_update,
-                    parent_id=parent_id
-                )
+            # candidate_id가 미리 제공된 경우 (업로드 시 생성됨) UPDATE, 아니면 INSERT
+            if candidate_id:
+                # 기존 레코드 업데이트
+                result = self.client.table("candidates").update(
+                    candidate_record
+                ).eq("id", candidate_id).execute()
+                final_candidate_id = candidate_id
             else:
-                return SaveResult(
-                    success=False,
-                    error="No data returned from insert"
-                )
+                # 새 레코드 삽입
+                result = self.client.table("candidates").insert(candidate_record).execute()
+                if result.data and len(result.data) > 0:
+                    final_candidate_id = result.data[0].get("id")
+                    # 새로 생성된 레코드 추적 (롤백 시 삭제)
+                    ctx.track_insert("candidates", final_candidate_id)
+                else:
+                    ctx.rollback()
+                    return SaveResult(
+                        success=False,
+                        error="No data returned from insert"
+                    )
+
+            log_msg = f"Saved candidate: {final_candidate_id}"
+            if is_update:
+                log_msg += f" (updated from {parent_id})"
+            logger.info(log_msg)
+
+            # 트랜잭션 성공
+            ctx.commit()
+
+            return SaveResult(
+                success=True,
+                candidate_id=final_candidate_id,
+                is_update=is_update,
+                parent_id=parent_id
+            )
 
         except Exception as e:
             logger.error(f"Failed to save candidate: {e}")
+            # 실패 시 롤백
+            ctx.rollback()
             return SaveResult(
                 success=False,
                 error=str(e)
@@ -463,13 +572,15 @@ class DatabaseService:
         self,
         candidate_id: str,
         chunks: List[Any],  # List[Chunk] from embedding_service
+        batch_size: int = 50,  # 배치 크기
     ) -> int:
         """
-        candidate_chunks 테이블에 청크 + 임베딩 저장
+        candidate_chunks 테이블에 청크 + 임베딩 저장 (배치 삽입)
 
         Args:
             candidate_id: 후보자 ID
             chunks: Chunk 객체 리스트 (embedding 포함)
+            batch_size: 한 번에 삽입할 청크 수
 
         Returns:
             저장된 청크 수
@@ -478,15 +589,21 @@ class DatabaseService:
             logger.error("Supabase client not initialized")
             return 0
 
+        if not chunks:
+            return 0
+
         saved_count = 0
+        saved_chunk_ids: List[str] = []
 
         try:
+            # 청크 레코드 리스트 생성
+            chunk_records = []
             for chunk in chunks:
                 chunk_record = {
                     "candidate_id": candidate_id,
                     "chunk_type": chunk.chunk_type.value if hasattr(chunk.chunk_type, 'value') else chunk.chunk_type,
                     "chunk_index": chunk.chunk_index,
-                    "content": chunk.content,  # 전체 내용
+                    "content": chunk.content,
                     "metadata": chunk.metadata if hasattr(chunk, 'metadata') else {},
                 }
 
@@ -494,17 +611,33 @@ class DatabaseService:
                 if hasattr(chunk, 'embedding') and chunk.embedding is not None:
                     chunk_record["embedding"] = chunk.embedding
 
-                result = self.client.table("candidate_chunks").insert(chunk_record).execute()
+                chunk_records.append(chunk_record)
+
+            # 배치 삽입
+            for i in range(0, len(chunk_records), batch_size):
+                batch = chunk_records[i:i + batch_size]
+                result = self.client.table("candidate_chunks").insert(batch).execute()
 
                 if result.data:
-                    saved_count += 1
+                    saved_count += len(result.data)
+                    # 저장된 청크 ID 추적 (롤백용)
+                    for item in result.data:
+                        if item.get("id"):
+                            saved_chunk_ids.append(item["id"])
 
             logger.info(f"Saved {saved_count}/{len(chunks)} chunks for candidate {candidate_id}")
             return saved_count
 
         except Exception as e:
             logger.error(f"Failed to save chunks: {e}")
-            return saved_count
+            # 실패 시 저장된 청크 롤백
+            if saved_chunk_ids:
+                try:
+                    self.client.table("candidate_chunks").delete().in_("id", saved_chunk_ids).execute()
+                    logger.info(f"[Rollback] Deleted {len(saved_chunk_ids)} chunks")
+                except Exception as rollback_error:
+                    logger.error(f"[Rollback] Failed to delete chunks: {rollback_error}")
+            return 0
 
     def update_job_status(
         self,
