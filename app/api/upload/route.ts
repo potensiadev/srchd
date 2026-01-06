@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  validateFile,
+  calculateRemainingCredits,
+  PLAN_CONFIG,
+  type UserCreditsInfo,
+} from "@/lib/file-validation";
+import { withRateLimit } from "@/lib/rate-limit";
+import { callWorkerPipelineAsync } from "@/lib/fetch-retry";
 
 // App Router Route Segment Config: Allow large file uploads
 export const runtime = "nodejs";
@@ -11,12 +19,6 @@ export const dynamic = "force-dynamic";
 
 // Worker URL (환경 변수로 설정)
 const WORKER_URL = process.env.WORKER_URL || "http://localhost:8000";
-
-// 지원하는 파일 확장자
-const ALLOWED_EXTENSIONS = [".hwp", ".hwpx", ".doc", ".docx", ".pdf"];
-
-// 최대 파일 크기 (50MB)
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 interface UploadResponse {
   success: boolean;
@@ -105,8 +107,12 @@ interface ChunkSummary {
   embedding?: number[];
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse<UploadResponse>> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // 레이트 제한 체크 (인증 전 IP 기반)
+    const rateLimitResponse = withRateLimit(request, "upload");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const supabase = await createClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabaseAny = supabase as any;
@@ -145,17 +151,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     // public.users의 ID 사용 (auth.users.id와 다를 수 있음)
     const publicUserId = (userData as { id: string }).id;
 
-    // 크레딧 계산
-    const baseCredits: Record<string, number> = {
-      starter: 50,
-      pro: 150,
-      enterprise: 300,
-    };
-    const userInfo = userData as { credits: number; credits_used_this_month: number; plan: string };
-    const remaining =
-      (baseCredits[userInfo.plan] || 50) -
-      userInfo.credits_used_this_month +
-      userInfo.credits;
+    // 크레딧 계산 (공통 유틸리티 사용)
+    const userInfo = userData as UserCreditsInfo;
+    const remaining = calculateRemainingCredits(userInfo);
 
     if (remaining <= 0) {
       return NextResponse.json(
@@ -175,25 +173,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       );
     }
 
-    // 파일 확장자 확인
-    const ext = "." + file.name.split(".").pop()?.toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    // 파일 버퍼 읽기 (매직 바이트 검증용)
+    const fileBuffer = await file.arrayBuffer();
+
+    // 파일 검증 (확장자 + 크기 + 매직 바이트)
+    const validation = validateFile({
+      fileName: file.name,
+      fileSize: file.size,
+      fileBuffer: fileBuffer,
+    });
+
+    if (!validation.valid) {
       return NextResponse.json(
-        {
-          success: false,
-          error: `Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}`,
-        },
+        { success: false, error: validation.error },
         { status: 400 }
       );
     }
 
-    // 파일 크기 확인
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { success: false, error: "File size exceeds 50MB limit" },
-        { status: 400 }
-      );
-    }
+    const ext = validation.extension || "." + file.name.split(".").pop()?.toLowerCase();
 
     // processing_jobs 레코드 생성 (publicUserId 사용)
     const { data: job, error: jobError } = await supabaseAny
@@ -222,7 +219,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     // 한글 파일명 문제 방지: UUID + 확장자로 저장
     const safeFileName = `${jobData.id}${ext}`;
     const storagePath = `uploads/${user.id}/${safeFileName}`;
-    const fileBuffer = await file.arrayBuffer();
+    // fileBuffer는 위에서 매직 바이트 검증 시 이미 읽음
 
     const { error: uploadError } = await supabase.storage
       .from("resumes")
@@ -283,7 +280,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     // Worker가 백그라운드에서 파싱 → 분석 → DB 저장 → 크레딧 차감
     // ─────────────────────────────────────────────────
 
-    // Worker 전체 파이프라인 호출 (비동기, 응답 대기 안함)
+    // Worker 전체 파이프라인 호출 (비동기, 재시도 로직 포함)
     const workerPayload = {
       file_url: storagePath,
       file_name: file.name,
@@ -293,14 +290,25 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       mode: userInfo.plan === "enterprise" ? "phase_2" : "phase_1",
     };
 
-    // Fire-and-forget: Worker에 요청 보내고 응답 기다리지 않음
-    fetch(`${WORKER_URL}/pipeline`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(workerPayload),
-    }).catch((error) => {
-      // 연결 실패 시 로그만 남김 (이미 사용자에게 응답함)
-      console.error("Worker pipeline request failed:", error);
+    // 비동기 호출: 재시도 로직 포함, 실패 시 job 상태 업데이트
+    callWorkerPipelineAsync(WORKER_URL, workerPayload, async (error, attempts) => {
+      console.error(`[Upload] Worker pipeline failed after ${attempts} attempts: ${error}`);
+      // 모든 재시도 실패 시 job 상태를 failed로 업데이트
+      await supabaseAny
+        .from("processing_jobs")
+        .update({
+          status: "failed",
+          error_message: `Worker connection failed after ${attempts} attempts: ${error}`,
+        })
+        .eq("id", jobData.id);
+
+      // candidate 상태도 업데이트
+      if (candidateId) {
+        await supabaseAny
+          .from("candidates")
+          .update({ status: "failed" })
+          .eq("id", candidateId);
+      }
     });
 
     // 즉시 응답 반환 - Worker가 백그라운드에서 처리

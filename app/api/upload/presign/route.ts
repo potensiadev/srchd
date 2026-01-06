@@ -1,15 +1,28 @@
 /**
  * POST /api/upload/presign
  * 파일을 Supabase Storage에 직접 업로드하기 위한 presigned URL 생성
- * 
+ *
  * Vercel의 4.5MB 제한을 우회하기 위해 클라이언트가 직접 Storage에 업로드
+ *
+ * 주의: presign은 메타데이터만 검증 (확장자, 크기)
+ * 매직 바이트 검증은 /api/upload/confirm에서 수행
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  validateFile,
+  calculateRemainingCredits,
+  type UserCreditsInfo,
+} from "@/lib/file-validation";
+import { withRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
     try {
+        // 레이트 제한 체크
+        const rateLimitResponse = withRateLimit(request, "upload");
+        if (rateLimitResponse) return rateLimitResponse;
+
         const supabase = await createClient();
 
         // 인증 확인
@@ -31,24 +44,21 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // 파일 확장자 확인
-        const ext = "." + fileName.split(".").pop()?.toLowerCase();
-        const ALLOWED_EXTENSIONS = [".hwp", ".hwpx", ".doc", ".docx", ".pdf"];
-        if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        // 파일 검증 (확장자 + 크기, 매직 바이트는 confirm에서 검증)
+        const validation = validateFile({
+            fileName,
+            fileSize,
+            // fileBuffer 없음 - presign은 메타데이터만 받음
+        });
+
+        if (!validation.valid) {
             return NextResponse.json(
-                { success: false, error: `Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}` },
+                { success: false, error: validation.error },
                 { status: 400 }
             );
         }
 
-        // 파일 크기 확인 (50MB)
-        const MAX_FILE_SIZE = 50 * 1024 * 1024;
-        if (fileSize > MAX_FILE_SIZE) {
-            return NextResponse.json(
-                { success: false, error: "File size exceeds 50MB limit" },
-                { status: 400 }
-            );
-        }
+        const ext = validation.extension || "." + fileName.split(".").pop()?.toLowerCase();
 
         // 크레딧 확인
         if (!user.email) {
@@ -72,14 +82,10 @@ export async function POST(request: NextRequest) {
         }
 
         const publicUserId = (userData as { id: string }).id;
-        const userInfo = userData as { credits: number; credits_used_this_month: number; plan: string };
+        const userInfo = userData as UserCreditsInfo;
 
-        const baseCredits: Record<string, number> = {
-            starter: 50,
-            pro: 150,
-            enterprise: 300,
-        };
-        const remaining = (baseCredits[userInfo.plan] || 50) - userInfo.credits_used_this_month + userInfo.credits;
+        // 크레딧 계산 (공통 유틸리티 사용)
+        const remaining = calculateRemainingCredits(userInfo);
 
         if (remaining <= 0) {
             return NextResponse.json(

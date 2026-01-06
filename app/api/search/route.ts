@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateEmbedding } from "@/lib/openai/embedding";
+import { withRateLimit } from "@/lib/rate-limit";
 import {
   type SearchRequest,
   type SearchResponse,
@@ -52,6 +53,10 @@ function toSearchResult(
 
 export async function POST(request: NextRequest) {
   try {
+    // 레이트 제한 체크 (검색은 분당 30회)
+    const rateLimitResponse = withRateLimit(request, "search");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const supabase = await createClient();
 
     // 인증 확인

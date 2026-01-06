@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  validateFile,
+  calculateRemainingCredits,
+  type UserCreditsInfo,
+} from "@/lib/file-validation";
+import { withRateLimit } from "@/lib/rate-limit";
 
 /**
  * Async Upload Endpoint
@@ -18,12 +24,6 @@ import { createClient } from "@/lib/supabase/server";
 // Worker URL for queue operations
 const WORKER_URL = process.env.WORKER_URL || "http://localhost:8000";
 
-// 지원하는 파일 확장자
-const ALLOWED_EXTENSIONS = [".hwp", ".hwpx", ".doc", ".docx", ".pdf"];
-
-// 최대 파일 크기 (50MB)
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-
 interface AsyncUploadResponse {
   success: boolean;
   jobId?: string;
@@ -31,8 +31,12 @@ interface AsyncUploadResponse {
   error?: string;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse<AsyncUploadResponse>> {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // 레이트 제한 체크
+    const rateLimitResponse = withRateLimit(request, "upload");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const supabase = await createClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabaseAny = supabase as any;
@@ -60,17 +64,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<AsyncUplo
       );
     }
 
-    // 크레딧 계산
-    const baseCredits: Record<string, number> = {
-      starter: 50,
-      pro: 150,
-      enterprise: 300,
-    };
-    const userInfo = userData as { credits: number; credits_used_this_month: number; plan: string };
-    const remaining =
-      (baseCredits[userInfo.plan] || 50) -
-      userInfo.credits_used_this_month +
-      userInfo.credits;
+    // 크레딧 계산 (공통 유틸리티 사용)
+    const userInfo = userData as UserCreditsInfo;
+    const remaining = calculateRemainingCredits(userInfo);
 
     if (remaining <= 0) {
       return NextResponse.json(
@@ -90,25 +86,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<AsyncUplo
       );
     }
 
-    // 파일 확장자 확인
-    const ext = "." + file.name.split(".").pop()?.toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    // 파일 버퍼 읽기 (매직 바이트 검증용)
+    const fileBuffer = await file.arrayBuffer();
+
+    // 파일 검증 (확장자 + 크기 + 매직 바이트)
+    const validation = validateFile({
+      fileName: file.name,
+      fileSize: file.size,
+      fileBuffer: fileBuffer,
+    });
+
+    if (!validation.valid) {
       return NextResponse.json(
-        {
-          success: false,
-          error: `Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}`,
-        },
+        { success: false, error: validation.error },
         { status: 400 }
       );
     }
 
-    // 파일 크기 확인
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { success: false, error: "File size exceeds 50MB limit" },
-        { status: 400 }
-      );
-    }
+    const ext = validation.extension || "." + file.name.split(".").pop()?.toLowerCase();
 
     // processing_jobs 레코드 생성
     const { data: job, error: jobError } = await supabaseAny
@@ -135,7 +130,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<AsyncUplo
 
     // Supabase Storage에 파일 업로드
     const storagePath = `uploads/${user.id}/${jobData.id}/${file.name}`;
-    const fileBuffer = await file.arrayBuffer();
+    // fileBuffer는 위에서 매직 바이트 검증 시 이미 읽음
 
     const { error: uploadError } = await supabase.storage
       .from("resumes")
