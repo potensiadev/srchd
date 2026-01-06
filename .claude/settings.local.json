@@ -23,7 +23,9 @@
       "Bash(python:*)",
       "Bash(pip install:*)",
       "Bash(set:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(npm run test:run:*)"
     ]
   }
 }
