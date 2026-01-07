@@ -8,9 +8,12 @@
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 플랜 최초 시작일 컬럼 추가 (기존 billing_cycle_start와 별도)
+-- 필요한 컬럼 추가 (없으면 생성)
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+-- billing_cycle_start 컬럼 추가 (004 마이그레이션에서 생성되었을 수 있음)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_cycle_start DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS credits_reset_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_started_at DATE;
 
 -- 기존 사용자: plan_started_at이 없으면 created_at 날짜로 설정
@@ -18,8 +21,8 @@ UPDATE users
 SET plan_started_at = created_at::date
 WHERE plan_started_at IS NULL;
 
--- 기존 사용자: billing_cycle_start가 월 초로 잘못 설정된 경우,
--- created_at 기준으로 다음 빌링 사이클 시작일 계산
+-- 기존 사용자: billing_cycle_start 설정
+-- created_at 기준으로 현재 빌링 사이클 시작일 계산
 UPDATE users
 SET billing_cycle_start = (
     -- created_at의 일(day)을 기준으로 현재 또는 이전 빌링 사이클 시작일 계산
@@ -31,8 +34,7 @@ SET billing_cycle_start = (
         ELSE DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month' + (EXTRACT(DAY FROM created_at) - 1 || ' days')::INTERVAL
     END
 )::DATE
-WHERE billing_cycle_start = DATE_TRUNC('month', CURRENT_DATE)::DATE
-   OR billing_cycle_start IS NULL;
+WHERE billing_cycle_start IS NULL;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- 개별 사용자 크레딧 리셋 체크 함수 (1 month 주기)
