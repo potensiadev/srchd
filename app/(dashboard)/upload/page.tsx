@@ -32,10 +32,10 @@ export default function UploadPage() {
   const validateFile = (file: File): string | null => {
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      return `지원하지 않는 형식입니다.`;
+      return `지원하지 않는 파일 형식입니다. HWP, HWPX, DOC, DOCX, PDF 파일만 업로드할 수 있습니다.`;
     }
     if (file.size > MAX_FILE_SIZE) {
-      return "파일 크기가 50MB를 초과합니다.";
+      return "파일 크기가 50MB를 초과합니다. 더 작은 파일을 선택해주세요.";
     }
     return null;
   };
@@ -109,17 +109,23 @@ export default function UploadPage() {
         presignData = await presignRes.json();
       } else {
         const text = await presignRes.text();
-        throw new Error(text || `Presign 오류 (${presignRes.status})`);
+        throw new Error(text || "서버 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.");
       }
 
       if (!presignRes.ok || !presignData.success) {
-        throw new Error(presignData.error?.message || presignData.error || "업로드 준비 실패");
+        // 사용자 친화적 에러 메시지 매핑
+        const serverError = presignData.error?.message || presignData.error || "";
+        const userFriendlyErrors: Record<string, string> = {
+          "크레딧이 부족합니다": "이번 달 업로드 가능 횟수를 모두 사용했습니다. 다음 달에 다시 시도하거나 플랜을 업그레이드해주세요.",
+          "사용자를 찾을 수 없습니다": "로그인 세션이 만료되었습니다. 다시 로그인해주세요.",
+        };
+        throw new Error(userFriendlyErrors[serverError] || serverError || "업로드 준비 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
       }
 
       // API 응답에서 data 추출
       presign = presignData.data;
       if (!presign?.storagePath || !presign?.jobId) {
-        throw new Error("Presign 응답 데이터가 올바르지 않습니다.");
+        throw new Error("서버 응답에 문제가 있습니다. 페이지를 새로고침하고 다시 시도해주세요.");
       }
 
       // Phase 2: Direct Storage Upload - 클라이언트가 직접 Supabase Storage에 업로드
@@ -142,7 +148,16 @@ export default function UploadPage() {
         });
 
       if (uploadError) {
-        throw new Error(`Storage 업로드 실패: ${uploadError.message}`);
+        // Storage 에러 메시지를 사용자 친화적으로 변환
+        const storageErrorMap: Record<string, string> = {
+          "The resource already exists": "동일한 파일이 이미 업로드되어 있습니다.",
+          "Payload too large": "파일이 너무 큽니다. 50MB 이하의 파일을 선택해주세요.",
+          "Invalid JWT": "로그인 세션이 만료되었습니다. 다시 로그인해주세요.",
+        };
+        const friendlyMessage = Object.entries(storageErrorMap).find(
+          ([key]) => uploadError.message.includes(key)
+        )?.[1];
+        throw new Error(friendlyMessage || "파일 업로드 중 오류가 발생했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.");
       }
 
       // Phase 3: Confirm - Worker 파이프라인 트리거
@@ -168,7 +183,16 @@ export default function UploadPage() {
 
       const confirmData = await confirmRes.json();
       if (!confirmRes.ok || !confirmData.success) {
-        throw new Error(confirmData.error?.message || confirmData.error || "확인 요청 실패");
+        // 파일 검증 실패 메시지를 사용자 친화적으로 변환
+        const serverError = confirmData.error?.message || confirmData.error || "";
+        const confirmErrorMap: Record<string, string> = {
+          "파일 시그니처가 유효하지 않습니다": "파일 형식이 올바르지 않습니다. 파일이 손상되었거나 확장자가 변경되었을 수 있습니다. 원본 파일을 다시 확인해주세요.",
+          "파일 검증에 실패했습니다": "파일을 검증할 수 없습니다. 파일이 손상되었을 수 있습니다.",
+        };
+        const friendlyMessage = Object.entries(confirmErrorMap).find(
+          ([key]) => serverError.includes(key)
+        )?.[1];
+        throw new Error(friendlyMessage || serverError || "파일 처리 중 오류가 발생했습니다. 다시 시도해주세요.");
       }
 
       // 완료

@@ -90,7 +90,7 @@ export interface FileValidationResult {
  */
 export function validateExtension(fileName: string): FileValidationResult {
   if (!fileName || typeof fileName !== "string") {
-    return { valid: false, error: "Invalid file name" };
+    return { valid: false, error: "파일명이 올바르지 않습니다. 파일을 다시 선택해주세요." };
   }
 
   // 파일명 정규화 (공백 제거, 소문자 변환)
@@ -100,7 +100,7 @@ export function validateExtension(fileName: string): FileValidationResult {
   const parts = normalizedName.split(".");
 
   if (parts.length < 2) {
-    return { valid: false, error: "File has no extension" };
+    return { valid: false, error: "파일 확장자가 없습니다. HWP, HWPX, DOC, DOCX, PDF 형식의 파일을 선택해주세요." };
   }
 
   // 마지막 확장자
@@ -110,7 +110,7 @@ export function validateExtension(fileName: string): FileValidationResult {
   if (!FILE_CONFIG.ALLOWED_EXTENSIONS.includes(lastExt as typeof FILE_CONFIG.ALLOWED_EXTENSIONS[number])) {
     return {
       valid: false,
-      error: `Unsupported file type. Allowed: ${FILE_CONFIG.ALLOWED_EXTENSIONS.join(", ")}`,
+      error: `지원하지 않는 파일 형식입니다. HWP, HWPX, DOC, DOCX, PDF 파일만 업로드할 수 있습니다.`,
     };
   }
 
@@ -128,7 +128,7 @@ export function validateExtension(fileName: string): FileValidationResult {
     if (dangerousExtensions.includes(middleExt)) {
       return {
         valid: false,
-        error: "Potentially dangerous file detected (double extension)",
+        error: "보안상 위험한 파일입니다. 이력서 파일만 업로드해주세요.",
       };
     }
   }
@@ -161,7 +161,7 @@ export function validateMagicBytes(
 
   // 파일이 너무 작으면 거부
   if (bytes.length < 8) {
-    return { valid: false, error: "File is too small to be valid" };
+    return { valid: false, error: "파일이 너무 작습니다. 파일이 손상되었거나 빈 파일일 수 있습니다." };
   }
 
   // 각 시그니처와 비교
@@ -183,7 +183,7 @@ export function validateMagicBytes(
 
   return {
     valid: false,
-    error: `File content does not match ${ext} format (invalid file signature)`,
+    error: `파일 내용이 ${ext.toUpperCase().replace(".", "")} 형식과 일치하지 않습니다. 파일이 손상되었거나 확장자가 변경되었을 수 있습니다.`,
   };
 }
 
@@ -199,12 +199,12 @@ export function validateFileSize(
   maxSize: number = FILE_CONFIG.MAX_FILE_SIZE
 ): FileValidationResult {
   if (size <= 0) {
-    return { valid: false, error: "File is empty" };
+    return { valid: false, error: "빈 파일은 업로드할 수 없습니다. 파일 내용이 있는지 확인해주세요." };
   }
 
   if (size > maxSize) {
     const maxMB = Math.round(maxSize / 1024 / 1024);
-    return { valid: false, error: `File size exceeds ${maxMB}MB limit` };
+    return { valid: false, error: `파일 크기가 ${maxMB}MB를 초과합니다. 더 작은 파일을 선택해주세요.` };
   }
 
   return { valid: true };

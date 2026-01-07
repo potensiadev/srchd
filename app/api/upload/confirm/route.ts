@@ -39,13 +39,13 @@ export async function POST(request: NextRequest) {
         const { jobId, candidateId, storagePath, fileName, userId, plan } = await request.json();
 
         if (!jobId || !storagePath || !fileName) {
-            return apiBadRequest("필수 필드가 누락되었습니다.");
+            return apiBadRequest("업로드 정보가 올바르지 않습니다. 페이지를 새로고침하고 다시 시도해주세요.");
         }
 
         // 파일 확장자 안전하게 추출
         const fileNameParts = fileName.split(".");
         if (fileNameParts.length < 2) {
-            return apiBadRequest("파일 확장자를 확인할 수 없습니다.");
+            return apiBadRequest("파일 확장자가 없습니다. HWP, HWPX, DOC, DOCX, PDF 형식의 파일을 선택해주세요.");
         }
         const ext = "." + fileNameParts[fileNameParts.length - 1].toLowerCase();
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
             if (downloadError || !fileData) {
                 console.error("[Upload Confirm] Failed to download file for validation:", downloadError);
-                return apiInternalError("파일 검증에 실패했습니다.");
+                return apiInternalError("파일 검증 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
             }
 
             // 파일 버퍼로 변환 (처음 16바이트만 필요하지만 전체를 읽음)
@@ -90,11 +90,11 @@ export async function POST(request: NextRequest) {
                         .eq("id", candidateId);
                 }
 
-                return apiFileValidationError(magicValidation.error || "파일 시그니처가 유효하지 않습니다.");
+                return apiFileValidationError(magicValidation.error || "파일 형식이 올바르지 않습니다. 파일이 손상되었거나 확장자가 변경되었을 수 있습니다. 원본 파일을 확인해주세요.");
             }
         } catch (validationError) {
             console.error("[Upload Confirm] File validation error:", validationError);
-            return apiInternalError("파일 검증에 실패했습니다.");
+            return apiInternalError("파일 검증 중 오류가 발생했습니다. 파일이 손상되었을 수 있습니다. 다른 파일로 다시 시도해주세요.");
         }
 
         // Worker 파이프라인 호출 (비동기, 재시도 로직 포함)

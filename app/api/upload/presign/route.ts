@@ -44,17 +44,17 @@ export async function POST(request: NextRequest) {
         const { fileName, fileSize, fileType } = await request.json();
 
         if (!fileName || !fileSize) {
-            return apiBadRequest("필수 필드가 누락되었습니다.");
+            return apiBadRequest("파일 정보가 올바르지 않습니다. 파일을 다시 선택해주세요.");
         }
 
         // 파일명 길이 검증 (Storage 경로 제한)
         if (fileName.length > 200) {
-            return apiBadRequest("파일명이 너무 깁니다. (최대 200자)");
+            return apiBadRequest("파일명이 너무 깁니다. 200자 이내로 파일명을 줄여주세요.");
         }
 
         // 0바이트 파일 체크
         if (fileSize === 0) {
-            return apiBadRequest("빈 파일은 업로드할 수 없습니다.");
+            return apiBadRequest("빈 파일은 업로드할 수 없습니다. 파일 내용이 있는지 확인해주세요.");
         }
 
         // 파일 검증 (확장자 + 크기, 매직 바이트는 confirm에서 검증)
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
         // 확장자 안전하게 추출
         const ext = validation.extension;
         if (!ext) {
-            return apiFileValidationError("파일 확장자를 확인할 수 없습니다.");
+            return apiFileValidationError("파일 확장자가 없습니다. HWP, HWPX, DOC, DOCX, PDF 형식의 파일을 선택해주세요.");
         }
 
         // 크레딧 확인
