@@ -18,21 +18,17 @@ import {
   releaseCreditReservation,
   checkConcurrentUploadLimit,
 } from "@/lib/supabase/admin";
-import {
-  checkUploadRateLimit,
-  getRateLimitHeaders,
-} from "@/lib/rate-limit";
-import { WORKER_PIPELINE_TIMEOUT } from "@/lib/config/timeouts";
+import { withRateLimit } from "@/lib/rate-limit";
 import {
   validateFile,
-  validateMagicBytes,
-  detectZipType,
-  getFileExtension,
-  formatFileSize,
-  MAX_FILE_SIZE_BYTES,
-  MAX_CONCURRENT_UPLOADS_PER_USER,
-} from "@/lib/config/upload";
-import { getPlanCredits } from "@/lib/config/plans";
+  calculateRemainingCredits,
+  type UserCreditsInfo,
+  PLAN_CONFIG,
+} from "@/lib/file-validation";
+
+// Worker 타임아웃
+const WORKER_PIPELINE_TIMEOUT = 30000; // 30초
+const MAX_CONCURRENT_UPLOADS_PER_USER = 5;
 
 // App Router Route Segment Config
 export const runtime = "nodejs";
@@ -59,11 +55,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
   let storagePath = "";
 
   try {
+    // ─────────────────────────────────────────────────
+    // 1. Rate Limiting 체크 (인증 전 IP 기반)
+    // ─────────────────────────────────────────────────
+    const rateLimitResponse = await withRateLimit(request, "upload");
+    if (rateLimitResponse) return rateLimitResponse as NextResponse<UploadResponse>;
+
     const supabase = await createClient();
     const adminClient = getAdminClient();
 
     // ─────────────────────────────────────────────────
-    // 1. 인증 확인
+    // 2. 인증 확인
     // ─────────────────────────────────────────────────
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     }
 
     // ─────────────────────────────────────────────────
-    // 2. 사용자 정보 조회 (public.users)
+    // 3. 사용자 정보 조회 (public.users)
     // ─────────────────────────────────────────────────
     if (!user.email) {
       return NextResponse.json(
@@ -103,25 +105,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     const userPlan = typedUserData.plan || "starter";
 
     // ─────────────────────────────────────────────────
-    // 3. Rate Limiting 체크
-    // ─────────────────────────────────────────────────
-    const rateLimitResult = await checkUploadRateLimit(publicUserId);
-    if (!rateLimitResult.success) {
-      const headers = getRateLimitHeaders(rateLimitResult);
-      return NextResponse.json(
-        {
-          success: false,
-          error: `업로드 한도를 초과했습니다. ${rateLimitResult.retryAfter}초 후에 다시 시도해주세요.`,
-          code: "RATE_LIMIT_EXCEEDED",
-        },
-        {
-          status: 429,
-          headers,
-        }
-      );
-    }
-
-    // ─────────────────────────────────────────────────
     // 4. 동시 업로드 제한 체크 (DB 레벨)
     // ─────────────────────────────────────────────────
     const concurrentCheck = await checkConcurrentUploadLimit(
@@ -140,11 +123,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     }
 
     // ─────────────────────────────────────────────────
-    // 5. Atomic 크레딧 예약 (Race Condition 방지)
+    // 5. 크레딧 사전 체크 (빠른 실패)
     // ─────────────────────────────────────────────────
-    // 먼저 잔여 크레딧 체크 (빠른 실패용)
-    const planBaseCredits = getPlanCredits(userPlan);
-    const remainingCredits = planBaseCredits - typedUserData.credits_used_this_month + typedUserData.credits;
+    const userInfo = userData as UserCreditsInfo;
+    const remainingCredits = calculateRemainingCredits(userInfo);
 
     if (remainingCredits <= 0) {
       return NextResponse.json(
@@ -166,52 +148,27 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       );
     }
 
-    // 기본 파일 검증 (확장자, 크기, 파일명 길이)
-    const fileValidation = validateFile({ name: file.name, size: file.size });
-    if (!fileValidation.valid) {
-      return NextResponse.json(
-        { success: false, error: fileValidation.error!, code: "INVALID_FILE" },
-        { status: 400 }
-      );
-    }
-
-    const ext = getFileExtension(file.name);
-
-    // ─────────────────────────────────────────────────
-    // 7. Magic Bytes 검증 (확장자 위장 방지)
-    // ─────────────────────────────────────────────────
+    // 파일 버퍼 읽기 (매직 바이트 검증용)
     const fileBuffer = await file.arrayBuffer();
 
-    if (!validateMagicBytes(fileBuffer, ext)) {
-      console.warn(`[Upload] Magic bytes mismatch: ${file.name} (claimed: ${ext})`);
+    // 파일 검증 (확장자 + 크기 + 매직 바이트)
+    const validation = validateFile({
+      fileName: file.name,
+      fileSize: file.size,
+      fileBuffer: fileBuffer,
+    });
+
+    if (!validation.valid) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "파일 형식이 올바르지 않습니다. 확장자와 실제 파일 내용이 일치하지 않습니다.",
-          code: "MAGIC_BYTES_MISMATCH",
-        },
+        { success: false, error: validation.error || "파일 검증에 실패했습니다.", code: "INVALID_FILE" },
         { status: 400 }
       );
     }
 
-    // ZIP 기반 파일 추가 검증
-    if (ext === ".docx" || ext === ".hwpx") {
-      const detectedType = detectZipType(fileBuffer);
-      if (detectedType && detectedType !== ext) {
-        console.warn(`[Upload] ZIP type mismatch: ${file.name} (claimed: ${ext}, detected: ${detectedType})`);
-        return NextResponse.json(
-          {
-            success: false,
-            error: `파일 확장자가 올바르지 않습니다. 실제 파일은 ${detectedType} 형식입니다.`,
-            code: "ZIP_TYPE_MISMATCH",
-          },
-          { status: 400 }
-        );
-      }
-    }
+    const ext = validation.extension || "." + file.name.split(".").pop()?.toLowerCase();
 
     // ─────────────────────────────────────────────────
-    // 8. Atomic 크레딧 예약 실행
+    // 7. Atomic 크레딧 예약 (Race Condition 방지)
     // ─────────────────────────────────────────────────
     const reserveResult = await reserveCredit(publicUserId, undefined, `이력서 업로드: ${file.name}`);
     if (!reserveResult.success) {
@@ -466,17 +423,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     // ─────────────────────────────────────────────────
     // 13. 성공 응답
     // ─────────────────────────────────────────────────
-    const rateLimitHeaders = getRateLimitHeaders(rateLimitResult);
-
-    return NextResponse.json(
-      {
-        success: true,
-        jobId,
-        candidateId: candidateId || undefined,
-        message: "파일이 업로드되었습니다. 백그라운드에서 분석 중입니다.",
-      },
-      { headers: rateLimitHeaders }
-    );
+    return NextResponse.json({
+      success: true,
+      jobId,
+      candidateId: candidateId || undefined,
+      message: "파일이 업로드되었습니다. 백그라운드에서 분석 중입니다.",
+    });
 
   } catch (error) {
     console.error("[Upload] Unexpected error:", error);
