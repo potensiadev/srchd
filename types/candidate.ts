@@ -10,7 +10,8 @@
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type CandidateStatus = 'processing' | 'completed' | 'failed' | 'rejected';
+// Progressive Loading: parsed, analyzed 상태 추가
+export type CandidateStatus = 'processing' | 'parsed' | 'analyzed' | 'completed' | 'failed' | 'rejected';
 
 /**
  * PRD v6.0 신뢰도 레벨 상수
@@ -194,7 +195,8 @@ export interface CandidateChunk {
 // Processing Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export type ProcessingStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'rejected';
+// Progressive Loading: parsing, analyzing 상태 추가
+export type ProcessingStatus = 'queued' | 'processing' | 'parsing' | 'analyzing' | 'completed' | 'failed' | 'rejected';
 export type ParseMethod = 'direct' | 'libreoffice' | 'hancom_api' | 'failed';
 
 export interface ProcessingJob {
@@ -282,5 +284,52 @@ export function toCandidateListItem(row: Record<string, unknown>): CandidateList
     requiresReview: (row.requires_review as boolean) ?? false,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Progressive Loading Types
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 빠른 추출 결과 (파싱 완료 직후, AI 분석 전)
+ * 정규식 기반으로 추출한 기본 정보
+ */
+export interface QuickExtractedData {
+  name?: string;
+  phone?: string;
+  email?: string;
+  last_company?: string;
+  last_position?: string;
+}
+
+/**
+ * 부분 로딩 후보자 (처리 중 상태)
+ * 완료되지 않은 후보자를 UI에 표시할 때 사용
+ */
+export interface CandidatePartial {
+  id: string;
+  status: CandidateStatus;
+  name?: string;
+  last_company?: string;
+  last_position?: string;
+  quick_extracted?: QuickExtractedData;
+  created_at: string;
+  updated_at?: string;
+}
+
+/**
+ * DB row를 CandidatePartial로 변환
+ */
+export function toCandidatePartial(row: Record<string, unknown>): CandidatePartial {
+  return {
+    id: row.id as string,
+    status: (row.status as CandidateStatus) ?? 'processing',
+    name: row.name as string | undefined,
+    last_company: row.last_company as string | undefined,
+    last_position: row.last_position as string | undefined,
+    quick_extracted: row.quick_extracted as QuickExtractedData | undefined,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string | undefined,
   };
 }

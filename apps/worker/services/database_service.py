@@ -970,6 +970,115 @@ class DatabaseService:
             logger.error(f"Failed to update candidate images: {e}")
             return False
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Progressive Data Loading Methods
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def update_candidate_quick_extracted(
+        self,
+        candidate_id: str,
+        quick_data: Dict[str, Any],
+    ) -> bool:
+        """
+        파싱 완료 후 빠른 추출 데이터 저장 (parsed 상태)
+
+        Progressive Loading Phase 1:
+        - 파싱 완료 직후 호출
+        - 정규식으로 추출한 기본 정보 저장
+        - UI에서 즉시 표시 가능
+
+        Args:
+            candidate_id: 후보자 ID
+            quick_data: 빠른 추출 결과 {name, phone, email, last_company, last_position}
+
+        Returns:
+            성공 여부
+        """
+        if not self.client:
+            logger.error("Supabase client not initialized")
+            return False
+
+        try:
+            from datetime import datetime
+
+            update_data: Dict[str, Any] = {
+                "status": "parsed",
+                "quick_extracted": quick_data,
+                "parsing_completed_at": datetime.utcnow().isoformat(),
+            }
+
+            # 추출된 필드가 있으면 메인 필드에도 반영 (UI 표시용)
+            if quick_data.get("name"):
+                update_data["name"] = quick_data["name"]
+            if quick_data.get("last_company"):
+                update_data["last_company"] = quick_data["last_company"]
+            if quick_data.get("last_position"):
+                update_data["last_position"] = quick_data["last_position"]
+
+            result = self.client.table("candidates").update(
+                update_data
+            ).eq("id", candidate_id).execute()
+
+            if result.data:
+                logger.info(
+                    f"[Progressive] Candidate {candidate_id} updated to 'parsed' status "
+                    f"with quick_extracted data"
+                )
+                return True
+
+            logger.warning(f"[Progressive] No data returned for candidate {candidate_id}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to update quick_extracted: {e}")
+            return False
+
+    def update_candidate_analyzed(
+        self,
+        candidate_id: str,
+    ) -> bool:
+        """
+        AI 분석 완료 후 상태 업데이트 (analyzed 상태)
+
+        Progressive Loading Phase 2:
+        - AI 분석 완료 후, save_candidate() 직전에 호출
+        - Supabase Realtime 트리거로 UI 업데이트
+
+        Args:
+            candidate_id: 후보자 ID
+
+        Returns:
+            성공 여부
+        """
+        if not self.client:
+            logger.error("Supabase client not initialized")
+            return False
+
+        try:
+            from datetime import datetime
+
+            update_data = {
+                "status": "analyzed",
+                "analysis_completed_at": datetime.utcnow().isoformat(),
+            }
+
+            result = self.client.table("candidates").update(
+                update_data
+            ).eq("id", candidate_id).execute()
+
+            if result.data:
+                logger.info(
+                    f"[Progressive] Candidate {candidate_id} updated to 'analyzed' status"
+                )
+                return True
+
+            logger.warning(f"[Progressive] No data returned for candidate {candidate_id}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to update analyzed status: {e}")
+            return False
+
 
 # 싱글톤 인스턴스
 _database_service: Optional[DatabaseService] = None

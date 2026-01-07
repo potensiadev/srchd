@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Progressive Loading: Realtime 및 ProcessingCard
+import { useCandidatesRealtime } from "@/hooks/useCandidatesRealtime";
+import ProcessingCard from "@/components/dashboard/ProcessingCard";
+import type { CandidateStatus } from "@/types";
+
 // ─────────────────────────────────────────────────
 // 경력 계산 유틸리티
 // ─────────────────────────────────────────────────
@@ -114,6 +119,14 @@ function formatExperience(exp: ExperienceDuration): string {
   return `${exp.years}년 ${exp.months}개월`;
 }
 
+interface QuickExtractedData {
+  name?: string;
+  phone?: string;
+  email?: string;
+  last_company?: string;
+  last_position?: string;
+}
+
 interface Candidate {
   id: string;
   name: string;
@@ -125,6 +138,9 @@ interface Candidate {
   created_at: string;
   summary: string | null;
   careers: Career[] | null;
+  // Progressive Loading 필드
+  status?: CandidateStatus;
+  quick_extracted?: QuickExtractedData;
 }
 
 export default function CandidatesPage() {
@@ -133,8 +149,21 @@ export default function CandidatesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "confidence" | "exp">("recent");
+  const [userId, setUserId] = useState<string | undefined>();
 
   const supabase = createClient();
+
+  // Progressive Loading: Realtime 구독 활성화
+  useCandidatesRealtime(userId);
+
+  // 사용자 ID 가져오기 (Realtime 필터링용)
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserId(user?.id);
+    };
+    getUserId();
+  }, [supabase.auth]);
 
   useEffect(() => {
     fetchCandidates();
@@ -146,10 +175,11 @@ export default function CandidatesPage() {
 
   const fetchCandidates = async () => {
     try {
+      // Progressive Loading: 처리 중 후보자 포함
       const { data, error } = await supabase
         .from("candidates")
-        .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers")
-        .eq("status", "completed")
+        .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status, quick_extracted")
+        .in("status", ["processing", "parsed", "analyzed", "completed"])
         .eq("is_latest", true)
         .order("created_at", { ascending: false });
 
@@ -289,6 +319,16 @@ export default function CandidatesPage() {
       </div>
 
       {/* Candidate Cards - Issue #9: 카드 UI로 변환 */}
+      {/* Progressive Loading: 처리 중 후보자 수 표시 */}
+      {candidates.filter(c => c.status && c.status !== "completed").length > 0 && (
+        <div className="flex items-center gap-2 text-sm text-blue-400">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>
+            {candidates.filter(c => c.status && c.status !== "completed").length}개의 이력서 분석 중...
+          </span>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -299,7 +339,27 @@ export default function CandidatesPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredCandidates.map((candidate) => (
+          {filteredCandidates.map((candidate) => {
+            // Progressive Loading: 처리 중인 후보자는 ProcessingCard로 표시
+            if (candidate.status && candidate.status !== "completed") {
+              return (
+                <ProcessingCard
+                  key={candidate.id}
+                  candidate={{
+                    id: candidate.id,
+                    status: candidate.status,
+                    name: candidate.name || undefined,
+                    last_company: candidate.last_company || undefined,
+                    last_position: candidate.last_position || undefined,
+                    quick_extracted: candidate.quick_extracted,
+                    created_at: candidate.created_at,
+                  }}
+                />
+              );
+            }
+
+            // 완료된 후보자는 기존 카드로 표시
+            return (
             <Link
               key={candidate.id}
               href={`/candidates/${candidate.id}`}
@@ -385,7 +445,8 @@ export default function CandidatesPage() {
                 </span>
               </div>
             </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

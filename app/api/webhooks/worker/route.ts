@@ -21,15 +21,35 @@ import {
 // 환경변수가 설정되지 않으면 모든 요청 거부
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
+// Progressive Loading: parsed, analyzed 상태 추가
+type WebhookStatus = "parsed" | "analyzed" | "completed" | "failed";
+type WebhookPhase = "parsed" | "analyzed" | "completed";
+
+interface QuickData {
+  name?: string;
+  phone?: string;
+  email?: string;
+  last_company?: string;
+  last_position?: string;
+}
+
 interface WebhookPayload {
   job_id: string;
-  status: "completed" | "failed";
+  status: WebhookStatus;
+  phase?: WebhookPhase;  // Progressive Loading phase
   result?: {
     candidate_id?: string;
+    phase?: WebhookPhase;
+    quick_data?: QuickData;  // Phase 1: parsed 단계에서 전달
     confidence_score?: number;
     chunk_count?: number;
     pii_count?: number;
     processing_time_ms?: number;
+    is_update?: boolean;
+    parent_id?: string;
+    portfolio_thumbnail_url?: string;
+    embeddings_failed?: boolean;
+    embeddings_error?: string;
   };
   error?: string;
 }
@@ -95,10 +115,34 @@ export async function POST(request: NextRequest) {
       return apiInternalError("작업 상태 업데이트에 실패했습니다.");
     }
 
-    // 작업 완료 시 추가 처리
+    // ─────────────────────────────────────────────────
+    // Progressive Loading: phase별 처리
+    // Supabase Realtime이 자동으로 클라이언트에 전파
+    // ─────────────────────────────────────────────────
+    const phase = payload.result?.phase || payload.phase || payload.status;
+
+    if (phase === "parsed" && payload.result?.candidate_id) {
+      // Phase 1: 파싱 완료 - 빠른 기본 정보 추출됨
+      console.log(
+        `[Webhook] Progressive Phase 1 (parsed): candidate=${payload.result.candidate_id}, ` +
+        `name=${payload.result.quick_data?.name}, company=${payload.result.quick_data?.last_company}`
+      );
+    }
+
+    if (phase === "analyzed" && payload.result?.candidate_id) {
+      // Phase 2: AI 분석 완료
+      console.log(
+        `[Webhook] Progressive Phase 2 (analyzed): candidate=${payload.result.candidate_id}, ` +
+        `confidence=${payload.result.confidence_score}`
+      );
+    }
+
     if (payload.status === "completed" && payload.result?.candidate_id) {
-      // 향후: 실시간 알림 (Supabase Realtime, WebSocket 등)
-      console.log(`[Webhook] Job completed: candidate=${payload.result.candidate_id}`);
+      // Phase 3: 전체 처리 완료
+      console.log(
+        `[Webhook] Job completed: candidate=${payload.result.candidate_id}, ` +
+        `is_update=${payload.result.is_update}, parent_id=${payload.result.parent_id}`
+      );
     }
 
     if (payload.status === "failed") {

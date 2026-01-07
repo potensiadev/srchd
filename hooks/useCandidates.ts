@@ -15,6 +15,8 @@ interface UseCandidatesOptions {
   page?: number;
   limit?: number;
   enabled?: boolean;
+  /** Progressive Loading: 처리 중 후보자 포함 여부 */
+  includeProcessing?: boolean;
 }
 
 interface CandidatesResponse {
@@ -28,13 +30,18 @@ interface CandidatesResponse {
  * 후보자 목록 조회 API 호출
  */
 async function fetchCandidates(options: UseCandidatesOptions = {}): Promise<CandidatesResponse> {
-  const { status = "completed", page = 1, limit = 20 } = options;
+  const { status = "completed", page = 1, limit = 20, includeProcessing = false } = options;
 
   const params = new URLSearchParams({
     status,
     page: String(page),
     limit: String(limit),
   });
+
+  // Progressive Loading: 처리 중 후보자 포함
+  if (includeProcessing) {
+    params.set("includeProcessing", "true");
+  }
 
   const response = await fetch(`/api/candidates?${params}`);
 
@@ -77,13 +84,27 @@ async function fetchCandidate(id: string): Promise<CandidateDetail> {
  * 후보자 목록 조회 훅
  */
 export function useCandidates(options: UseCandidatesOptions = {}) {
-  const { enabled = true, ...queryOptions } = options;
+  const { enabled = true, includeProcessing = false, ...queryOptions } = options;
 
   return useQuery({
-    queryKey: ["candidates", queryOptions],
-    queryFn: () => fetchCandidates(queryOptions),
+    queryKey: ["candidates", { ...queryOptions, includeProcessing }],
+    queryFn: () => fetchCandidates({ ...queryOptions, includeProcessing }),
     enabled,
-    staleTime: 1000 * 60, // 1분
+    // Progressive Loading: Realtime으로 보완하므로 staleTime 단축
+    staleTime: includeProcessing ? 1000 * 30 : 1000 * 60, // 30초 또는 1분
+  });
+}
+
+/**
+ * 처리 중 후보자만 조회하는 훅 (Progressive Loading)
+ * Realtime 백업용 폴링
+ */
+export function useProcessingCandidates() {
+  return useQuery({
+    queryKey: ["candidates", { status: "processing", includeProcessing: true }],
+    queryFn: () => fetchCandidates({ includeProcessing: true }),
+    refetchInterval: 5000, // 5초마다 폴링 (Realtime 백업)
+    staleTime: 1000 * 10, // 10초
   });
 }
 

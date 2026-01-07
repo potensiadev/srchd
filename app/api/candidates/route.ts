@@ -43,14 +43,25 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") || "completed";
     const offset = (page - 1) * limit;
 
+    // Progressive Loading: 처리 중 후보자 포함 여부
+    const includeProcessing = searchParams.get("includeProcessing") === "true";
+
     // 후보자 목록 조회 (RLS가 user_id 필터 자동 적용)
-    const { data, error, count } = await supabase
+    let query = supabase
       .from("candidates")
       .select("*", { count: "exact" })
-      .eq("status", status)
       .eq("is_latest", true)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order("created_at", { ascending: false });
+
+    if (includeProcessing) {
+      // 처리 중 상태 포함 (processing, parsed, analyzed, completed)
+      query = query.in("status", ["processing", "parsed", "analyzed", "completed"]);
+    } else {
+      // 기본: 요청된 상태만 (기본값 completed)
+      query = query.eq("status", status);
+    }
+
+    const { data, error, count } = await query.range(offset, offset + limit - 1);
 
     if (error) {
       console.error("Candidates fetch error:", error);

@@ -592,6 +592,29 @@ def process_resume(
             )
 
         # ─────────────────────────────────────────────────
+        # Progressive Loading Phase 2: analyzed 상태 업데이트
+        # AI 분석 완료 후, DB 저장 전에 상태를 업데이트하여 UI에 알림
+        # ─────────────────────────────────────────────────
+        if candidate_id:
+            try:
+                db_service.update_candidate_analyzed(candidate_id)
+
+                # Webhook: analyzed 단계 알림 (UI 실시간 업데이트)
+                notify_webhook(job_id, "analyzed", result={
+                    "candidate_id": candidate_id,
+                    "phase": "analyzed",
+                    "confidence_score": analysis_result.confidence_score,
+                })
+
+                logger.info(
+                    f"[Progressive] Phase 2 completed: candidate={candidate_id}, "
+                    f"confidence={analysis_result.confidence_score:.2f}"
+                )
+            except Exception as analyzed_error:
+                # analyzed 상태 업데이트 실패해도 전체 파이프라인은 계속 진행
+                logger.warning(f"[Progressive] Analyzed status update failed: {analyzed_error}")
+
+        # ─────────────────────────────────────────────────
         # Step 4: DB 저장 (candidates + candidate_chunks)
         # 중복 체크 + 버전 스태킹 포함
         # ─────────────────────────────────────────────────
@@ -787,6 +810,38 @@ def full_pipeline(
 
         if not parse_result.get("success"):
             return parse_result
+
+        # ─────────────────────────────────────────────────
+        # Progressive Loading Phase 1: 빠른 기본 정보 추출
+        # 파싱 완료 직후, AI 분석 전에 기본 정보를 먼저 저장
+        # ─────────────────────────────────────────────────
+        if candidate_id:
+            try:
+                from utils.quick_extractor import extract_quick_info
+
+                parsed_text = parse_result.get("text", "")
+                quick_data = extract_quick_info(parsed_text)
+
+                # DB에 parsed 상태로 저장 + quick_extracted 데이터
+                db_service.update_candidate_quick_extracted(candidate_id, quick_data)
+
+                # Job 상태를 'analyzing'으로 업데이트
+                db_service.update_job_status(job_id, status="analyzing")
+
+                # Webhook: parsed 단계 알림 (UI 실시간 업데이트)
+                notify_webhook(job_id, "parsed", result={
+                    "candidate_id": candidate_id,
+                    "phase": "parsed",
+                    "quick_data": quick_data,
+                })
+
+                logger.info(
+                    f"[Progressive] Phase 1 completed: candidate={candidate_id}, "
+                    f"name={quick_data.get('name')}, company={quick_data.get('last_company')}"
+                )
+            except Exception as quick_error:
+                # 빠른 추출 실패해도 전체 파이프라인은 계속 진행
+                logger.warning(f"[Progressive] Quick extraction failed: {quick_error}")
 
         # Step 2: 이력서 처리
         process_result = process_resume(

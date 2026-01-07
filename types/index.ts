@@ -24,6 +24,9 @@ export type {
   ProcessingJob,
   FeedbackType,
   SearchFeedback,
+  // Progressive Loading types
+  QuickExtractedData,
+  CandidatePartial,
 } from './candidate';
 
 export {
@@ -32,6 +35,7 @@ export {
   getConfidenceLevel,
   requiresReview,
   toCandidateListItem,
+  toCandidatePartial,
 } from './candidate';
 
 // Auth Types
