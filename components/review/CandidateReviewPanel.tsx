@@ -14,11 +14,9 @@ import {
   Mail,
   MapPin,
 } from "lucide-react";
-import ReviewBanner from "./ReviewBanner";
 import EditableField from "./EditableField";
-import PrivacyShield from "@/components/detail/PrivacyShield";
 import CareerTimelineOrbit from "@/components/detail/CareerTimelineOrbit";
-import type { CandidateDetail, ConfidenceLevel, Career, Education, Project } from "@/types";
+import type { CandidateDetail, Career, Education, Project } from "@/types";
 
 interface FieldConfidence {
   [key: string]: number;
@@ -112,15 +110,6 @@ export default function CandidateReviewPanel({
 
   return (
     <div className="space-y-6">
-      {/* Review Banner */}
-      <ReviewBanner
-        confidenceScore={candidate.aiConfidence}
-        confidenceLevel={candidate.confidenceLevel}
-        requiresReview={candidate.requiresReview}
-        warnings={candidate.warnings}
-        analysisMode={candidate.analysisMode}
-      />
-
       {/* Save Actions */}
       {hasChanges && (
         <div className="flex items-center justify-between p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">

@@ -113,9 +113,11 @@ export default function CandidateDetailPage() {
       setPdfLoading(true);
       fetch(`/api/candidates/${candidateId}/source`)
         .then(res => res.json())
-        .then(data => {
-          if (data.url) {
-            setPdfUrl(data.url);
+        .then(response => {
+          if (response.data?.url) {
+            setPdfUrl(response.data.url);
+          } else if (response.data?.error) {
+            console.warn("PDF preview not available:", response.data.error);
           }
         })
         .catch(err => console.error("Failed to fetch PDF URL:", err))
@@ -437,7 +439,7 @@ export default function CandidateDetailPage() {
 
       {/* Main Content - Split View or Regular */}
       {showSplitView ? (
-        <SplitViewer pdfUrl={pdfUrl || undefined}>
+        <SplitViewer pdfUrl={pdfUrl || undefined} isLoading={pdfLoading}>
           <CandidateReviewPanel
             candidate={candidate}
             fieldConfidence={fieldConfidence}

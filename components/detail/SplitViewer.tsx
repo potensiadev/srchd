@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { FileText, Cpu, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { FileText, Cpu, ChevronLeft, ChevronRight, Maximize2, Minimize2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SplitViewerProps {
     pdfUrl?: string;
+    isLoading?: boolean;
     children: React.ReactNode;  // AI 분석 결과 (CandidateReviewPanel)
 }
 
-export default function SplitViewer({ pdfUrl, children }: SplitViewerProps) {
+export default function SplitViewer({ pdfUrl, isLoading = false, children }: SplitViewerProps) {
     const [splitRatio, setSplitRatio] = useState(50); // 0-100
     const [isCollapsed, setIsCollapsed] = useState<"left" | "right" | null>(null);
 
@@ -58,6 +59,11 @@ export default function SplitViewer({ pdfUrl, children }: SplitViewerProps) {
                         >
                             <ChevronRight size={20} className="text-slate-500" />
                         </button>
+                    ) : isLoading ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
+                            <Loader2 size={48} className="mb-4 animate-spin text-primary" />
+                            <p className="text-sm">원본 이력서를 불러오고 있습니다.</p>
+                        </div>
                     ) : pdfUrl ? (
                         <iframe
                             src={pdfUrl}
