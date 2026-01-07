@@ -109,7 +109,7 @@ async def health_check(detailed: bool = False):
 
     # 기본 헬스체크: 필수 의존성(Supabase, LLM) 상태만 빠르게 확인
     # Supabase 설정 확인
-    if not (settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY):
+    if not (settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY):
         all_healthy = False
 
     # LLM 설정 확인 (최소 1개 이상 필요)
@@ -125,7 +125,7 @@ async def health_check(detailed: bool = False):
     if detailed:
         # 1. Supabase 연결 확인
         supabase_status = DependencyStatus(name="supabase", status="unconfigured")
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
             try:
                 start = time.time()
                 db_service = get_database_service()

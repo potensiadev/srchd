@@ -63,10 +63,10 @@ class CreditService:
 
     def __init__(self):
         self.client: Optional[Client] = None
-        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+        if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
             self.client = create_client(
                 settings.SUPABASE_URL,
-                settings.SUPABASE_SERVICE_KEY
+                settings.SUPABASE_SERVICE_ROLE_KEY
             )
 
     def _get_plan_base_credits(self, plan: str) -> int:
