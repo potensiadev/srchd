@@ -22,6 +22,8 @@ interface CreditsResponse {
   planBaseCredits: number;   // 플랜 기본 크레딧
   remainingCredits: number;  // 남은 총 크레딧
   billingCycleStart?: string;
+  nextResetDate?: string;    // 다음 크레딧 리셋일
+  planStartedAt?: string;    // 플랜 최초 시작일
   wasReset?: boolean;        // 이번 요청에서 리셋되었는지
 }
 
@@ -49,25 +51,30 @@ export async function GET() {
     );
     console.log("[Credits API] RPC result:", rpcData, "error:", rpcError);
 
-    // RPC 성공 시 (배열로 반환됨)
-    if (!rpcError && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
-      const creditInfo = rpcData[0] as {
+    // RPC 성공 시 (JSON 객체 또는 배열로 반환됨)
+    if (!rpcError && rpcData) {
+      // RPC 결과가 배열이면 첫 번째 요소, 아니면 직접 사용
+      const creditInfo = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as {
         plan: PlanType;
         base_credits: number;
-        bonus_credits: number;      // additional credits
-        credits_used: number;       // used this month
-        remaining_credits: number;  // remaining total
+        additional_credits: number;  // additional credits
+        used_this_month: number;     // used this month
+        remaining: number;           // remaining total
         billing_cycle_start?: string;
+        next_reset_date?: string;    // 다음 리셋일
+        plan_started_at?: string;    // 플랜 최초 시작일
         was_reset?: boolean;
       };
 
       const response: CreditsResponse = {
-        credits: creditInfo.bonus_credits,
-        creditsUsedThisMonth: creditInfo.credits_used,
+        credits: creditInfo.additional_credits,
+        creditsUsedThisMonth: creditInfo.used_this_month,
         plan: creditInfo.plan,
         planBaseCredits: creditInfo.base_credits,
-        remainingCredits: creditInfo.remaining_credits,
+        remainingCredits: creditInfo.remaining,
         billingCycleStart: creditInfo.billing_cycle_start,
+        nextResetDate: creditInfo.next_reset_date,
+        planStartedAt: creditInfo.plan_started_at,
         wasReset: creditInfo.was_reset,
       };
 
@@ -86,7 +93,7 @@ export async function GET() {
     // email로 조회 (auth.users.id와 public.users.id가 다를 수 있음)
     const { data, error } = await supabase
       .from("users")
-      .select("credits, credits_used_this_month, plan")
+      .select("credits, credits_used_this_month, plan, billing_cycle_start, plan_started_at")
       .eq("email", user.email)
       .single();
 
@@ -107,6 +114,8 @@ export async function GET() {
       plan: string;
       credits: number;
       credits_used_this_month: number;
+      billing_cycle_start?: string;
+      plan_started_at?: string;
     };
 
     const plan = (userData.plan as PlanType) || "starter";
@@ -118,12 +127,23 @@ export async function GET() {
     const remainingFromPlan = Math.max(0, planBaseCredits - usedThisMonth);
     const remainingCredits = remainingFromPlan + additionalCredits;
 
+    // 다음 리셋일 계산 (billing_cycle_start + 1 month)
+    let nextResetDate: string | undefined;
+    if (userData.billing_cycle_start) {
+      const billingStart = new Date(userData.billing_cycle_start);
+      billingStart.setMonth(billingStart.getMonth() + 1);
+      nextResetDate = billingStart.toISOString().split("T")[0];
+    }
+
     const response: CreditsResponse = {
       credits: additionalCredits,
       creditsUsedThisMonth: usedThisMonth,
       plan,
       planBaseCredits,
       remainingCredits,
+      billingCycleStart: userData.billing_cycle_start,
+      nextResetDate,
+      planStartedAt: userData.plan_started_at,
     };
 
     return apiSuccess(response);
