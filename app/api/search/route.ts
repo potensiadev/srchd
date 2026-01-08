@@ -118,6 +118,55 @@ export async function POST(request: NextRequest) {
     if (limit > MAX_LIMIT) limit = MAX_LIMIT;
     if (offset < MIN_OFFSET) offset = MIN_OFFSET;
 
+    // ─────────────────────────────────────────────────
+    // 필터 파라미터 검증 (DoS 및 데이터 무결성 방지)
+    // ─────────────────────────────────────────────────
+    const MAX_EXP_YEARS = 100;
+    const MAX_SKILLS_COUNT = 20;
+    const MAX_LOCATION_LENGTH = 100;
+
+    if (filters) {
+      // 경력 연수 검증
+      if (filters.expYearsMin !== undefined) {
+        if (typeof filters.expYearsMin !== "number" || filters.expYearsMin < 0 || filters.expYearsMin > MAX_EXP_YEARS) {
+          return apiBadRequest(`최소 경력은 0-${MAX_EXP_YEARS}년 사이로 입력해주세요.`);
+        }
+      }
+      if (filters.expYearsMax !== undefined) {
+        if (typeof filters.expYearsMax !== "number" || filters.expYearsMax < 0 || filters.expYearsMax > MAX_EXP_YEARS) {
+          return apiBadRequest(`최대 경력은 0-${MAX_EXP_YEARS}년 사이로 입력해주세요.`);
+        }
+      }
+      if (filters.expYearsMin !== undefined && filters.expYearsMax !== undefined) {
+        if (filters.expYearsMin > filters.expYearsMax) {
+          return apiBadRequest("최소 경력이 최대 경력보다 클 수 없습니다.");
+        }
+      }
+
+      // 스킬 배열 검증
+      if (filters.skills) {
+        if (!Array.isArray(filters.skills)) {
+          return apiBadRequest("스킬은 배열 형식이어야 합니다.");
+        }
+        if (filters.skills.length > MAX_SKILLS_COUNT) {
+          return apiBadRequest(`스킬은 최대 ${MAX_SKILLS_COUNT}개까지 선택할 수 있습니다.`);
+        }
+        // 각 스킬 문자열 길이 검증
+        for (const skill of filters.skills) {
+          if (typeof skill !== "string" || skill.length > 50) {
+            return apiBadRequest("스킬명은 50자 이하의 문자열이어야 합니다.");
+          }
+        }
+      }
+
+      // 지역 검증
+      if (filters.location !== undefined) {
+        if (typeof filters.location !== "string" || filters.location.length > MAX_LOCATION_LENGTH) {
+          return apiBadRequest(`지역은 ${MAX_LOCATION_LENGTH}자 이하로 입력해주세요.`);
+        }
+      }
+    }
+
     // 검색어 검증
     const MAX_QUERY_LENGTH = 500;
     const MAX_KEYWORD_LENGTH = 50;

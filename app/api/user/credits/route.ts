@@ -36,10 +36,10 @@ export async function GET() {
 
     // 인증 확인
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    console.log("[Credits API] User:", user?.id, user?.email);
 
     if (authError || !user) {
-      console.log("[Credits API] Auth error:", authError);
+      // 민감 정보 로깅하지 않음
+      console.error("[Credits API] Auth error: code", authError?.status || "UNKNOWN");
       return apiUnauthorized();
     }
 
@@ -49,7 +49,6 @@ export async function GET() {
       "get_user_credits",
       { p_user_id: user.id }
     );
-    console.log("[Credits API] RPC result:", rpcData, "error:", rpcError);
 
     // RPC 성공 시 (JSON 객체 또는 배열로 반환됨)
     if (!rpcError && rpcData) {
@@ -78,13 +77,12 @@ export async function GET() {
         wasReset: creditInfo.was_reset,
       };
 
-      console.log("[Credits API] Response:", response);
-
       return apiSuccess(response);
     }
 
     // RPC 실패 시 fallback: 직접 조회 (자동 리셋 없음)
-    console.warn("[Credits API] RPC failed, using fallback. Email:", user.email);
+    // 민감 정보(이메일) 로깅하지 않음
+    console.warn("[Credits API] RPC failed, using fallback");
 
     if (!user.email) {
       return apiBadRequest("사용자 이메일을 찾을 수 없습니다.");

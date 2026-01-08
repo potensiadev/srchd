@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { logRateLimitExceeded } from "@/lib/logger";
 
 // ─────────────────────────────────────────────────
 // 타입 정의
@@ -366,6 +367,13 @@ export async function withRateLimit(
   const result = await checkRateLimitDistributed(identifier, config);
 
   if (!result.success) {
+    // 보안 이벤트 로깅
+    logRateLimitExceeded({
+      ip,
+      userId,
+      endpoint: configKey,
+      limit: config.limit,
+    });
     return rateLimitExceededResponse(result, config.message);
   }
 

@@ -6,7 +6,7 @@
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { type FeedbackType } from "@/types";
+import { z } from "zod";
 import {
   apiSuccess,
   apiUnauthorized,
@@ -14,13 +14,29 @@ import {
   apiInternalError,
 } from "@/lib/api-response";
 
-interface FeedbackRequest {
-  candidateId: string;
-  searchQuery: string;
-  feedbackType: FeedbackType;
-  resultPosition?: number;
-  relevanceScore?: number;
-}
+// ─────────────────────────────────────────────────
+// Zod 스키마 정의 (입력 검증 강화)
+// ─────────────────────────────────────────────────
+const feedbackSchema = z.object({
+  candidateId: z.string().uuid("유효하지 않은 후보자 ID입니다."),
+  searchQuery: z.string()
+    .min(1, "검색어는 필수입니다.")
+    .max(500, "검색어는 500자 이하로 입력해주세요."),
+  feedbackType: z.enum(["relevant", "not_relevant", "clicked", "contacted"], {
+    message: "유효하지 않은 피드백 타입입니다.",
+  }),
+  resultPosition: z.number()
+    .int("결과 위치는 정수여야 합니다.")
+    .min(0, "결과 위치는 0 이상이어야 합니다.")
+    .max(1000, "결과 위치가 범위를 초과했습니다.")
+    .optional()
+    .default(0),
+  relevanceScore: z.number()
+    .min(0, "관련성 점수는 0 이상이어야 합니다.")
+    .max(100, "관련성 점수는 100 이하여야 합니다.")
+    .optional()
+    .default(0),
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,31 +48,27 @@ export async function POST(request: NextRequest) {
       return apiUnauthorized();
     }
 
-    // 요청 바디 파싱
-    const body: FeedbackRequest = await request.json();
+    // 요청 바디 파싱 및 Zod 검증
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return apiBadRequest("잘못된 JSON 형식입니다.");
+    }
+
+    const parseResult = feedbackSchema.safeParse(body);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0];
+      return apiBadRequest(firstError.message);
+    }
+
     const {
       candidateId,
       searchQuery,
       feedbackType,
-      resultPosition = 0,
-      relevanceScore = 0,
-    } = body;
-
-    // 필수 필드 검증
-    if (!candidateId || !searchQuery || !feedbackType) {
-      return apiBadRequest("필수 필드가 누락되었습니다.");
-    }
-
-    // 유효한 피드백 타입 검증
-    const validFeedbackTypes: FeedbackType[] = [
-      "relevant",
-      "not_relevant",
-      "clicked",
-      "contacted",
-    ];
-    if (!validFeedbackTypes.includes(feedbackType)) {
-      return apiBadRequest("유효하지 않은 피드백 타입입니다.");
-    }
+      resultPosition,
+      relevanceScore,
+    } = parseResult.data;
 
     // 피드백 저장
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
