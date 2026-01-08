@@ -321,10 +321,133 @@ class HWPParser:
         """
         한컴 API를 사용한 HWP 파싱 (유료)
 
-        Note: 실제 한컴 API 연동 시 구현 필요
+        한컴 Document Converter API 사용:
+        1. 파일 업로드
+        2. PDF 변환 요청
+        3. 변환된 PDF 다운로드
+        4. PDF에서 텍스트 추출
+
+        API 문서: https://developer.hancom.com/
         """
-        # TODO: 한컴 API 연동 구현
-        raise NotImplementedError("Hancom API integration not implemented")
+        import httpx
+        import time
+
+        if not self.hancom_api_key:
+            raise ValueError("Hancom API key not configured")
+
+        if pdfplumber is None:
+            raise ImportError("pdfplumber is required for PDF text extraction")
+
+        # 한컴 API 엔드포인트 (실제 URL은 한컴 개발자 포털에서 확인)
+        HANCOM_API_BASE = "https://api.hancom.com/v1"
+        UPLOAD_ENDPOINT = f"{HANCOM_API_BASE}/convert/upload"
+        STATUS_ENDPOINT = f"{HANCOM_API_BASE}/convert/status"
+        DOWNLOAD_ENDPOINT = f"{HANCOM_API_BASE}/convert/download"
+
+        headers = {
+            "Authorization": f"Bearer {self.hancom_api_key}",
+            "Accept": "application/json",
+        }
+
+        # 타임아웃 설정
+        timeout = httpx.Timeout(30.0, connect=10.0)
+
+        with httpx.Client(timeout=timeout) as client:
+            # Step 1: 파일 업로드 및 변환 요청
+            logger.info("Uploading file to Hancom API...")
+
+            files = {
+                "file": ("document.hwp", file_bytes, "application/x-hwp"),
+            }
+            data = {
+                "output_format": "pdf",
+            }
+
+            try:
+                upload_response = client.post(
+                    UPLOAD_ENDPOINT,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                )
+                upload_response.raise_for_status()
+                upload_result = upload_response.json()
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    raise Exception("Hancom API authentication failed - check API key")
+                elif e.response.status_code == 429:
+                    raise Exception("Hancom API rate limit exceeded")
+                else:
+                    raise Exception(f"Hancom API upload failed: {e.response.status_code}")
+            except httpx.RequestError as e:
+                raise Exception(f"Hancom API request failed: {str(e)}")
+
+            task_id = upload_result.get("task_id")
+            if not task_id:
+                raise Exception("Hancom API did not return task_id")
+
+            logger.info(f"Hancom API task created: {task_id}")
+
+            # Step 2: 변환 완료 대기 (폴링)
+            max_wait_time = 60  # 최대 60초 대기
+            poll_interval = 2   # 2초마다 확인
+            elapsed = 0
+
+            while elapsed < max_wait_time:
+                try:
+                    status_response = client.get(
+                        f"{STATUS_ENDPOINT}/{task_id}",
+                        headers=headers,
+                    )
+                    status_response.raise_for_status()
+                    status_result = status_response.json()
+
+                    status = status_result.get("status")
+
+                    if status == "completed":
+                        logger.info("Hancom API conversion completed")
+                        break
+                    elif status == "failed":
+                        error_msg = status_result.get("error", "Unknown error")
+                        raise Exception(f"Hancom API conversion failed: {error_msg}")
+                    elif status in ["pending", "processing"]:
+                        time.sleep(poll_interval)
+                        elapsed += poll_interval
+                    else:
+                        raise Exception(f"Unknown status from Hancom API: {status}")
+
+                except httpx.RequestError as e:
+                    raise Exception(f"Hancom API status check failed: {str(e)}")
+
+            if elapsed >= max_wait_time:
+                raise Exception("Hancom API conversion timed out")
+
+            # Step 3: 변환된 PDF 다운로드
+            logger.info("Downloading converted PDF from Hancom API...")
+
+            try:
+                download_response = client.get(
+                    f"{DOWNLOAD_ENDPOINT}/{task_id}",
+                    headers=headers,
+                )
+                download_response.raise_for_status()
+                pdf_bytes = download_response.content
+
+            except httpx.RequestError as e:
+                raise Exception(f"Hancom API download failed: {str(e)}")
+
+            # Step 4: PDF에서 텍스트 추출
+            logger.info("Extracting text from converted PDF...")
+
+            with io.BytesIO(pdf_bytes) as pdf_io:
+                with pdfplumber.open(pdf_io) as pdf:
+                    texts = []
+                    for page in pdf.pages:
+                        text = page.extract_text() or ""
+                        texts.append(text)
+
+                    return '\n'.join(texts), len(pdf.pages)
 
     def is_encrypted(self, file_bytes: bytes) -> bool:
         """암호화 여부 체크"""

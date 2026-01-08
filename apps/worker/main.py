@@ -4,14 +4,61 @@ RAI Worker - FastAPI Entry Point
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from config import settings, AnalysisMode
+
+# ─────────────────────────────────────────────────
+# Sentry 초기화
+# ─────────────────────────────────────────────────
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=settings.ENV,
+
+        # 트레이스 샘플링 비율
+        traces_sample_rate=0.1 if settings.ENV == "production" else 1.0,
+
+        # 프로파일링 (성능 모니터링)
+        profiles_sample_rate=0.1 if settings.ENV == "production" else 0.5,
+
+        # 인테그레이션
+        integrations=[
+            FastApiIntegration(transaction_style="endpoint"),
+            LoggingIntegration(
+                level=logging.INFO,
+                event_level=logging.ERROR,
+            ),
+        ],
+
+        # 민감한 데이터 필터링
+        send_default_pii=False,
+
+        # 무시할 에러
+        ignore_errors=[
+            KeyboardInterrupt,
+            SystemExit,
+        ],
+
+        # 개발 환경에서만 디버그
+        debug=settings.DEBUG,
+
+        # 이벤트 전송 전 필터링
+        before_send=lambda event, hint: (
+            None if settings.ENV == "development" else event
+        ),
+    )
 from agents.router_agent import RouterAgent, FileType, RouterResult
 from agents.analyst_agent import AnalystAgent, get_analyst_agent, AnalysisResult
 from agents.privacy_agent import PrivacyAgent, get_privacy_agent, PrivacyResult
@@ -21,7 +68,7 @@ from utils.docx_parser import DOCXParser
 from services.llm_manager import get_llm_manager
 from services.embedding_service import EmbeddingService, get_embedding_service, EmbeddingResult
 from services.database_service import DatabaseService, get_database_service, SaveResult
-from services.queue_service import get_queue_service, QueuedJob
+from services.queue_service import get_queue_service, QueuedJob, DLQEntry
 
 # 로깅 설정
 logging.basicConfig(
@@ -46,12 +93,44 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# ─────────────────────────────────────────────────
 # CORS 설정
+# ─────────────────────────────────────────────────
+def get_allowed_origins() -> list[str]:
+    """
+    허용된 CORS origins 반환
+
+    프로덕션: ALLOWED_ORIGINS 환경 변수에서 읽음
+    개발: localhost 허용
+    """
+    if settings.ALLOWED_ORIGINS:
+        # 쉼표로 구분된 도메인 목록
+        origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+        if origins:
+            return origins
+
+    # 기본값 (개발 환경)
+    if settings.ENV == "development" or settings.DEBUG:
+        return [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+        ]
+
+    # 프로덕션에서 ALLOWED_ORIGINS가 설정되지 않은 경우
+    # 보안을 위해 빈 목록 반환 (모든 요청 차단)
+    logger.warning("ALLOWED_ORIGINS not configured in production!")
+    return []
+
+
+allowed_origins = get_allowed_origins()
+logger.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인만 허용
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -1100,6 +1179,258 @@ async def pipeline_endpoint(
         message="Pipeline completed",
         job_id=request.job_id,
     )
+
+
+# ─────────────────────────────────────────────────
+# Dead Letter Queue (DLQ) Endpoints
+# ─────────────────────────────────────────────────
+
+class DLQEntryResponse(BaseModel):
+    """DLQ 항목 응답 모델"""
+    dlq_id: str
+    job_id: str
+    rq_job_id: str
+    job_type: str
+    user_id: str
+    error_message: str
+    error_type: str
+    retry_count: int
+    failed_at: str
+    job_kwargs: dict
+
+
+class DLQListResponse(BaseModel):
+    """DLQ 목록 응답 모델"""
+    success: bool
+    total: int
+    entries: list[DLQEntryResponse]
+
+
+class DLQStatsResponse(BaseModel):
+    """DLQ 통계 응답 모델"""
+    available: bool
+    total: int
+    by_job_type: dict = {}
+    by_error_type: dict = {}
+    by_user: dict = {}
+    error: Optional[str] = None
+
+
+class DLQActionResponse(BaseModel):
+    """DLQ 액션 응답 모델"""
+    success: bool
+    message: str
+    dlq_id: Optional[str] = None
+    new_rq_job_id: Optional[str] = None
+
+
+@app.get("/dlq/stats", response_model=DLQStatsResponse)
+async def dlq_stats():
+    """
+    DLQ 통계 조회
+
+    실패한 작업의 통계 정보를 반환합니다:
+    - 전체 DLQ 항목 수
+    - 작업 타입별 분포
+    - 에러 타입별 분포
+    - 사용자별 분포 (Top 10)
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return DLQStatsResponse(available=False, total=0)
+
+    stats = queue_service.get_dlq_stats()
+    return DLQStatsResponse(**stats)
+
+
+@app.get("/dlq/entries", response_model=DLQListResponse)
+async def dlq_list(
+    limit: int = 50,
+    offset: int = 0,
+    job_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    """
+    DLQ 항목 목록 조회
+
+    Args:
+        limit: 최대 조회 수 (기본: 50)
+        offset: 시작 위치 (기본: 0)
+        job_type: 필터링할 작업 타입 (parse, process, full_pipeline)
+        user_id: 필터링할 사용자 ID
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return DLQListResponse(success=False, total=0, entries=[])
+
+    entries = queue_service.get_dlq_entries(
+        limit=limit,
+        offset=offset,
+        job_type=job_type,
+        user_id=user_id,
+    )
+
+    total = queue_service.get_dlq_count()
+
+    return DLQListResponse(
+        success=True,
+        total=total,
+        entries=[
+            DLQEntryResponse(
+                dlq_id=e.dlq_id,
+                job_id=e.job_id,
+                rq_job_id=e.rq_job_id,
+                job_type=e.job_type,
+                user_id=e.user_id,
+                error_message=e.error_message,
+                error_type=e.error_type,
+                retry_count=e.retry_count,
+                failed_at=e.failed_at,
+                job_kwargs=e.job_kwargs,
+            )
+            for e in entries
+        ],
+    )
+
+
+@app.get("/dlq/entry/{dlq_id}")
+async def dlq_get_entry(dlq_id: str):
+    """
+    단일 DLQ 항목 조회 (스택트레이스 포함)
+
+    Args:
+        dlq_id: DLQ 항목 ID
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return {"success": False, "error": "Queue service not available"}
+
+    entry = queue_service.get_dlq_entry(dlq_id)
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="DLQ entry not found")
+
+    return {
+        "success": True,
+        "entry": {
+            "dlq_id": entry.dlq_id,
+            "job_id": entry.job_id,
+            "rq_job_id": entry.rq_job_id,
+            "job_type": entry.job_type,
+            "user_id": entry.user_id,
+            "error_message": entry.error_message,
+            "error_type": entry.error_type,
+            "retry_count": entry.retry_count,
+            "failed_at": entry.failed_at,
+            "job_kwargs": entry.job_kwargs,
+            "last_traceback": entry.last_traceback,
+        }
+    }
+
+
+@app.post("/dlq/retry/{dlq_id}", response_model=DLQActionResponse)
+async def dlq_retry(dlq_id: str):
+    """
+    DLQ에서 작업 재시도
+
+    DLQ 항목을 조회하여 원래 파라미터로 새 작업을 생성합니다.
+    성공 시 DLQ에서 해당 항목이 제거됩니다.
+
+    Args:
+        dlq_id: DLQ 항목 ID
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return DLQActionResponse(
+            success=False,
+            message="Queue service not available"
+        )
+
+    queued_job = queue_service.retry_from_dlq(dlq_id)
+
+    if queued_job:
+        logger.info(f"[DLQ] Job retried from DLQ: {dlq_id} -> {queued_job.rq_job_id}")
+        return DLQActionResponse(
+            success=True,
+            message="Job retried successfully",
+            dlq_id=dlq_id,
+            new_rq_job_id=queued_job.rq_job_id,
+        )
+    else:
+        return DLQActionResponse(
+            success=False,
+            message="Failed to retry job from DLQ",
+            dlq_id=dlq_id,
+        )
+
+
+@app.delete("/dlq/entry/{dlq_id}", response_model=DLQActionResponse)
+async def dlq_delete(dlq_id: str):
+    """
+    DLQ에서 항목 삭제
+
+    재시도 없이 DLQ에서 항목을 영구 삭제합니다.
+
+    Args:
+        dlq_id: DLQ 항목 ID
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return DLQActionResponse(
+            success=False,
+            message="Queue service not available"
+        )
+
+    success = queue_service.remove_from_dlq(dlq_id)
+
+    if success:
+        logger.info(f"[DLQ] Entry deleted: {dlq_id}")
+        return DLQActionResponse(
+            success=True,
+            message="DLQ entry deleted successfully",
+            dlq_id=dlq_id,
+        )
+    else:
+        return DLQActionResponse(
+            success=False,
+            message="Failed to delete DLQ entry",
+            dlq_id=dlq_id,
+        )
+
+
+@app.delete("/dlq/clear")
+async def dlq_clear(older_than_days: Optional[int] = None):
+    """
+    DLQ 정리
+
+    Args:
+        older_than_days: 지정된 일수보다 오래된 항목만 삭제 (미지정 시 전체 삭제)
+    """
+    queue_service = get_queue_service()
+
+    if not queue_service.is_available:
+        return {"success": False, "error": "Queue service not available"}
+
+    deleted_count = queue_service.clear_dlq(older_than_days)
+
+    message = (
+        f"Cleared {deleted_count} entries"
+        if older_than_days is None
+        else f"Cleared {deleted_count} entries older than {older_than_days} days"
+    )
+
+    logger.info(f"[DLQ] {message}")
+
+    return {
+        "success": True,
+        "message": message,
+        "deleted_count": deleted_count,
+    }
 
 
 if __name__ == "__main__":

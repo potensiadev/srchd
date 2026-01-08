@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Sidebar from "@/components/layout/Sidebar";
-import DeepSpaceBackground from "@/components/layout/DeepSpaceBackground";
+import AdaptiveBackground from "@/components/layout/AdaptiveBackground";
 
 export const metadata: Metadata = {
   title: "HR Screener - Dashboard",
@@ -14,8 +14,8 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="relative flex min-h-screen">
-      {/* Animated Background */}
-      <DeepSpaceBackground />
+      {/* Animated Background - 성능에 따라 3D 또는 CSS 배경 자동 선택 */}
+      <AdaptiveBackground mode="auto" />
 
       {/* Content Layer */}
       <div className="relative z-10 flex w-full">

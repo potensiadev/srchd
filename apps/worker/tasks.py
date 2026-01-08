@@ -5,14 +5,17 @@ RQ Worker가 실행하는 비동기 작업 정의
 - parse_file: 파일 파싱
 - process_resume: 이력서 분석 + 저장
 - full_pipeline: 전체 파이프라인 (파싱 → 분석 → 저장)
+- on_job_failure: 실패 핸들러 (DLQ로 이동)
 """
 
 import logging
 import time
 import httpx
+import traceback
 from typing import Optional
 
 from config import get_settings, AnalysisMode
+from services.queue_service import get_queue_service, JobType
 from agents.router_agent import RouterAgent, FileType, RouterResult
 from agents.analyst_agent import get_analyst_agent, AnalysisResult
 from agents.privacy_agent import get_privacy_agent, PrivacyResult
@@ -867,3 +870,116 @@ def full_pipeline(
         )
         notify_webhook(job_id, "failed", error=str(e))
         return {"success": False, "error": str(e)}
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# RQ Failure Handler - Dead Letter Queue Integration
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def on_job_failure(job, connection, type, value, tb):
+    """
+    RQ Job 실패 핸들러 (on_failure callback)
+
+    모든 재시도가 실패한 후 호출되어 Dead Letter Queue에 작업 추가
+
+    Usage (in queue_service.py):
+        rq_job = queue.enqueue(
+            "tasks.full_pipeline",
+            on_failure=on_job_failure,
+            ...
+        )
+
+    Args:
+        job: RQ Job 객체
+        connection: Redis 연결
+        type: 예외 타입
+        value: 예외 값
+        tb: 트레이스백
+    """
+    try:
+        queue_service = get_queue_service()
+
+        if not queue_service.is_available:
+            logger.error(f"[DLQ] Cannot add to DLQ: Queue service not available (job: {job.id})")
+            return
+
+        # Job 메타데이터 추출
+        job_kwargs = job.kwargs or {}
+        job_id = job_kwargs.get("job_id", "unknown")
+        user_id = job_kwargs.get("user_id", "unknown")
+
+        # 작업 타입 추출 (함수명에서)
+        func_name = job.func_name if hasattr(job, "func_name") else str(job.func)
+        if "full_pipeline" in func_name:
+            job_type = JobType.FULL_PIPELINE.value
+        elif "process_resume" in func_name:
+            job_type = JobType.PROCESS.value
+        elif "parse_file" in func_name:
+            job_type = JobType.PARSE.value
+        else:
+            job_type = "unknown"
+
+        # 에러 타입 분류
+        error_type = "INTERNAL_ERROR"
+        error_message = str(value) if value else "Unknown error"
+
+        if type:
+            type_name = type.__name__
+            if "Timeout" in type_name:
+                error_type = "TIMEOUT"
+            elif "Connection" in type_name:
+                error_type = "CONNECTION_ERROR"
+            elif "Download" in type_name:
+                error_type = "DOWNLOAD_ERROR"
+            elif "Memory" in type_name:
+                error_type = "OUT_OF_MEMORY"
+            elif "Permission" in type_name:
+                error_type = "PERMISSION_ERROR"
+            else:
+                error_type = type_name.upper()
+
+        # 트레이스백 문자열 생성
+        tb_str = None
+        if tb:
+            tb_str = "".join(traceback.format_tb(tb))
+
+        # 재시도 횟수 (RQ에서 제공하는 정보 사용)
+        retry_count = job.retries_left if hasattr(job, "retries_left") else 0
+        max_retries = 2  # 기본 재시도 횟수
+        actual_retry_count = max_retries - retry_count
+
+        # DLQ에 추가
+        dlq_id = queue_service.add_to_dlq(
+            job_id=job_id,
+            rq_job_id=job.id,
+            job_type=job_type,
+            user_id=user_id,
+            error_message=error_message,
+            error_type=error_type,
+            retry_count=actual_retry_count,
+            job_kwargs=job_kwargs,
+            traceback=tb_str,
+        )
+
+        if dlq_id:
+            logger.info(
+                f"[DLQ] Job moved to Dead Letter Queue: {job_id} -> {dlq_id} "
+                f"(type: {job_type}, error: {error_type}, retries: {actual_retry_count})"
+            )
+
+            # DB에 DLQ 이동 기록
+            try:
+                db_service = get_database_service()
+                db_service.update_job_status(
+                    job_id=job_id,
+                    status="dlq",
+                    error_code=error_type,
+                    error_message=f"Moved to DLQ: {dlq_id}. Original error: {error_message[:200]}",
+                )
+            except Exception as db_error:
+                logger.warning(f"[DLQ] Failed to update job status in DB: {db_error}")
+        else:
+            logger.error(f"[DLQ] Failed to add job to DLQ: {job_id}")
+
+    except Exception as e:
+        logger.error(f"[DLQ] Failure handler error: {e}", exc_info=True)

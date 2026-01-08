@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     WEBHOOK_URL: str = ""  # Next.js API endpoint
     WEBHOOK_SECRET: str = ""
 
+    # ─────────────────────────────────────────────────
+    # CORS 설정
+    # ─────────────────────────────────────────────────
+    # 허용할 도메인 목록 (쉼표 구분)
+    # 예: "https://rai.vercel.app,https://rai-staging.vercel.app"
+    ALLOWED_ORIGINS: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"

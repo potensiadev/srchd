@@ -5,11 +5,13 @@ Job Queue를 통해 파일 처리를 비동기로 수행
 - 파싱 작업 Queue
 - 분석 작업 Queue
 - 재시도 로직
+- Dead Letter Queue (DLQ) - 영구 실패 작업 관리
 """
 
 import logging
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, asdict
+from datetime import datetime
 from enum import Enum
 import json
 import httpx
@@ -22,6 +24,10 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Dead Letter Queue 키
+DLQ_KEY = "rai:dlq:failed_jobs"
+DLQ_METADATA_PREFIX = "rai:dlq:meta:"
 
 
 class JobType(str, Enum):
@@ -37,6 +43,31 @@ class QueuedJob:
     rq_job_id: str
     status: str
     type: JobType
+
+
+@dataclass
+class DLQEntry:
+    """Dead Letter Queue 항목"""
+    dlq_id: str  # DLQ 고유 ID
+    job_id: str  # 원래 작업 ID
+    rq_job_id: str  # RQ Job ID
+    job_type: str  # parse, process, full_pipeline
+    user_id: str
+    error_message: str
+    error_type: str  # 에러 타입 (예: INTERNAL_ERROR, TIMEOUT 등)
+    retry_count: int  # 재시도 횟수
+    failed_at: str  # ISO 형식 타임스탬프
+    job_kwargs: Dict[str, Any]  # 원래 작업 파라미터
+    last_traceback: Optional[str] = None  # 마지막 스택트레이스
+
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DLQEntry":
+        """딕셔너리에서 생성"""
+        return cls(**data)
 
 
 class QueueService:
@@ -101,6 +132,9 @@ class QueueService:
             return None
 
         try:
+            # Import failure handler
+            from tasks import on_job_failure
+
             rq_job = self.parse_queue.enqueue(
                 "tasks.parse_file",
                 kwargs={
@@ -112,6 +146,7 @@ class QueueService:
                 job_id=f"parse-{job_id}",
                 retry=Retry(max=3, interval=[10, 30, 60]),
                 job_timeout="5m",
+                on_failure=on_job_failure,  # DLQ로 이동
             )
 
             return QueuedJob(
@@ -151,6 +186,9 @@ class QueueService:
             return None
 
         try:
+            # Import failure handler
+            from tasks import on_job_failure
+
             rq_job = self.process_queue.enqueue(
                 "tasks.process_resume",
                 kwargs={
@@ -164,6 +202,7 @@ class QueueService:
                 job_id=f"process-{job_id}",
                 retry=Retry(max=2, interval=[30, 60]),
                 job_timeout="10m",
+                on_failure=on_job_failure,  # DLQ로 이동
             )
 
             return QueuedJob(
@@ -194,6 +233,9 @@ class QueueService:
             return None
 
         try:
+            # Import failure handler
+            from tasks import on_job_failure
+
             rq_job = self.process_queue.enqueue(
                 "tasks.full_pipeline",
                 kwargs={
@@ -207,6 +249,7 @@ class QueueService:
                 job_id=f"pipeline-{job_id}",
                 retry=Retry(max=2, interval=[30, 60]),
                 job_timeout="15m",
+                on_failure=on_job_failure,  # DLQ로 이동
             )
 
             return QueuedJob(
@@ -275,6 +318,357 @@ class QueueService:
                     logger.warning(f"Webhook notification failed: {response.status_code}")
         except Exception as e:
             logger.error(f"Webhook notification error: {e}")
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Dead Letter Queue (DLQ) Methods
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def add_to_dlq(
+        self,
+        job_id: str,
+        rq_job_id: str,
+        job_type: str,
+        user_id: str,
+        error_message: str,
+        error_type: str,
+        retry_count: int,
+        job_kwargs: Dict[str, Any],
+        traceback: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        실패한 작업을 Dead Letter Queue에 추가
+
+        Args:
+            job_id: processing_jobs ID
+            rq_job_id: RQ Job ID
+            job_type: 작업 타입 (parse, process, full_pipeline)
+            user_id: 사용자 ID
+            error_message: 에러 메시지
+            error_type: 에러 타입
+            retry_count: 재시도 횟수
+            job_kwargs: 원래 작업 파라미터
+            traceback: 스택트레이스 (선택)
+
+        Returns:
+            DLQ 항목 ID (실패 시 None)
+        """
+        if not self.is_available:
+            logger.warning("Cannot add to DLQ: Redis not available")
+            return None
+
+        try:
+            import uuid
+
+            dlq_id = f"dlq-{uuid.uuid4().hex[:12]}"
+            failed_at = datetime.utcnow().isoformat() + "Z"
+
+            entry = DLQEntry(
+                dlq_id=dlq_id,
+                job_id=job_id,
+                rq_job_id=rq_job_id,
+                job_type=job_type,
+                user_id=user_id,
+                error_message=error_message[:1000],  # 에러 메시지 길이 제한
+                error_type=error_type,
+                retry_count=retry_count,
+                failed_at=failed_at,
+                job_kwargs=job_kwargs,
+                last_traceback=traceback[:5000] if traceback else None,  # 트레이스백 길이 제한
+            )
+
+            # Redis에 저장: 메타데이터는 Hash, ID는 List에 추가
+            entry_json = json.dumps(entry.to_dict(), ensure_ascii=False, default=str)
+            self.redis.hset(f"{DLQ_METADATA_PREFIX}{dlq_id}", "data", entry_json)
+            self.redis.lpush(DLQ_KEY, dlq_id)
+
+            # 30일 후 자동 만료 (TTL 설정)
+            self.redis.expire(f"{DLQ_METADATA_PREFIX}{dlq_id}", 30 * 24 * 60 * 60)
+
+            logger.info(
+                f"[DLQ] Added job {job_id} to Dead Letter Queue: {dlq_id} "
+                f"(type: {job_type}, error: {error_type})"
+            )
+            return dlq_id
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to add to DLQ: {e}")
+            return None
+
+    def get_dlq_entries(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        job_type: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> List[DLQEntry]:
+        """
+        DLQ 항목 목록 조회
+
+        Args:
+            limit: 최대 조회 수
+            offset: 시작 위치
+            job_type: 필터링할 작업 타입 (선택)
+            user_id: 필터링할 사용자 ID (선택)
+
+        Returns:
+            DLQEntry 목록
+        """
+        if not self.is_available:
+            return []
+
+        try:
+            # DLQ에서 ID 목록 조회 (최신순)
+            dlq_ids = self.redis.lrange(DLQ_KEY, offset, offset + limit * 2 - 1)
+
+            if not dlq_ids:
+                return []
+
+            entries = []
+            for dlq_id_bytes in dlq_ids:
+                dlq_id = dlq_id_bytes.decode("utf-8") if isinstance(dlq_id_bytes, bytes) else dlq_id_bytes
+
+                # 메타데이터 조회
+                entry_json = self.redis.hget(f"{DLQ_METADATA_PREFIX}{dlq_id}", "data")
+                if not entry_json:
+                    continue
+
+                entry_data = json.loads(entry_json)
+                entry = DLQEntry.from_dict(entry_data)
+
+                # 필터링
+                if job_type and entry.job_type != job_type:
+                    continue
+                if user_id and entry.user_id != user_id:
+                    continue
+
+                entries.append(entry)
+
+                if len(entries) >= limit:
+                    break
+
+            return entries
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to get DLQ entries: {e}")
+            return []
+
+    def get_dlq_entry(self, dlq_id: str) -> Optional[DLQEntry]:
+        """
+        단일 DLQ 항목 조회
+
+        Args:
+            dlq_id: DLQ 항목 ID
+
+        Returns:
+            DLQEntry 또는 None
+        """
+        if not self.is_available:
+            return None
+
+        try:
+            entry_json = self.redis.hget(f"{DLQ_METADATA_PREFIX}{dlq_id}", "data")
+            if not entry_json:
+                return None
+
+            entry_data = json.loads(entry_json)
+            return DLQEntry.from_dict(entry_data)
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to get DLQ entry {dlq_id}: {e}")
+            return None
+
+    def get_dlq_count(self) -> int:
+        """DLQ 항목 수 조회"""
+        if not self.is_available:
+            return 0
+
+        try:
+            return self.redis.llen(DLQ_KEY)
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to get DLQ count: {e}")
+            return 0
+
+    def remove_from_dlq(self, dlq_id: str) -> bool:
+        """
+        DLQ에서 항목 제거
+
+        Args:
+            dlq_id: DLQ 항목 ID
+
+        Returns:
+            성공 여부
+        """
+        if not self.is_available:
+            return False
+
+        try:
+            # 리스트에서 제거
+            self.redis.lrem(DLQ_KEY, 1, dlq_id)
+            # 메타데이터 삭제
+            self.redis.delete(f"{DLQ_METADATA_PREFIX}{dlq_id}")
+
+            logger.info(f"[DLQ] Removed {dlq_id} from Dead Letter Queue")
+            return True
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to remove from DLQ: {e}")
+            return False
+
+    def retry_from_dlq(self, dlq_id: str) -> Optional[QueuedJob]:
+        """
+        DLQ에서 작업 재시도
+
+        DLQ 항목을 조회하여 원래 파라미터로 새 작업 생성
+
+        Args:
+            dlq_id: DLQ 항목 ID
+
+        Returns:
+            새로 생성된 QueuedJob 또는 None
+        """
+        if not self.is_available:
+            return None
+
+        try:
+            # DLQ 항목 조회
+            entry = self.get_dlq_entry(dlq_id)
+            if not entry:
+                logger.warning(f"[DLQ] Entry not found: {dlq_id}")
+                return None
+
+            # 작업 타입에 따라 재시도
+            queued_job = None
+            kwargs = entry.job_kwargs
+
+            if entry.job_type == JobType.PARSE.value:
+                queued_job = self.enqueue_parse(
+                    job_id=kwargs.get("job_id", entry.job_id),
+                    user_id=kwargs.get("user_id", entry.user_id),
+                    file_path=kwargs.get("file_path", ""),
+                    file_name=kwargs.get("file_name", ""),
+                )
+            elif entry.job_type == JobType.PROCESS.value:
+                queued_job = self.enqueue_process(
+                    job_id=kwargs.get("job_id", entry.job_id),
+                    user_id=kwargs.get("user_id", entry.user_id),
+                    text=kwargs.get("text", ""),
+                    mode=kwargs.get("mode", "phase_1"),
+                    source_file=kwargs.get("source_file", ""),
+                    file_type=kwargs.get("file_type", ""),
+                )
+            elif entry.job_type == JobType.FULL_PIPELINE.value:
+                queued_job = self.enqueue_full_pipeline(
+                    job_id=kwargs.get("job_id", entry.job_id),
+                    user_id=kwargs.get("user_id", entry.user_id),
+                    file_path=kwargs.get("file_path", ""),
+                    file_name=kwargs.get("file_name", ""),
+                    mode=kwargs.get("mode", "phase_1"),
+                    candidate_id=kwargs.get("candidate_id"),
+                )
+
+            if queued_job:
+                # 재시도 성공 시 DLQ에서 제거
+                self.remove_from_dlq(dlq_id)
+                logger.info(
+                    f"[DLQ] Retried job {entry.job_id} from DLQ: "
+                    f"new_rq_job={queued_job.rq_job_id}"
+                )
+
+            return queued_job
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to retry from DLQ: {e}")
+            return None
+
+    def clear_dlq(self, older_than_days: Optional[int] = None) -> int:
+        """
+        DLQ 정리
+
+        Args:
+            older_than_days: 지정된 일수보다 오래된 항목만 삭제 (None이면 전체 삭제)
+
+        Returns:
+            삭제된 항목 수
+        """
+        if not self.is_available:
+            return 0
+
+        try:
+            deleted_count = 0
+
+            if older_than_days is None:
+                # 전체 삭제
+                dlq_ids = self.redis.lrange(DLQ_KEY, 0, -1)
+                for dlq_id_bytes in dlq_ids:
+                    dlq_id = dlq_id_bytes.decode("utf-8") if isinstance(dlq_id_bytes, bytes) else dlq_id_bytes
+                    self.redis.delete(f"{DLQ_METADATA_PREFIX}{dlq_id}")
+                    deleted_count += 1
+
+                self.redis.delete(DLQ_KEY)
+                logger.info(f"[DLQ] Cleared all {deleted_count} entries from DLQ")
+            else:
+                # 오래된 항목만 삭제
+                cutoff = datetime.utcnow()
+                from datetime import timedelta
+                cutoff = cutoff - timedelta(days=older_than_days)
+
+                dlq_ids = self.redis.lrange(DLQ_KEY, 0, -1)
+                for dlq_id_bytes in dlq_ids:
+                    dlq_id = dlq_id_bytes.decode("utf-8") if isinstance(dlq_id_bytes, bytes) else dlq_id_bytes
+                    entry = self.get_dlq_entry(dlq_id)
+
+                    if entry:
+                        failed_at = datetime.fromisoformat(entry.failed_at.replace("Z", "+00:00"))
+                        if failed_at.replace(tzinfo=None) < cutoff:
+                            self.remove_from_dlq(dlq_id)
+                            deleted_count += 1
+
+                logger.info(f"[DLQ] Cleared {deleted_count} entries older than {older_than_days} days")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to clear DLQ: {e}")
+            return 0
+
+    def get_dlq_stats(self) -> Dict[str, Any]:
+        """
+        DLQ 통계 조회
+
+        Returns:
+            통계 정보 딕셔너리
+        """
+        if not self.is_available:
+            return {"available": False, "total": 0}
+
+        try:
+            total = self.get_dlq_count()
+            entries = self.get_dlq_entries(limit=1000)  # 최근 1000개 분석
+
+            # 타입별 집계
+            by_type = {}
+            by_error_type = {}
+            by_user = {}
+
+            for entry in entries:
+                # 작업 타입별
+                by_type[entry.job_type] = by_type.get(entry.job_type, 0) + 1
+                # 에러 타입별
+                by_error_type[entry.error_type] = by_error_type.get(entry.error_type, 0) + 1
+                # 사용자별
+                by_user[entry.user_id] = by_user.get(entry.user_id, 0) + 1
+
+            return {
+                "available": True,
+                "total": total,
+                "by_job_type": by_type,
+                "by_error_type": by_error_type,
+                "by_user": dict(sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:10]),  # Top 10 사용자
+            }
+
+        except Exception as e:
+            logger.error(f"[DLQ] Failed to get DLQ stats: {e}")
+            return {"available": True, "total": 0, "error": str(e)}
 
 
 # 싱글톤 인스턴스

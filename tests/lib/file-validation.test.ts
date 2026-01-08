@@ -79,10 +79,10 @@ describe("validateExtension", () => {
 
   describe("유효하지 않은 확장자", () => {
     it.each([
-      ["resume.exe", "Unsupported file type"],
-      ["document.txt", "Unsupported file type"],
-      ["file.jpg", "Unsupported file type"],
-      ["script.js", "Unsupported file type"],
+      ["resume.exe", "지원하지 않는 파일 형식"],
+      ["document.txt", "지원하지 않는 파일 형식"],
+      ["file.jpg", "지원하지 않는 파일 형식"],
+      ["script.js", "지원하지 않는 파일 형식"],
     ])("%s 파일은 거부되어야 함", (fileName, expectedError) => {
       const result = validateExtension(fileName);
       expect(result.valid).toBe(false);
@@ -91,28 +91,28 @@ describe("validateExtension", () => {
   });
 
   describe("이중 확장자 공격 방지", () => {
-    // 마지막 확장자가 위험한 경우 -> "Unsupported file type"으로 거부
+    // 마지막 확장자가 위험한 경우 -> "지원하지 않는 파일 형식"으로 거부
     it.each([
-      ["resume.pdf.exe", "unsupported file type"],
-      ["document.hwp.bat", "unsupported file type"],
-      ["file.docx.js", "unsupported file type"],
+      ["resume.pdf.exe", "지원하지 않는 파일 형식"],
+      ["document.hwp.bat", "지원하지 않는 파일 형식"],
+      ["file.docx.js", "지원하지 않는 파일 형식"],
     ])("%s 파일은 거부되어야 함 (마지막 확장자 위험)", (fileName, expectedError) => {
       const result = validateExtension(fileName);
       expect(result.valid).toBe(false);
-      expect(result.error?.toLowerCase()).toContain(expectedError);
+      expect(result.error).toContain(expectedError);
     });
 
-    // 마지막 확장자는 허용되지만 중간에 위험한 확장자가 있는 경우 -> "double extension"으로 거부
+    // 마지막 확장자는 허용되지만 중간에 위험한 확장자가 있는 경우 -> "보안상 위험한 파일"으로 거부
     it.each([
-      ["malware.exe.pdf", "double extension"],
-      ["virus.bat.hwp", "double extension"],
-      ["script.js.docx", "double extension"],
-      ["backdoor.php.doc", "double extension"],
-      ["trojan.vbs.hwpx", "double extension"],
+      ["malware.exe.pdf", "보안상 위험한 파일"],
+      ["virus.bat.hwp", "보안상 위험한 파일"],
+      ["script.js.docx", "보안상 위험한 파일"],
+      ["backdoor.php.doc", "보안상 위험한 파일"],
+      ["trojan.vbs.hwpx", "보안상 위험한 파일"],
     ])("%s 파일은 거부되어야 함 (중간 확장자 위험)", (fileName, expectedError) => {
       const result = validateExtension(fileName);
       expect(result.valid).toBe(false);
-      expect(result.error?.toLowerCase()).toContain(expectedError);
+      expect(result.error).toContain(expectedError);
     });
   });
 
@@ -175,7 +175,7 @@ describe("validateMagicBytes", () => {
     it("PDF 확장자지만 다른 내용", () => {
       const result = validateMagicBytes(createFakeBuffer(), ".pdf");
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("invalid file signature");
+      expect(result.error).toContain("형식과 일치하지 않습니다");
     });
 
     it("DOCX 확장자지만 DOC 내용", () => {
@@ -193,7 +193,7 @@ describe("validateMagicBytes", () => {
     it("너무 작은 파일은 거부", () => {
       const result = validateMagicBytes(createTinyBuffer(), ".pdf");
       expect(result.valid).toBe(false);
-      expect(result.error).toContain("too small");
+      expect(result.error).toContain("파일이 너무 작습니다");
     });
 
     it("빈 버퍼는 거부", () => {
@@ -227,7 +227,7 @@ describe("validateFileSize", () => {
   it("빈 파일 거부", () => {
     const result = validateFileSize(0);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain("empty");
+    expect(result.error).toContain("빈 파일");
   });
 
   it("음수 크기 거부", () => {
@@ -273,7 +273,7 @@ describe("validateFile", () => {
       fileBuffer: createPDFBuffer(),
     });
     expect(result.valid).toBe(false);
-    expect(result.error).toContain("Unsupported file type");
+    expect(result.error).toContain("지원하지 않는 파일 형식");
   });
 
   it("크기 오류", () => {
@@ -293,7 +293,7 @@ describe("validateFile", () => {
       fileBuffer: createFakeBuffer(),
     });
     expect(result.valid).toBe(false);
-    expect(result.error).toContain("invalid file signature");
+    expect(result.error).toContain("형식과 일치하지 않습니다");
   });
 
   it("버퍼 없이 확장자/크기만 검증", () => {

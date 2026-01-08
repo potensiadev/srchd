@@ -13,6 +13,7 @@ import {
   FileSearch,
   Lock,
   CheckCircle,
+  type LucideIcon,
 } from "lucide-react";
 import DeepSpaceBackground from "@/components/layout/DeepSpaceBackground";
 
@@ -79,7 +80,7 @@ function FeatureCard({
   description,
   index,
 }: {
-  icon: React.ElementType;
+  icon: LucideIcon;
   title: string;
   description: string;
   index: number;
