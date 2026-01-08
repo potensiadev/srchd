@@ -25,6 +25,38 @@ import {
   type ChunkType,
 } from "@/types";
 
+// ─────────────────────────────────────────────────
+// 입력 검증 및 살균 유틸리티
+// ─────────────────────────────────────────────────
+
+/**
+ * ILIKE 패턴에서 특수문자 이스케이프 (SQL Injection 방지)
+ * PostgreSQL ILIKE에서 특수 의미를 가진 문자: %, _, \
+ */
+function escapeILikePattern(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")  // \ -> \\
+    .replace(/%/g, "\\%")    // % -> \%
+    .replace(/_/g, "\\_");   // _ -> \_
+}
+
+/**
+ * 배열 필터용 값 살균 (중괄호 제거)
+ */
+function sanitizeArrayValue(value: string): string {
+  return value.replace(/[{}]/g, "").trim();
+}
+
+/**
+ * 일반 문자열 살균 (위험 문자 제거)
+ */
+function sanitizeString(value: string, maxLength: number = 100): string {
+  return value
+    .replace(/[<>'"`;]/g, "")  // XSS/SQL 위험 문자 제거
+    .trim()
+    .slice(0, maxLength);
+}
+
 /**
  * DB row를 CandidateSearchResult로 변환
  */
@@ -148,13 +180,16 @@ export async function POST(request: NextRequest) {
         // 임베딩 생성 실패 시 텍스트 검색으로 Fallback
         console.warn("Embedding failed, falling back to text search:", embeddingError);
 
+        // Fallback 텍스트 검색에서도 SQL Injection 방지
+        const escapedQuery = escapeILikePattern(sanitizedQuery);
+
         let queryBuilder = supabase
           .from("candidates")
           .select("*", { count: "exact" })
           .eq("user_id", user.id)
           .eq("status", "completed")
           .eq("is_latest", true)
-          .or(`summary.ilike.%${query}%,last_position.ilike.%${query}%`);
+          .or(`summary.ilike.%${escapedQuery}%,last_position.ilike.%${escapedQuery}%`);
 
         if (filters?.expYearsMin) {
           queryBuilder = queryBuilder.gte("exp_years", filters.expYearsMin);
@@ -166,7 +201,8 @@ export async function POST(request: NextRequest) {
           queryBuilder = queryBuilder.overlaps("skills", filters.skills);
         }
         if (filters?.location) {
-          queryBuilder = queryBuilder.ilike("location_city", `%${filters.location}%`);
+          const escapedLocation = escapeILikePattern(sanitizeString(filters.location));
+          queryBuilder = queryBuilder.ilike("location_city", `%${escapedLocation}%`);
         }
 
         const { data, error, count } = await queryBuilder
@@ -190,10 +226,10 @@ export async function POST(request: NextRequest) {
       // Keyword Search (RDB)
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      // 키워드 분리 및 개별 키워드 길이 제한
+      // 키워드 분리 및 개별 키워드 길이 제한 + SQL Injection 방지
       const keywords = sanitizedQuery
         .split(",")
-        .map(k => k.trim().slice(0, MAX_KEYWORD_LENGTH))
+        .map(k => sanitizeString(k, MAX_KEYWORD_LENGTH))
         .filter(Boolean);
 
       let queryBuilder = supabase
@@ -203,10 +239,12 @@ export async function POST(request: NextRequest) {
         .eq("status", "completed")
         .eq("is_latest", true);
 
-      // 키워드 검색: 스킬, 직책, 회사명에서 검색
+      // 키워드 검색: 스킬, 직책, 회사명에서 검색 (SQL Injection 방지)
       if (keywords.length > 0) {
         const orConditions = keywords.map(keyword => {
-          return `skills.cs.{${keyword}},last_position.ilike.%${keyword}%,last_company.ilike.%${keyword}%,name.ilike.%${keyword}%`;
+          const escapedKeyword = escapeILikePattern(keyword);
+          const sanitizedKeyword = sanitizeArrayValue(keyword);
+          return `skills.cs.{${sanitizedKeyword}},last_position.ilike.%${escapedKeyword}%,last_company.ilike.%${escapedKeyword}%,name.ilike.%${escapedKeyword}%`;
         }).join(",");
         queryBuilder = queryBuilder.or(orConditions);
       }
@@ -222,7 +260,8 @@ export async function POST(request: NextRequest) {
         queryBuilder = queryBuilder.overlaps("skills", filters.skills);
       }
       if (filters?.location) {
-        queryBuilder = queryBuilder.ilike("location_city", `%${filters.location}%`);
+        const escapedLocation = escapeILikePattern(sanitizeString(filters.location));
+        queryBuilder = queryBuilder.ilike("location_city", `%${escapedLocation}%`);
       }
 
       const { data, error, count } = await queryBuilder

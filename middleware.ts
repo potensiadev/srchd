@@ -1,11 +1,12 @@
 /**
  * Next.js Middleware
- * 인증 + 동의 체크
+ * 인증 + 동의 체크 + CSRF 보호
  */
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { validateCSRFForAPI } from "@/lib/csrf";
 
 interface UserRow {
   consents_completed: boolean | null;
@@ -36,6 +37,16 @@ const isDevelopment = process.env.NODE_ENV === "development";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 0. CSRF 보호 (API 경로의 POST/PUT/DELETE/PATCH)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (!validateCSRFForAPI(request)) {
+    return NextResponse.json(
+      { success: false, error: "CSRF validation failed" },
+      { status: 403 }
+    );
+  }
 
   // Supabase 세션 업데이트
   const { supabase, user, response } = await updateSession(request);

@@ -7,9 +7,20 @@ import {
   apiInternalError,
   apiRateLimitExceeded,
 } from "@/lib/api-response";
-import { withRateLimit } from "@/lib/rate-limit";
+import { withRateLimit, getClientIP } from "@/lib/rate-limit";
 import { PLAN_CONFIG } from "@/lib/file-validation";
 import { type PlanType } from "@/types/auth";
+import crypto from "crypto";
+
+/**
+ * IP 주소 익명화 (개인정보 보호)
+ * 전체 IP 대신 해시값의 일부만 저장
+ */
+function anonymizeIP(ip: string): string {
+  if (!ip || ip === "unknown") return "unknown";
+  const hash = crypto.createHash("sha256").update(ip).digest("hex");
+  return hash.substring(0, 16); // 처음 16자만 저장 (추적용 충분)
+}
 
 /**
  * Blind Export API
@@ -134,8 +145,9 @@ export async function POST(
       format,
       file_name: fileName,
       masked_fields: maskedFields,
-      ip_address: request.headers.get("x-forwarded-for") || "unknown",
-      user_agent: request.headers.get("user-agent") || "unknown",
+      // 개인정보 보호: IP 주소 익명화, User-Agent 제거
+      ip_address: anonymizeIP(getClientIP(request)),
+      user_agent: null, // User-Agent는 개인 식별 가능 정보이므로 저장하지 않음
     });
 
     // HTML 템플릿 생성 (클라이언트에서 PDF로 변환)

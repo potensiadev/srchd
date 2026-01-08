@@ -93,7 +93,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       .single();
 
     if (userError || !userData) {
-      console.error("[Upload] User not found:", userError, "email:", user.email);
+      // 민감한 정보(이메일) 로깅하지 않음
+      console.error("[Upload] User not found: error code", userError?.code || "UNKNOWN");
       return NextResponse.json(
         { success: false, error: "사용자 정보를 찾을 수 없습니다.", code: "USER_NOT_FOUND" },
         { status: 404 }
@@ -257,7 +258,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
         .update({
           status: "failed",
           error_code: "STORAGE_ERROR",
-          error_message: uploadError.message,
+          error_message: "파일 저장 중 오류가 발생했습니다.", // 상세 에러 메시지 노출하지 않음
           completed_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -392,7 +393,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
         .update({
           status: "failed",
           error_code: "WORKER_UNREACHABLE",
-          error_message: `Worker 연결 실패: ${error instanceof Error ? error.message : String(error)}`,
+          error_message: "처리 서버 연결에 실패했습니다.", // 상세 에러 메시지 노출하지 않음
           completed_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -447,12 +448,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       try {
         const adminClientForCleanup = getAdminClient();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // 내부 에러 메시지는 로깅에만 사용하고, DB에는 일반적인 메시지 저장
+        // (프로덕션에서 민감한 정보 노출 방지)
+        const sanitizedErrorMessage = "처리 중 오류가 발생했습니다.";
+        if (process.env.NODE_ENV === "development") {
+          console.error("[Upload] Original error:", error instanceof Error ? error.message : error);
+        }
         await (adminClientForCleanup as any)
           .from("processing_jobs")
           .update({
             status: "failed",
             error_code: "INTERNAL_ERROR",
-            error_message: error instanceof Error ? error.message : "알 수 없는 오류",
+            error_message: sanitizedErrorMessage,
             completed_at: new Date().toISOString(),
           })
           .eq("id", jobId);
@@ -527,8 +534,10 @@ export async function GET(request: NextRequest) {
     .limit(20);
 
   if (error) {
+    // 프로덕션에서는 상세 에러 메시지 노출하지 않음
+    console.error("[Upload] Job list query error:", error.message);
     return NextResponse.json(
-      { error: error.message, code: "DB_ERROR" },
+      { error: "데이터 조회 중 오류가 발생했습니다.", code: "DB_ERROR" },
       { status: 500 }
     );
   }

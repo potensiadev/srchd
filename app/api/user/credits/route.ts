@@ -97,15 +97,15 @@ export async function GET() {
       .eq("email", user.email)
       .single();
 
-    console.log("[Credits API] Fallback query result:", data, "error:", error);
-
     if (error) {
-      console.error("[Credits API] Fallback error:", error);
+      // 민감 정보(이메일, 데이터) 로깅하지 않음
+      console.error("[Credits API] Fallback error: code", error.code || "UNKNOWN");
       return apiInternalError();
     }
 
     if (!data) {
-      console.error("[Credits API] No user data found for email:", user.email);
+      // 이메일 로깅하지 않음 (PII 보호)
+      console.error("[Credits API] No user data found");
       return apiNotFound("사용자 정보를 찾을 수 없습니다.");
     }
 

@@ -15,7 +15,8 @@ import { PLANS, type PlanType } from "@/types/auth";
 
 export const FILE_CONFIG = {
   ALLOWED_EXTENSIONS: [".hwp", ".hwpx", ".doc", ".docx", ".pdf"] as const,
-  MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
+  MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB (이력서에 충분한 크기)
+  MIN_FILE_SIZE: 1024, // 1KB (빈 파일 방지)
 } as const;
 
 // PLANS에서 파생된 플랜 설정 (단일 소스)
@@ -196,10 +197,16 @@ export function validateMagicBytes(
  */
 export function validateFileSize(
   size: number,
-  maxSize: number = FILE_CONFIG.MAX_FILE_SIZE
+  maxSize: number = FILE_CONFIG.MAX_FILE_SIZE,
+  minSize: number = FILE_CONFIG.MIN_FILE_SIZE
 ): FileValidationResult {
   if (size <= 0) {
     return { valid: false, error: "빈 파일은 업로드할 수 없습니다. 파일 내용이 있는지 확인해주세요." };
+  }
+
+  if (size < minSize) {
+    const minKB = Math.round(minSize / 1024);
+    return { valid: false, error: `파일 크기가 너무 작습니다 (최소 ${minKB}KB). 올바른 이력서 파일인지 확인해주세요.` };
   }
 
   if (size > maxSize) {

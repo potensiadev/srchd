@@ -120,28 +120,80 @@ function cleanupExpiredEntries(): void {
 // ─────────────────────────────────────────────────
 
 /**
- * IP 주소 추출
+ * IP 주소 추출 (보안 강화)
+ *
+ * X-Forwarded-For 스푸핑 방지:
+ * 1. Vercel에서 설정하는 신뢰할 수 있는 헤더 우선 사용
+ * 2. X-Forwarded-For의 마지막 IP 사용 (신뢰할 수 있는 프록시가 추가한 IP)
+ * 3. 사설 IP는 무시 (스푸핑 시도 차단)
  */
 export function getClientIP(request: NextRequest): string {
-  // Vercel/Cloudflare 프록시 헤더
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    return forwardedFor.split(",")[0].trim();
+  // 1. Vercel의 신뢰할 수 있는 헤더 (Vercel Edge가 설정, 스푸핑 불가)
+  const vercelForwardedFor = request.headers.get("x-vercel-forwarded-for");
+  if (vercelForwardedFor) {
+    const ip = vercelForwardedFor.split(",")[0].trim();
+    if (isValidPublicIP(ip)) return ip;
   }
 
-  // Cloudflare
+  // 2. Cloudflare의 신뢰할 수 있는 헤더 (CF가 설정, 스푸핑 불가)
   const cfConnectingIP = request.headers.get("cf-connecting-ip");
-  if (cfConnectingIP) {
+  if (cfConnectingIP && isValidPublicIP(cfConnectingIP)) {
     return cfConnectingIP;
   }
 
-  // Vercel
+  // 3. Vercel의 x-real-ip (신뢰할 수 있음)
   const realIP = request.headers.get("x-real-ip");
-  if (realIP) {
+  if (realIP && isValidPublicIP(realIP)) {
     return realIP;
   }
 
+  // 4. X-Forwarded-For (마지막 IP 사용 - 신뢰할 수 있는 프록시가 추가)
+  // 주의: 첫 번째 IP는 클라이언트가 스푸핑 가능
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const ips = forwardedFor.split(",").map(ip => ip.trim());
+    // 마지막 비사설 IP를 찾음 (신뢰할 수 있는 프록시가 추가한 IP)
+    for (let i = ips.length - 1; i >= 0; i--) {
+      if (isValidPublicIP(ips[i])) {
+        return ips[i];
+      }
+    }
+  }
+
   return "unknown";
+}
+
+/**
+ * 유효한 공개 IP인지 확인 (사설 IP, 루프백, 예약 IP 제외)
+ */
+function isValidPublicIP(ip: string): boolean {
+  if (!ip || ip === "unknown") return false;
+
+  // IPv4 사설 IP 범위 제외
+  const privateIPv4Patterns = [
+    /^10\./,                    // 10.0.0.0/8
+    /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
+    /^192\.168\./,              // 192.168.0.0/16
+    /^127\./,                   // 127.0.0.0/8 (Loopback)
+    /^0\./,                     // 0.0.0.0/8
+    /^169\.254\./,              // 169.254.0.0/16 (Link-local)
+    /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./, // 100.64.0.0/10 (CGNAT)
+  ];
+
+  for (const pattern of privateIPv4Patterns) {
+    if (pattern.test(ip)) return false;
+  }
+
+  // IPv6 사설/루프백 제외
+  if (ip.startsWith("::1") || ip.startsWith("fe80:") || ip.startsWith("fc") || ip.startsWith("fd")) {
+    return false;
+  }
+
+  // 기본 IP 형식 검증
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+
+  return ipv4Regex.test(ip) || ipv6Regex.test(ip);
 }
 
 /**
