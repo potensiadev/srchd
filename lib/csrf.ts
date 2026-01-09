@@ -80,15 +80,15 @@ export function validateOrigin(request: NextRequest): CSRFValidationResult {
     // Referer에서 Origin 추출
     try {
       const refererUrl = new URL(referer);
-      const refererOrigin = refererUrl.origin;
       const allowedOrigins = getAllowedOrigins();
 
-      if (allowedOrigins.length === 0) {
-        // 허용된 Origin이 설정되지 않은 경우 host 비교
-        if (host && refererUrl.host === host) {
-          return { valid: true };
-        }
-      } else if (allowedOrigins.includes(refererOrigin)) {
+      // 먼저 host 비교 (Same-Origin 체크)
+      if (host && refererUrl.host === host) {
+        return { valid: true };
+      }
+
+      // 허용된 Origin 목록 체크
+      if (allowedOrigins.includes(refererUrl.origin)) {
         return { valid: true };
       }
 
@@ -101,27 +101,20 @@ export function validateOrigin(request: NextRequest): CSRFValidationResult {
     }
   }
 
-  // Origin 헤더 검증
-  const allowedOrigins = getAllowedOrigins();
-
-  // 허용된 Origin 목록이 비어있는 경우 (설정 누락)
-  // host 헤더와 비교
-  if (allowedOrigins.length === 0) {
-    if (host) {
-      try {
-        const originUrl = new URL(origin);
-        if (originUrl.host === host) {
-          return { valid: true };
-        }
-      } catch {
-        return { valid: false, error: "Invalid origin format" };
+  // Origin 헤더 검증 - 먼저 host와 비교 (Same-Origin)
+  if (host) {
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.host === host) {
+        return { valid: true };
       }
+    } catch {
+      return { valid: false, error: "Invalid origin format" };
     }
-    // 설정이 없고 host도 없으면 거부
-    return { valid: false, error: "CSRF validation failed" };
   }
 
   // 허용된 Origin 목록에 있는지 확인
+  const allowedOrigins = getAllowedOrigins();
   if (allowedOrigins.includes(origin)) {
     return { valid: true };
   }
