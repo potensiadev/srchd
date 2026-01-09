@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, CheckCircle, AlertTriangle, ArrowRight, X, FileText, Loader2 } from "lucide-react";
+import { Upload, CheckCircle, AlertTriangle, ArrowRight, X, FileText, Loader2, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import GravityDropZone from "@/components/upload/GravityDropZone";
 import ProcessingVisualization, { ProcessingPhase } from "@/components/upload/ProcessingVisualization";
@@ -69,6 +69,45 @@ export default function UploadPage() {
   // 파일 제거
   const removeFile = (id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  // 실패한 파일 재시도
+  const retryFile = async (id: string) => {
+    const fileToRetry = files.find((f) => f.id === id);
+    if (!fileToRetry || fileToRetry.status !== "error") return;
+
+    // 상태를 pending으로 변경
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.id === id ? { ...f, status: "pending" as FileStatus, error: undefined, phase: "idle" as ProcessingPhase } : f
+      )
+    );
+
+    setIsUploading(true);
+    await uploadFile({ ...fileToRetry, status: "pending", error: undefined, phase: "idle" as ProcessingPhase });
+    setIsUploading(false);
+    setActiveProcessingFile(null);
+  };
+
+  // 실패한 모든 파일 재시도
+  const retryAllFailed = async () => {
+    const failedFiles = files.filter((f) => f.status === "error");
+    if (failedFiles.length === 0) return;
+
+    // 모든 실패 파일을 pending으로 변경
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.status === "error" ? { ...f, status: "pending" as FileStatus, error: undefined, phase: "idle" as ProcessingPhase } : f
+      )
+    );
+
+    setIsUploading(true);
+    for (const file of failedFiles) {
+      await uploadFile({ ...file, status: "pending", error: undefined, phase: "idle" as ProcessingPhase });
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    setIsUploading(false);
+    setActiveProcessingFile(null);
   };
 
   // 단일 파일 업로드 - Direct-to-Storage 패턴 (Vercel 4.5MB 제한 우회)
@@ -253,12 +292,14 @@ export default function UploadPage() {
   const stats = {
     total: files.length,
     pending: files.filter((f) => f.status === "pending").length,
+    uploading: files.filter((f) => f.status === "uploading" || f.status === "processing").length,
     success: files.filter((f) => f.status === "success").length,
     error: files.filter((f) => f.status === "error").length,
   };
 
   const hasFiles = files.length > 0;
-  const allComplete = stats.pending === 0 && stats.total > 0;
+  const allComplete = stats.pending === 0 && stats.uploading === 0 && stats.total > 0;
+  const progressPercent = stats.total > 0 ? Math.round(((stats.success + stats.error) / stats.total) * 100) : 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -311,6 +352,35 @@ export default function UploadPage() {
                 후보자 목록으로 이동
                 <ArrowRight size={16} />
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Overall Progress Bar */}
+      <AnimatePresence>
+        {isUploading && stats.total > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-4 rounded-xl bg-slate-800/50 border border-slate-700"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-white">
+                업로드 진행 중...
+              </span>
+              <span className="text-sm text-slate-400">
+                {stats.success + stats.error} / {stats.total} ({progressPercent}%)
+              </span>
+            </div>
+            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                transition={{ duration: 0.3 }}
+                className="h-full bg-gradient-to-r from-primary to-emerald-500 rounded-full"
+              />
             </div>
           </motion.div>
         )}
@@ -409,6 +479,17 @@ export default function UploadPage() {
                     </p>
                   </div>
 
+                  {/* Retry button for failed files */}
+                  {file.status === "error" && !isUploading && (
+                    <button
+                      onClick={() => retryFile(file.id)}
+                      className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
+                      title="재시도"
+                    >
+                      <RotateCcw size={16} />
+                    </button>
+                  )}
+
                   {/* Remove */}
                   {file.status !== "uploading" && (
                     <button
@@ -422,31 +503,46 @@ export default function UploadPage() {
               ))}
             </div>
 
-            {/* Upload Button */}
-            {stats.pending > 0 && (
-              <button
-                onClick={uploadAll}
-                disabled={isUploading}
-                className={cn(
-                  "w-full py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2",
-                  isUploading
-                    ? "bg-slate-700 text-slate-500 cursor-not-allowed"
-                    : "bg-primary hover:bg-primary/90 text-white"
-                )}
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    처리 중...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-5 h-5" />
-                    {stats.pending}개 파일 업로드 시작
-                  </>
-                )}
-              </button>
-            )}
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              {/* Retry All Failed Button */}
+              {stats.error > 0 && stats.pending === 0 && !isUploading && (
+                <button
+                  onClick={retryAllFailed}
+                  className="flex-1 py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2
+                           bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  실패 {stats.error}개 재시도
+                </button>
+              )}
+
+              {/* Upload Button */}
+              {stats.pending > 0 && (
+                <button
+                  onClick={uploadAll}
+                  disabled={isUploading}
+                  className={cn(
+                    "flex-1 py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2",
+                    isUploading
+                      ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                      : "bg-primary hover:bg-primary/90 text-white"
+                  )}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      처리 중...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5" />
+                      {stats.pending}개 파일 업로드
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

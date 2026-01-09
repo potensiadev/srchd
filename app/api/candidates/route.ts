@@ -13,9 +13,14 @@ import {
   apiUnauthorized,
   apiInternalError,
 } from "@/lib/api-response";
+import { withRateLimit } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   try {
+    // Rate Limit 체크 (분당 60회)
+    const rateLimitResponse = await withRateLimit(request, "default");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const supabase = await createClient();
 
     // 인증 확인

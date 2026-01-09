@@ -25,6 +25,7 @@ import {
   apiConflict,
   apiForbidden,
 } from "@/lib/api-response";
+import { withRateLimit } from "@/lib/rate-limit";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -110,6 +111,10 @@ const CANDIDATE_DETAIL_COLUMNS = `
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Rate Limit 체크 (분당 60회)
+    const rateLimitResponse = await withRateLimit(request, "default");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const { id } = await params;
     const supabase = await createClient();
 
@@ -161,6 +166,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    // Rate Limit 체크 (분당 60회)
+    const rateLimitResponse = await withRateLimit(request, "default");
+    if (rateLimitResponse) return rateLimitResponse;
+
     const { id } = await params;
     const supabase = await createClient();
 
