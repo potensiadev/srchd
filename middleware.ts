@@ -111,9 +111,9 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL("/consent", request.url));
       }
     } catch (error) {
-      // DB 오류 시 로그만 남기고 요청 진행 허용 (사용자 경험 우선)
       console.error("[Middleware] Consent check failed:", error);
-      // 동의 페이지로 리다이렉트하지 않고 요청 진행
+      // DB 조회 실패(유저 정보 없음 등) 시 강제 로그아웃 유도
+      return NextResponse.redirect(new URL("/api/auth/signout", request.url));
     }
   }
 
@@ -164,8 +164,8 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL("/consent", request.url));
       }
     } catch {
-      // DB 오류 시 동의 페이지로
-      return NextResponse.redirect(new URL("/consent", request.url));
+      // DB 조회 실패(유저 정보 없음) 시 강제 로그아웃 유도
+      return NextResponse.redirect(new URL("/api/auth/signout", request.url));
     }
   }
 
