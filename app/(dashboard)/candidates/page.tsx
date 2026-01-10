@@ -156,62 +156,55 @@ export default function CandidatesPage() {
   // Progressive Loading: Realtime 구독 활성화
   useCandidatesRealtime(userId);
 
-  // 사용자 ID 가져오기 (Realtime 필터링용 + 명시적 쿼리용)
+  // 페이지 로드 시 사용자 ID 가져오고 candidates 조회
   useEffect(() => {
-    const getUserId = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log("[Candidates] Auth user:", user?.id, user?.email);
-      if (user?.email) {
-        // public.users에서 ID 조회 (RLS 우회를 위한 명시적 필터용)
-        const { data: userData, error: userError } = await supabase
-          .from("users")
-          .select("id")
-          .eq("email", user.email)
-          .single();
-        console.log("[Candidates] Public user lookup:", userData, userError);
-        const publicUserId = (userData as { id: string } | null)?.id;
-        console.log("[Candidates] Setting userId:", publicUserId || user?.id);
-        setUserId(publicUserId || user?.id);
-      } else {
-        setUserId(user?.id);
+    const loadData = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        console.log("[Candidates] Auth user:", user?.id, user?.email);
+
+        if (!user) {
+          console.log("[Candidates] No user found");
+          setIsLoading(false);
+          return;
+        }
+
+        // auth.uid()를 직접 사용 (public.users.id와 동일하다고 확인됨)
+        const currentUserId = user.id;
+        console.log("[Candidates] Using userId:", currentUserId);
+        setUserId(currentUserId);
+
+        // candidates 조회
+        console.log("[Candidates] Fetching candidates...");
+        const { data, error } = await supabase
+          .from("candidates")
+          .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status")
+          .eq("user_id", currentUserId)
+          .in("status", ["processing", "completed"])
+          .eq("is_latest", true)
+          .order("created_at", { ascending: false });
+
+        console.log("[Candidates] Query result:", { data, error, count: data?.length });
+
+        if (error) {
+          console.error("[Candidates] Query error:", error);
+          throw error;
+        }
+
+        setCandidates(data || []);
+      } catch (error) {
+        console.error("[Candidates] Failed to load:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
-    getUserId();
-  }, [supabase.auth]);
 
-  // userId가 설정된 후 candidates 조회
-  useEffect(() => {
-    if (userId) {
-      fetchCandidates(userId);
-    }
-  }, [userId]);
+    loadData();
+  }, []); // 컴포넌트 마운트 시 한 번 실행
 
   useEffect(() => {
     filterAndSort();
   }, [candidates, searchQuery, sortBy]);
-
-  const fetchCandidates = async (publicUserId: string) => {
-    console.log("[Candidates] Fetching with userId:", publicUserId);
-    try {
-      // Progressive Loading: 처리 중 후보자 포함
-      // RLS가 제대로 작동하지 않을 수 있으므로 명시적 user_id 필터 추가
-      const { data, error } = await supabase
-        .from("candidates")
-        .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status")
-        .eq("user_id", publicUserId)
-        .in("status", ["processing", "completed"])
-        .eq("is_latest", true)
-        .order("created_at", { ascending: false });
-
-      console.log("[Candidates] Query result:", { data, error, count: data?.length });
-      if (error) throw error;
-      setCandidates(data || []);
-    } catch (error) {
-      console.error("Failed to fetch candidates:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const filterAndSort = () => {
     let result = [...candidates];
