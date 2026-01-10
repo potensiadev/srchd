@@ -16,10 +16,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Progressive Loading: Realtime 및 ProcessingCard
-import { useCandidatesRealtime } from "@/hooks/useCandidatesRealtime";
+// Progressive Loading: ProcessingCard
 import ProcessingCard from "@/components/dashboard/ProcessingCard";
 import type { CandidateStatus } from "@/types";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 // ─────────────────────────────────────────────────
 // 경력 계산 유틸리티
@@ -153,8 +153,26 @@ export default function CandidatesPage() {
 
   const supabase = createClient();
 
-  // Progressive Loading: Realtime 구독 활성화
-  useCandidatesRealtime(userId);
+  // candidates 조회 함수
+  const fetchCandidates = async (currentUserId: string) => {
+    console.log("[Candidates] Fetching candidates...");
+    const { data, error } = await supabase
+      .from("candidates")
+      .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status")
+      .eq("user_id", currentUserId)
+      .in("status", ["processing", "completed"])
+      .eq("is_latest", true)
+      .order("created_at", { ascending: false });
+
+    console.log("[Candidates] Query result:", { data, error, count: data?.length });
+
+    if (error) {
+      console.error("[Candidates] Query error:", error);
+      throw error;
+    }
+
+    return data || [];
+  };
 
   // 페이지 로드 시 사용자 ID 가져오고 candidates 조회
   useEffect(() => {
@@ -169,29 +187,12 @@ export default function CandidatesPage() {
           return;
         }
 
-        // auth.uid()를 직접 사용 (public.users.id와 동일하다고 확인됨)
         const currentUserId = user.id;
         console.log("[Candidates] Using userId:", currentUserId);
         setUserId(currentUserId);
 
-        // candidates 조회
-        console.log("[Candidates] Fetching candidates...");
-        const { data, error } = await supabase
-          .from("candidates")
-          .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status")
-          .eq("user_id", currentUserId)
-          .in("status", ["processing", "completed"])
-          .eq("is_latest", true)
-          .order("created_at", { ascending: false });
-
-        console.log("[Candidates] Query result:", { data, error, count: data?.length });
-
-        if (error) {
-          console.error("[Candidates] Query error:", error);
-          throw error;
-        }
-
-        setCandidates(data || []);
+        const data = await fetchCandidates(currentUserId);
+        setCandidates(data);
       } catch (error) {
         console.error("[Candidates] Failed to load:", error);
       } finally {
@@ -200,7 +201,41 @@ export default function CandidatesPage() {
     };
 
     loadData();
-  }, []); // 컴포넌트 마운트 시 한 번 실행
+  }, []);
+
+  // Realtime 구독 - candidates 테이블 변경 감지
+  useEffect(() => {
+    if (!userId) return;
+
+    console.log("[Realtime] Subscribing to candidates changes for user:", userId);
+
+    const channel = supabase
+      .channel("candidates-page-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "candidates",
+          filter: `user_id=eq.${userId}`,
+        },
+        async (payload: RealtimePostgresChangesPayload<Candidate>) => {
+          console.log("[Realtime] Candidate change:", payload.eventType, payload);
+
+          // 변경 시 전체 목록 다시 조회
+          const data = await fetchCandidates(userId);
+          setCandidates(data);
+        }
+      )
+      .subscribe((status) => {
+        console.log("[Realtime] Subscription status:", status);
+      });
+
+    return () => {
+      console.log("[Realtime] Unsubscribing");
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   useEffect(() => {
     filterAndSort();
