@@ -120,7 +120,7 @@ class LLMManager:
         # 기본 모델 설정
         self.models = {
             LLMProvider.OPENAI: "gpt-4o",
-            LLMProvider.GEMINI: "gemini-1.5-flash",  # google-genai SDK에서 안정적으로 사용 가능
+            LLMProvider.GEMINI: "gemini-2.0-flash",  # 최신 google-genai SDK 모델명
             LLMProvider.CLAUDE: "claude-3-5-sonnet-20241022",
         }
 
