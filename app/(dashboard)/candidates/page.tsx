@@ -156,29 +156,44 @@ export default function CandidatesPage() {
   // Progressive Loading: Realtime 구독 활성화
   useCandidatesRealtime(userId);
 
-  // 사용자 ID 가져오기 (Realtime 필터링용)
+  // 사용자 ID 가져오기 (Realtime 필터링용 + 명시적 쿼리용)
   useEffect(() => {
     const getUserId = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      setUserId(user?.id);
+      if (user?.email) {
+        // public.users에서 ID 조회 (RLS 우회를 위한 명시적 필터용)
+        const { data: userData } = await supabase
+          .from("users")
+          .select("id")
+          .eq("email", user.email)
+          .single();
+        setUserId(userData?.id || user?.id);
+      } else {
+        setUserId(user?.id);
+      }
     };
     getUserId();
   }, [supabase.auth]);
 
+  // userId가 설정된 후 candidates 조회
   useEffect(() => {
-    fetchCandidates();
-  }, []);
+    if (userId) {
+      fetchCandidates(userId);
+    }
+  }, [userId]);
 
   useEffect(() => {
     filterAndSort();
   }, [candidates, searchQuery, sortBy]);
 
-  const fetchCandidates = async () => {
+  const fetchCandidates = async (publicUserId: string) => {
     try {
       // Progressive Loading: 처리 중 후보자 포함
+      // RLS가 제대로 작동하지 않을 수 있으므로 명시적 user_id 필터 추가
       const { data, error } = await supabase
         .from("candidates")
         .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status, quick_extracted")
+        .eq("user_id", publicUserId)
         .in("status", ["processing", "parsed", "analyzed", "completed"])
         .eq("is_latest", true)
         .order("created_at", { ascending: false });
