@@ -738,6 +738,46 @@ class DatabaseService:
             logger.error(f"Failed to update job status: {e}")
             return False
 
+    def update_candidate_status(
+        self,
+        candidate_id: str,
+        status: str,
+        quick_extracted: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        candidate 상태 업데이트 (Progressive Loading 지원)
+
+        Args:
+            candidate_id: 후보자 ID
+            status: 새로운 상태 (processing, parsed, analyzed, completed, failed)
+            quick_extracted: 빠른 추출 데이터 (parsed 단계에서 설정)
+
+        Returns:
+            성공 여부
+        """
+        if not self.client:
+            return False
+
+        try:
+            update_data: Dict[str, Any] = {"status": status}
+
+            if quick_extracted:
+                update_data["quick_extracted"] = quick_extracted
+
+            # 단계별 타임스탬프 설정
+            if status == "parsed":
+                update_data["parsing_completed_at"] = "now()"
+            elif status in ["analyzed", "completed"]:
+                update_data["analysis_completed_at"] = "now()"
+
+            self.client.table("candidates").update(update_data).eq("id", candidate_id).execute()
+            logger.info(f"[DB] Candidate {candidate_id} status updated to: {status}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update candidate status: {e}")
+            return False
+
     def deduct_credit(self, user_id: str, candidate_id: Optional[str] = None) -> bool:
         """
         크레딧 차감 (SQL 함수 호출 + 트랜잭션 로깅)

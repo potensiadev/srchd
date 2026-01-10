@@ -1094,6 +1094,32 @@ async def run_pipeline(
         if len(text.strip()) < settings.MIN_TEXT_LENGTH:
             raise Exception(f"Extracted text too short ({len(text.strip())} chars)")
 
+        # Progressive Loading: 파싱 완료 상태 업데이트 (40%)
+        if candidate_id:
+            # 간단한 정보 추출 (이름, 연락처 등)
+            quick_data = {
+                "name": None,
+                "phone": None,
+                "email": None,
+            }
+            # 텍스트에서 기본 정보 추출 시도 (간단한 정규식)
+            import re
+            # 이메일 추출
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+            if email_match:
+                quick_data["email"] = email_match.group()
+            # 전화번호 추출
+            phone_match = re.search(r'01[016789][-\s]?\d{3,4}[-\s]?\d{4}', text)
+            if phone_match:
+                quick_data["phone"] = phone_match.group()
+
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="parsed",
+                quick_extracted=quick_data if any(quick_data.values()) else None
+            )
+            logger.info(f"[Pipeline] Candidate status updated to 'parsed'")
+
         # Step 3: AI 분석
         logger.info(f"[Pipeline] Analyzing resume...")
 
@@ -1109,6 +1135,23 @@ async def run_pipeline(
             raise Exception(f"Analysis failed: {analysis_result.error}")
 
         logger.info(f"[Pipeline] Analysis complete: confidence={analysis_result.confidence_score:.2f}")
+
+        # Progressive Loading: AI 분석 완료 상태 업데이트 (80%)
+        if candidate_id:
+            # 분석 결과에서 빠른 정보 추출
+            quick_data = {
+                "name": analysis_result.data.get("name"),
+                "phone": analysis_result.data.get("phone"),
+                "email": analysis_result.data.get("email"),
+                "last_company": analysis_result.data.get("last_company"),
+                "last_position": analysis_result.data.get("last_position"),
+            }
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="analyzed",
+                quick_extracted={k: v for k, v in quick_data.items() if v}
+            )
+            logger.info(f"[Pipeline] Candidate status updated to 'analyzed'")
 
         # 원본 데이터 보관
         original_data = analysis_result.data.copy()

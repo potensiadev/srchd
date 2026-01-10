@@ -160,7 +160,7 @@ export default function CandidatesPage() {
       .from("candidates")
       .select("id, name, last_position, last_company, exp_years, skills, confidence_score, created_at, summary, careers, status")
       .eq("user_id", currentUserId)
-      .in("status", ["processing", "completed"])
+      .in("status", ["processing", "parsed", "analyzed", "completed"])
       .eq("is_latest", true)
       .order("created_at", { ascending: false });
 
