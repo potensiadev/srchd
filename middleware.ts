@@ -104,7 +104,7 @@ export async function middleware(request: NextRequest) {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(1)
-        .single() as { data: ConsentRow | null };
+        .maybeSingle() as { data: ConsentRow | null };
 
       // 제3자 정보 보증 동의 미완료 → 동의 페이지로
       if (!consentRecord?.third_party_data_guarantee) {
