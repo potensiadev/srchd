@@ -167,10 +167,18 @@ export interface FacetItem {
   count: number;
 }
 
+export interface ExpYearsFacet {
+  "0-3": number;
+  "3-5": number;
+  "5-10": number;
+  "10+": number;
+}
+
 export interface SearchFacets {
   skills: FacetItem[];
   companies: FacetItem[];
   locations: FacetItem[];
+  expYears: ExpYearsFacet;
 }
 
 export interface SearchResponse {

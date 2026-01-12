@@ -18,6 +18,7 @@ export type {
   SearchRequest,
   SearchResponse,
   FacetItem,
+  ExpYearsFacet,
   SearchFacets,
   ChunkType,
   CandidateChunk,
