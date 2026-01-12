@@ -195,7 +195,7 @@ Important:
 async function convertPdfToImages(buffer: Buffer): Promise<string[]> {
   console.log("Converting PDF to images...");
 
-  const pngPages = await pdfToPng(buffer, {
+  const pngPages = await pdfToPng(new Uint8Array(buffer), {
     disableFontFace: true,
     useSystemFonts: true,
     viewportScale: 2.0, // 고해상도로 변환
