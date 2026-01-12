@@ -60,6 +60,9 @@ export interface ApiMeta {
   limit?: number;
   hasMore?: boolean;
   message?: string;
+  cached?: boolean;
+  cacheAge?: number;
+  responseTime?: number;
 }
 
 /**
