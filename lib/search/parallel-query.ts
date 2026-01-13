@@ -12,6 +12,8 @@ import { expandSkillsFromDB } from "./synonym-service";
 
 // 병렬 쿼리 설정
 const MAX_PARALLEL_QUERIES = 5;
+const MAX_SKILLS_PER_GROUP = 15;  // BUG-004: 그룹당 최대 스킬 수 제한 (성능 보장)
+const MAX_TOTAL_SKILLS = MAX_PARALLEL_QUERIES * MAX_SKILLS_PER_GROUP;  // 75개
 
 export interface ParallelQueryOptions {
   userId: string;
@@ -78,20 +80,30 @@ export async function groupSkillsForParallel(
     allSkills = [...sanitizedSkills];
   }
 
+  // BUG-004: 총 스킬 수 제한 (성능 보장)
+  // 동의어 확장으로 스킬이 너무 많아지면 상위 N개만 사용
+  const effectiveSkills = allSkills.length > MAX_TOTAL_SKILLS
+    ? allSkills.slice(0, MAX_TOTAL_SKILLS)
+    : allSkills;
+
   // 스킬 수가 적으면 그룹화하지 않음
-  if (allSkills.length <= MAX_PARALLEL_QUERIES) {
-    return allSkills.map((skill) => [skill]);
+  if (effectiveSkills.length <= MAX_PARALLEL_QUERIES) {
+    return effectiveSkills.map((skill) => [skill]);
   }
 
-  // 스킬을 MAX_PARALLEL_QUERIES 그룹으로 분리
+  // BUG-004: 그룹 크기 제한 적용
+  // 그룹당 최대 MAX_SKILLS_PER_GROUP개로 제한하여 쿼리 성능 보장
   const groups: string[][] = [];
-  const groupSize = Math.ceil(allSkills.length / MAX_PARALLEL_QUERIES);
+  const groupSize = Math.min(
+    Math.ceil(effectiveSkills.length / MAX_PARALLEL_QUERIES),
+    MAX_SKILLS_PER_GROUP
+  );
 
   for (let i = 0; i < MAX_PARALLEL_QUERIES; i++) {
     const start = i * groupSize;
-    const end = Math.min(start + groupSize, allSkills.length);
-    if (start < allSkills.length) {
-      groups.push(allSkills.slice(start, end));
+    const end = Math.min(start + groupSize, effectiveSkills.length);
+    if (start < effectiveSkills.length) {
+      groups.push(effectiveSkills.slice(start, end));
     }
   }
 

@@ -69,9 +69,15 @@ export function ConfirmDialog({
   const config = variantConfig[variant];
   const Icon = config.icon;
 
-  const handleConfirm = () => {
-    onConfirm();
-    if (!isLoading) {
+  const handleConfirm = async () => {
+    try {
+      await Promise.resolve(onConfirm());
+      if (!isLoading) {
+        onOpenChange(false);
+      }
+    } catch (error) {
+      // BUG-006: 에러 발생 시에도 다이얼로그 닫기 (UX 개선)
+      console.error('Confirm action failed:', error);
       onOpenChange(false);
     }
   };

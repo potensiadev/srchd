@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface NetworkStatus {
   isOnline: boolean;
@@ -11,7 +11,7 @@ interface NetworkStatus {
 /**
  * 네트워크 상태 감지 Hook
  * - 온라인/오프라인 상태 감지
- * - 재연결 시 콜백 실행
+ * - 재연결 시 콜백 실행 (debounce 적용)
  * - 마지막 온라인 시간 추적
  */
 export function useNetworkStatus(onReconnect?: () => void) {
@@ -21,15 +21,24 @@ export function useNetworkStatus(onReconnect?: () => void) {
     lastOnline: null,
   });
 
+  // BUG-005: 중복 콜백 방지를 위한 pending timeout ref
+  const pendingReconnectRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleOnline = useCallback(() => {
     setStatus((prev) => {
       const wasActuallyOffline = !prev.isOnline;
 
-      // 재연결 콜백 실행
+      // 재연결 콜백 실행 (debounce 적용)
       if (wasActuallyOffline && onReconnect) {
+        // BUG-005: 기존 pending timeout 취소 (중복 실행 방지)
+        if (pendingReconnectRef.current) {
+          clearTimeout(pendingReconnectRef.current);
+        }
+
         // 약간의 딜레이 후 실행 (네트워크 안정화 대기)
-        setTimeout(() => {
+        pendingReconnectRef.current = setTimeout(() => {
           onReconnect();
+          pendingReconnectRef.current = null;
         }, 1000);
       }
 
@@ -63,6 +72,10 @@ export function useNetworkStatus(onReconnect?: () => void) {
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      // BUG-005: cleanup pending timeout on unmount
+      if (pendingReconnectRef.current) {
+        clearTimeout(pendingReconnectRef.current);
+      }
     };
   }, [handleOnline, handleOffline]);
 
