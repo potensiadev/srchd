@@ -537,10 +537,10 @@ export default function SupportPage() {
               </span>
             </div>
             <div className="flex items-center gap-6 text-sm text-slate-500">
-              <Link href="#" className="hover:text-white transition-colors">
+              <Link href="/terms" className="hover:text-white transition-colors">
                 이용약관
               </Link>
-              <Link href="#" className="hover:text-white transition-colors">
+              <Link href="/privacy" className="hover:text-white transition-colors">
                 개인정보처리방침
               </Link>
               <Link href="/support" className="hover:text-white transition-colors">
