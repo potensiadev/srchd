@@ -29,7 +29,10 @@ import {
   type RiskLevel,
   type ChunkType,
 } from "@/types";
-import { getSkillSynonyms } from "@/lib/search/synonyms";
+import {
+  getSkillSynonymsFromDB,
+  expandSkillsFromDB,
+} from "@/lib/search/synonym-service";
 import {
   groupSkillsForParallel,
   executeParallelKeywordSearch,
@@ -360,9 +363,9 @@ export async function POST(request: NextRequest) {
 
         if (useParallel && filters?.skills) {
           // ─────────────────────────────────────────────────
-          // 병렬 RPC 검색 (스킬 그룹별 분리)
+          // 병렬 RPC 검색 (스킬 그룹별 분리, DB 기반 동의어 확장)
           // ─────────────────────────────────────────────────
-          const skillGroups = groupSkillsForParallel(filters.skills, shouldExpand);
+          const skillGroups = await groupSkillsForParallel(filters.skills, shouldExpand);
 
           // 최대 5개 그룹으로 패딩
           const paddedGroups: (string[] | null)[] = [null, null, null, null, null];
@@ -409,12 +412,8 @@ export async function POST(request: NextRequest) {
           let expandedSkills: string[] | null = null;
           if (filters?.skills && filters.skills.length > 0) {
             if (shouldExpand) {
-              const allSkills = new Set<string>();
-              for (const skill of filters.skills) {
-                for (const synonym of getSkillSynonyms(skill)) {
-                  allSkills.add(synonym);
-                }
-              }
+              // DB 기반 동의어 확장 (하드코딩 제거)
+              const allSkills = await expandSkillsFromDB(filters.skills);
               expandedSkills = Array.from(allSkills);
             } else {
               expandedSkills = filters.skills;
@@ -472,16 +471,11 @@ export async function POST(request: NextRequest) {
           queryBuilder = queryBuilder.lte("exp_years", filters.expYearsMax);
         }
         if (filters?.skills && filters.skills.length > 0) {
-          // 동의어 확장 적용
+          // DB 기반 동의어 확장 적용 (하드코딩 제거)
           const shouldExpand = filters.expandSynonyms !== false;
           let skillsToSearch = filters.skills;
           if (shouldExpand) {
-            const allSkills = new Set<string>();
-            for (const skill of filters.skills) {
-              for (const synonym of getSkillSynonyms(skill)) {
-                allSkills.add(synonym);
-              }
-            }
+            const allSkills = await expandSkillsFromDB(filters.skills);
             skillsToSearch = Array.from(allSkills);
           }
           queryBuilder = queryBuilder.overlaps("skills", skillsToSearch);
@@ -570,14 +564,19 @@ export async function POST(request: NextRequest) {
             });
 
         // 키워드로 추가 필터링 (있는 경우)
-        // Mixed Language Query: 각 키워드에 동의어 확장 적용
+        // Mixed Language Query: 각 키워드에 DB 기반 동의어 확장 적용
         let filteredResults = parallelResult.results;
         if (keywords.length > 0) {
+          // 모든 키워드의 동의어를 미리 조회 (비동기 처리)
+          const keywordSynonymsMap = new Map<string, string[]>();
+          for (const keyword of keywords) {
+            const synonyms = await getSkillSynonymsFromDB(keyword);
+            keywordSynonymsMap.set(keyword, synonyms.map(s => s.toLowerCase()));
+          }
+
           filteredResults = parallelResult.results.filter(row => {
             return keywords.some(keyword => {
-              // 키워드의 동의어 목록 가져오기 (예: "개발자" -> ["developer", "Engineer", ...])
-              const synonyms = getSkillSynonyms(keyword);
-              const lowerSynonyms = synonyms.map(s => s.toLowerCase());
+              const lowerSynonyms = keywordSynonymsMap.get(keyword) || [keyword.toLowerCase()];
 
               return lowerSynonyms.some(lowerKeyword => (
                 row.skills?.some(s => s && typeof s === "string" && s.toLowerCase().includes(lowerKeyword)) ||
@@ -607,18 +606,21 @@ export async function POST(request: NextRequest) {
           .eq("is_latest", true);
 
         // 키워드 검색: 스킬, 직책, 회사명에서 검색 (SQL Injection 방지)
-        // Mixed Language Query: 각 키워드에 동의어 확장 적용
+        // Mixed Language Query: 각 키워드에 DB 기반 동의어 확장 적용
         if (keywords.length > 0) {
-          const orConditions = keywords.flatMap(keyword => {
-            // 키워드의 동의어 목록 가져오기
-            const synonyms = getSkillSynonyms(keyword);
-            return synonyms.map(syn => {
+          // 모든 키워드의 동의어를 미리 조회 (비동기 처리)
+          const allOrConditions: string[] = [];
+          for (const keyword of keywords) {
+            const synonyms = await getSkillSynonymsFromDB(keyword);
+            for (const syn of synonyms) {
               const escapedKeyword = escapeILikePattern(syn);
               const sanitizedKeyword = sanitizeArrayValue(syn);
-              return `skills.cs.{${sanitizedKeyword}},last_position.ilike.%${escapedKeyword}%,last_company.ilike.%${escapedKeyword}%,name.ilike.%${escapedKeyword}%`;
-            });
-          }).join(",");
-          queryBuilder = queryBuilder.or(orConditions);
+              allOrConditions.push(
+                `skills.cs.{${sanitizedKeyword}},last_position.ilike.%${escapedKeyword}%,last_company.ilike.%${escapedKeyword}%,name.ilike.%${escapedKeyword}%`
+              );
+            }
+          }
+          queryBuilder = queryBuilder.or(allOrConditions.join(","));
         }
 
         // RDB 필터 적용
@@ -629,15 +631,10 @@ export async function POST(request: NextRequest) {
           queryBuilder = queryBuilder.lte("exp_years", filters.expYearsMax);
         }
         if (filters?.skills && filters.skills.length > 0) {
-          // 동의어 확장 적용
+          // DB 기반 동의어 확장 적용 (하드코딩 제거)
           let skillsToSearch = filters.skills;
           if (shouldExpand) {
-            const allSkills = new Set<string>();
-            for (const skill of filters.skills) {
-              for (const synonym of getSkillSynonyms(skill)) {
-                allSkills.add(synonym);
-              }
-            }
+            const allSkills = await expandSkillsFromDB(filters.skills);
             skillsToSearch = Array.from(allSkills);
           }
           queryBuilder = queryBuilder.overlaps("skills", skillsToSearch);

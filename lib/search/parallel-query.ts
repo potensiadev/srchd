@@ -8,7 +8,7 @@
  */
 
 import { SupabaseClient } from "@supabase/supabase-js";
-import { getSkillSynonyms } from "./synonyms";
+import { expandSkillsFromDB } from "./synonym-service";
 
 // 병렬 쿼리 설정
 const MAX_PARALLEL_QUERIES = 5;
@@ -52,23 +52,18 @@ function escapeILikePattern(value: string): string {
 }
 
 /**
- * 스킬을 병렬 쿼리 그룹으로 분리
+ * 스킬을 병렬 쿼리 그룹으로 분리 (DB 기반 동의어 확장)
  * - 동의어 확장 후 최대 MAX_PARALLEL_QUERIES 그룹으로 분리
  * - 초과 시 마지막 그룹에 나머지 스킬 모두 포함
  */
-export function groupSkillsForParallel(
+export async function groupSkillsForParallel(
   skills: string[],
   expandSynonyms: boolean = true
-): string[][] {
-  // 동의어 확장
+): Promise<string[][]> {
+  // DB 기반 동의어 확장 (하드코딩 제거)
   let allSkills: string[];
   if (expandSynonyms) {
-    const expandedSet = new Set<string>();
-    for (const skill of skills) {
-      for (const synonym of getSkillSynonyms(skill)) {
-        expandedSet.add(synonym);
-      }
-    }
+    const expandedSet = await expandSkillsFromDB(skills);
     allSkills = Array.from(expandedSet);
   } else {
     allSkills = [...skills];
@@ -123,8 +118,8 @@ export async function executeParallelKeywordSearch(
     return { results: [], total: 0 };
   }
 
-  // 스킬을 병렬 쿼리 그룹으로 분리
-  const skillGroups = groupSkillsForParallel(skills, expandSynonyms);
+  // 스킬을 병렬 쿼리 그룹으로 분리 (DB 기반 동의어 확장)
+  const skillGroups = await groupSkillsForParallel(skills, expandSynonyms);
 
   // 각 그룹에 대해 쿼리 생성
   const queryPromises = skillGroups.map(async (skillGroup) => {
