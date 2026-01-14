@@ -33,7 +33,8 @@ function getOpenAIClient(): OpenAI {
 // 임베딩 설정
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSION = 1536;
-const EMBEDDING_TIMEOUT_MS = 5000;
+/** P2 Fix: 5초 → 8초 (OpenAI 콜드스타트, 네트워크 지연 고려) */
+const EMBEDDING_TIMEOUT_MS = 8000;
 const MAX_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 200;
 

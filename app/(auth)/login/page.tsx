@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, AlertCircle } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -117,11 +117,11 @@ function LoginForm() {
     <div className="space-y-6">
       {/* Logo */}
       <div className="text-center space-y-2">
-        <div className="w-12 h-12 mx-auto rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30">
-          <Sparkles className="w-6 h-6 text-primary" />
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/30 mb-6">
+          <Sparkles className="w-8 h-8 text-white" />
         </div>
-        <h1 className="text-2xl font-bold text-white">HR Screener</h1>
-        <p className="text-slate-400 text-sm">
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">HR Screener</h1>
+        <p className="text-gray-500 text-base">
           헤드헌터 전용 후보자 관리 플랫폼
         </p>
       </div>
@@ -129,10 +129,13 @@ function LoginForm() {
       {/* Login Form */}
       <form
         onSubmit={handleEmailLogin}
-        className="p-6 rounded-2xl bg-[#0F0F24]/60 backdrop-blur-md border border-white/5 space-y-4"
+        className="p-8 rounded-3xl bg-white shadow-2xl shadow-black/5 border border-gray-100 space-y-6"
       >
         {error && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          <div
+            className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+            data-testid="login-error"
+          >
             {error}
           </div>
         )}
@@ -141,6 +144,7 @@ function LoginForm() {
           <Label htmlFor="email">이메일</Label>
           <Input
             id="email"
+            data-testid="email-input"
             type="email"
             placeholder="name@company.com"
             value={email}
@@ -153,6 +157,7 @@ function LoginForm() {
           <Label htmlFor="password">비밀번호</Label>
           <Input
             id="password"
+            data-testid="password-input"
             type="password"
             placeholder="••••••••"
             value={password}
@@ -161,17 +166,22 @@ function LoginForm() {
           />
         </div>
 
-        <Button className="w-full" size="lg" disabled={isLoading}>
+        <Button
+          className="w-full"
+          size="lg"
+          disabled={isLoading}
+          data-testid="login-button"
+        >
           {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
           로그인
         </Button>
 
-        <div className="relative">
+        <div className="relative py-2">
           <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-white/10" />
+            <span className="w-full border-t border-gray-100" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-[#0F0F24] px-2 text-slate-500">또는</span>
+            <span className="bg-white px-3 text-gray-400 font-medium">또는</span>
           </div>
         </div>
 
@@ -205,9 +215,9 @@ function LoginForm() {
       </form>
 
       {/* Footer */}
-      <p className="text-center text-sm text-slate-500">
+      <p className="text-center text-sm text-gray-500">
         계정이 없으신가요?{" "}
-        <Link href="/signup" className="text-primary hover:underline">
+        <Link href="/signup" className="text-primary font-semibold hover:underline">
           회원가입
         </Link>
       </p>

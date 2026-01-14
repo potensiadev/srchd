@@ -130,20 +130,49 @@ export function parseSearchQuery(
       }
     })
     .map(t => t.trim().replace(DANGEROUS_CHARS_PATTERN, ""))
-    .filter(t => t.length > 0 && t.length <= maxKeywordLength);
+    .filter(t => t.length > 0)
+    .map(t => t.slice(0, maxKeywordLength));  // Truncate instead of filter
 }
 
 /**
- * 문자열 sanitization (SQL Injection 방지)
+ * SQL/XSS 위험 문자 패턴
+ * - SQL injection: ', ", `, ;, --
+ * - XSS: <, >
+ * - Command injection: \
+ */
+export const SQL_XSS_DANGEROUS_PATTERN = /[<>'"`;\\]|--/g;
+
+/**
+ * 제어 문자만 제거 (SQL/XSS 문자는 유지)
+ * 스킬명이나 일반 텍스트에서 제어 문자만 제거할 때 사용
+ *
  * @param value 원본 문자열
  * @param maxLength 최대 길이
- * @returns 정제된 문자열
+ * @returns 제어 문자가 제거된 문자열
  */
-export function sanitizeString(value: string, maxLength: number = MAX_KEYWORD_LENGTH): string {
+export function removeControlChars(value: string, maxLength: number = MAX_KEYWORD_LENGTH): string {
   if (!value || typeof value !== "string") return "";
 
   return value
     .trim()
     .slice(0, maxLength)
     .replace(DANGEROUS_CHARS_PATTERN, "");
+}
+
+/**
+ * 데이터베이스/HTML 출력용 완전한 sanitization
+ * SQL injection, XSS, 제어 문자 모두 제거
+ *
+ * @param value 원본 문자열
+ * @param maxLength 최대 길이
+ * @returns 안전하게 정제된 문자열
+ */
+export function sanitizeString(value: string, maxLength: number = MAX_KEYWORD_LENGTH): string {
+  if (!value || typeof value !== "string") return "";
+
+  return value
+    .replace(SQL_XSS_DANGEROUS_PATTERN, "")  // SQL/XSS 위험 문자 제거
+    .replace(DANGEROUS_CHARS_PATTERN, "")     // 제어 문자 제거
+    .trim()
+    .slice(0, maxLength);
 }

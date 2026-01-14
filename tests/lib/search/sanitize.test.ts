@@ -170,9 +170,10 @@ describe("Search Sanitize Utilities", () => {
       expect(parseSearchQuery("React\u0000 Node")).toEqual(["React", "Node"]);
     });
 
-    it("50자 초과 키워드 필터링", () => {
+    it("50자 초과 키워드는 잘림 (truncation)", () => {
       const longKeyword = "A".repeat(51);
-      expect(parseSearchQuery(longKeyword)).toEqual([]);
+      // 이제 필터링 대신 잘림 처리
+      expect(parseSearchQuery(longKeyword)).toEqual(["A".repeat(50)]);
 
       const validKeyword = "A".repeat(50);
       expect(parseSearchQuery(validKeyword)).toEqual([validKeyword]);

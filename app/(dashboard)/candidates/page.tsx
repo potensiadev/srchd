@@ -303,6 +303,7 @@ export default function CandidatesPage() {
             placeholder="이름, 직책, 회사, 스킬로 검색..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="search-input"
             className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10
                      text-white placeholder:text-slate-500 focus:outline-none focus:border-primary/50"
           />
@@ -313,6 +314,7 @@ export default function CandidatesPage() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            data-testid="filter-sort"
             className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white
                      focus:outline-none focus:border-primary/50 cursor-pointer"
           >
@@ -380,21 +382,23 @@ export default function CandidatesPage() {
       )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
+        <div className="flex items-center justify-center py-20" data-testid="loading-state">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       ) : filteredCandidates.length === 0 ? (
-        <EmptyState
-          variant={searchQuery ? "search-results" : "candidates"}
-          title={searchQuery ? "검색 결과가 없습니다" : undefined}
-          description={searchQuery ? "다른 조건으로 검색해보세요." : undefined}
-          cta={!searchQuery ? {
-            label: "이력서 업로드",
-            href: "/dashboard",
-          } : undefined}
-        />
+        <div data-testid="empty-state">
+          <EmptyState
+            variant={searchQuery ? "search-results" : "candidates"}
+            title={searchQuery ? "검색 결과가 없습니다" : undefined}
+            description={searchQuery ? "다른 조건으로 검색해보세요." : undefined}
+            cta={!searchQuery ? {
+              label: "이력서 업로드",
+              href: "/dashboard",
+            } : undefined}
+          />
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="candidate-list">
           {filteredCandidates.map((candidate) => {
             // Progressive Loading: 처리 중인 후보자는 ProcessingCard로 표시
             if (candidate.status && candidate.status !== "completed") {
@@ -419,7 +423,8 @@ export default function CandidatesPage() {
             <Link
               key={candidate.id}
               href={`/candidates/${candidate.id}`}
-              className="group p-5 rounded-2xl bg-gradient-to-br from-slate-800/80 to-slate-900/80 
+              data-testid="candidate-item"
+              className="group p-5 rounded-2xl bg-gradient-to-br from-slate-800/80 to-slate-900/80
                        border border-white/10 hover:border-primary/30
                        transition-all duration-300 hover:shadow-lg hover:shadow-primary/10
                        hover:-translate-y-1"
@@ -442,10 +447,13 @@ export default function CandidatesPage() {
                   </div>
                 </div>
                 {/* Confidence Badge */}
-                <span className={cn(
-                  "px-2 py-1 rounded-full text-xs font-medium border",
-                  getConfidenceColor(candidate.confidence_score || 0)
-                )}>
+                <span
+                  className={cn(
+                    "px-2 py-1 rounded-full text-xs font-medium border",
+                    getConfidenceColor(candidate.confidence_score || 0)
+                  )}
+                  data-testid="ai-confidence"
+                >
                   {Math.round((candidate.confidence_score || 0) * 100)}%
                 </span>
               </div>
@@ -453,12 +461,12 @@ export default function CandidatesPage() {
               {/* Company & Experience */}
               <div className="flex items-center gap-4 mb-3 text-sm">
                 {candidate.last_company && (
-                  <span className="flex items-center gap-1.5 text-slate-300">
+                  <span className="flex items-center gap-1.5 text-slate-300" data-testid="candidate-company">
                     <Building2 className="w-4 h-4 text-slate-500" />
                     {candidate.last_company}
                   </span>
                 )}
-                <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="flex items-center gap-1.5 text-slate-300" data-testid="candidate-exp-years">
                   <Briefcase className="w-4 h-4 text-slate-500" />
                   {formatExperience(calculateTotalExperience(candidate.careers || []))}
                 </span>
@@ -473,7 +481,7 @@ export default function CandidatesPage() {
 
               {/* Skills */}
               {candidate.skills && candidate.skills.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap" data-testid="candidate-skills">
                   <Code className="w-4 h-4 text-slate-500" />
                   {candidate.skills.slice(0, 3).map((skill, idx) => (
                     <span

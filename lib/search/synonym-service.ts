@@ -4,6 +4,9 @@
  * 하드코딩된 동의어 사전 대신 DB의 skill_synonyms 테이블을 사용
  * - 메모리 캐싱으로 성능 최적화 (TTL: 5분)
  * - 새 동의어 추가 시 코드 배포 없이 DB만 업데이트하면 됨
+ *
+ * P0 Fix: Race condition 방지를 위한 mutex 패턴 적용
+ * P1 Fix: 캐시 크기 제한 및 동의어 확장 제한 적용
  */
 
 import { createClient } from "@/lib/supabase/server";
@@ -15,6 +18,12 @@ import { createClient } from "@/lib/supabase/server";
 /** 캐시 TTL (5분) */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/** P1: 캐시 최대 크기 (메모리 누수 방지) */
+const MAX_CACHE_SIZE = 10000;
+
+/** P1: 스킬당 최대 동의어 수 (쿼리 폭발 방지) */
+const MAX_SYNONYMS_PER_SKILL = 10;
+
 /** 동의어 캐시: canonical_skill -> variants[] */
 let synonymCache: Map<string, string[]> | null = null;
 
@@ -23,6 +32,12 @@ let reverseSynonymCache: Map<string, string> | null = null;
 
 /** 마지막 캐시 갱신 시간 */
 let lastCacheUpdate = 0;
+
+/** P0: 캐시 갱신 중 플래그 (Race Condition 방지) */
+let isRefreshing = false;
+
+/** P0: 갱신 대기 중인 Promise */
+let refreshPromise: Promise<void> | null = null;
 
 // ─────────────────────────────────────────────────
 // 캐시 관리
@@ -51,9 +66,11 @@ async function refreshCache(): Promise<void> {
   try {
     const supabase = await createClient();
 
+    // P1: 캐시 크기 제한을 위해 최대 개수만 조회
     const { data, error } = await supabase
       .from("skill_synonyms")
-      .select("canonical_skill, variant");
+      .select("canonical_skill, variant")
+      .limit(MAX_CACHE_SIZE);
 
     if (error) {
       console.error("[SynonymService] Failed to load synonyms from DB:", error);
@@ -68,11 +85,22 @@ async function refreshCache(): Promise<void> {
       const canonical = row.canonical_skill;
       const variant = row.variant;
 
+      // P1: 캐시 크기 제한 체크
+      if (newSynonymCache.size >= MAX_CACHE_SIZE) {
+        console.warn(`[SynonymService] Cache size limit reached: ${MAX_CACHE_SIZE}`);
+        break;
+      }
+
       // 정방향 캐시: canonical -> variants[]
       if (!newSynonymCache.has(canonical)) {
         newSynonymCache.set(canonical, []);
       }
-      newSynonymCache.get(canonical)!.push(variant);
+
+      // P1: 스킬당 동의어 수 제한
+      const currentVariants = newSynonymCache.get(canonical)!;
+      if (currentVariants.length < MAX_SYNONYMS_PER_SKILL) {
+        currentVariants.push(variant);
+      }
 
       // 역방향 캐시: variant (lowercase) -> canonical
       newReverseSynonymCache.set(variant.toLowerCase(), canonical);
@@ -98,11 +126,29 @@ async function refreshCache(): Promise<void> {
 
 /**
  * 캐시가 없거나 만료된 경우 갱신
+ * P0 Fix: Mutex 패턴으로 Race Condition 방지
  */
 async function ensureCacheLoaded(): Promise<void> {
-  if (!isCacheValid()) {
-    await refreshCache();
+  // 캐시가 유효하면 바로 반환
+  if (isCacheValid()) {
+    return;
   }
+
+  // 이미 갱신 중인 경우 기존 Promise 대기
+  if (isRefreshing && refreshPromise) {
+    await refreshPromise;
+    return;
+  }
+
+  // 새 갱신 시작
+  isRefreshing = true;
+  refreshPromise = refreshCache()
+    .finally(() => {
+      isRefreshing = false;
+      refreshPromise = null;
+    });
+
+  await refreshPromise;
 }
 
 // ─────────────────────────────────────────────────
