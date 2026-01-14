@@ -1,8 +1,8 @@
 # PRD: 이력서 원본 텍스트 Semantic 검색 v0.1
 
-> **문서 버전**: 0.1
+> **문서 버전**: 0.1.1
 > **작성일**: 2026-01-14
-> **상태**: 승인됨 (구현 진행)
+> **상태**: Phase 1 구현 완료 ✅ | E2E 테스트 대기
 
 ---
 
@@ -245,12 +245,12 @@ Acceptance Criteria:
 
 ## 8. 릴리즈 계획
 
-| Phase | 범위 | 일정 |
-|-------|-----|-----|
-| **Phase 1** | DB 스키마 마이그레이션, Python 청킹 로직 | Week 1 |
-| **Phase 2** | RPC 함수 수정, 검색 API 테스트 | Week 2 |
-| **Phase 3** | QA 검증, 기존 데이터 백필 (선택) | Week 3 |
-| **Phase 4** | 프로덕션 배포, 모니터링 | Week 4 |
+| Phase | 범위 | 일정 | 상태 |
+|-------|-----|-----|-----|
+| **Phase 1** | DB 스키마 마이그레이션, Python 청킹 로직 | Week 1 | ✅ 완료 |
+| **Phase 2** | RPC 함수 수정, 검색 API 테스트 | Week 2 | 🔄 E2E 테스트 대기 |
+| **Phase 3** | QA 검증, 기존 데이터 백필 (선택) | Week 3 | ⏳ 대기 |
+| **Phase 4** | 프로덕션 배포, 모니터링 | Week 4 | ⏳ 대기 |
 
 ---
 
@@ -279,27 +279,39 @@ Acceptance Criteria:
 
 ### Backend (Python Worker)
 
-#### DB Migration
-- [ ] chunk_type ENUM에 'raw_full', 'raw_section' 추가
-- [ ] search_candidates RPC 함수에 새 청크 타입 가중치 추가
-- [ ] search_candidates_parallel RPC 함수 동일 수정
+#### DB Migration ✅
+- [x] chunk_type ENUM에 'raw_full', 'raw_section' 추가
+- [x] search_candidates RPC 함수에 새 청크 타입 가중치 추가
+- [x] search_candidates_parallel RPC 함수 동일 수정
 
-#### embedding_service.py
-- [ ] ChunkType Enum 확장
-- [ ] _build_raw_text_chunks() 메서드 추가
-- [ ] process_candidate() 시그니처 변경 (raw_text 파라미터)
-- [ ] 슬라이딩 윈도우 청킹 로직 구현
-- [ ] 단위 테스트 추가
+#### embedding_service.py ✅
+- [x] ChunkType Enum 확장
+- [x] _build_raw_text_chunks() 메서드 추가
+- [x] process_candidate() 시그니처 변경 (raw_text 파라미터)
+- [x] 슬라이딩 윈도우 청킹 로직 구현
+- [x] 단위 테스트 추가 (15개 통과)
 
-#### tasks.py
-- [ ] process_resume()에서 원본 텍스트 전달
-- [ ] embedding_service.process_candidate(data, raw_text=text) 호출
+#### tasks.py ✅
+- [x] process_resume()에서 원본 텍스트 전달
+- [x] embedding_service.process_candidate(data, raw_text=text) 호출
+
+#### main.py ✅ (추가)
+- [x] run_pipeline()에서 원본 텍스트 전달
+- [x] /process 엔드포인트에서 원본 텍스트 전달
 
 ### Frontend (TypeScript)
 
-#### types/candidate.ts
-- [ ] ChunkType 타입에 'raw_full' | 'raw_section' 추가
-- [ ] CHUNK_WEIGHTS에 새 가중치 추가
+#### types/candidate.ts ✅
+- [x] ChunkType 타입에 'raw_full' | 'raw_section' 추가
+- [x] CHUNK_WEIGHTS에 새 가중치 추가
+
+### 추가 산출물
+
+#### 백필 스크립트 ✅
+- [x] `apps/worker/scripts/backfill_raw_chunks.py` 생성
+- [x] 기존 후보자 대상 raw 청크 생성 로직
+- [x] --dry-run, --limit, --user-id, --batch-size 옵션 지원
+- [ ] 실행 완료 (기존 데이터에 파일 경로 없어 스킵됨)
 
 ---
 
@@ -320,3 +332,46 @@ Acceptance Criteria:
 | 버전 | 날짜 | 작성자 | 변경 내용 |
 |-----|-----|-------|----------|
 | 0.1 | 2026-01-14 | AI Assistant | 최초 작성 |
+| 0.1.1 | 2026-01-14 | AI Assistant | Phase 1 구현 완료, 체크리스트 업데이트 |
+
+---
+
+## 13. 구현 세부 내역
+
+### 수정된 파일 목록
+
+| 파일 경로 | 변경 내용 |
+|----------|----------|
+| `supabase/migrations/032_raw_text_chunks.sql` | ENUM 확장 및 RPC 함수 가중치 수정 |
+| `apps/worker/services/embedding_service.py` | ChunkType 확장, _build_raw_text_chunks() 추가 |
+| `apps/worker/tasks.py` | raw_text 파라미터 전달 |
+| `apps/worker/main.py` | run_pipeline(), /process에 raw_text 전달 |
+| `apps/worker/scripts/backfill_raw_chunks.py` | 백필 스크립트 신규 생성 |
+| `apps/worker/tests/test_raw_text_chunks.py` | 유닛 테스트 15개 추가 |
+| `apps/worker/run_local.py` | 로컬 개발용 실행 스크립트 |
+| `types/candidate.ts` | ChunkType, CHUNK_WEIGHTS 확장 |
+
+### 청킹 로직 상세
+
+```python
+# _build_raw_text_chunks() 메서드
+# 입력: 원본 텍스트 (파싱된 이력서)
+# 출력: [raw_full (1개), raw_section (N개)]
+
+# raw_full: 최대 8000자, truncated 메타데이터 포함
+# raw_section: 1500자 윈도우, 300자 오버랩, 100자 미만 제외
+```
+
+### 가중치 설정
+
+```python
+CHUNK_WEIGHTS = {
+    'summary': 1.0,
+    'career': 0.9,
+    'skill': 0.85,
+    'project': 0.8,
+    'raw_full': 0.7,      # 신규
+    'raw_section': 0.65,  # 신규
+    'education': 0.5,
+}
+```

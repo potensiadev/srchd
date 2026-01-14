@@ -19,14 +19,40 @@ import asyncio
 import argparse
 import logging
 import sys
+import os
 from typing import Optional, List
 from datetime import datetime
+from pathlib import Path
 
 # 상위 디렉토리를 path에 추가
-sys.path.insert(0, str(__file__).replace('\\', '/').rsplit('/scripts/', 1)[0])
+worker_dir = str(__file__).replace('\\', '/').rsplit('/scripts/', 1)[0]
+sys.path.insert(0, worker_dir)
+
+# .env 파일 로드 (config import 전에 반드시 실행)
+from dotenv import load_dotenv
+env_path = Path(worker_dir) / '.env'
+root_env = Path(worker_dir).parent.parent / '.env.local'
+
+if env_path.exists():
+    load_dotenv(env_path, override=True)
+    print(f"Loaded env from: {env_path}")
+elif root_env.exists():
+    load_dotenv(root_env, override=True)
+    print(f"Loaded env from: {root_env}")
+else:
+    print(f"Warning: No .env file found at {env_path} or {root_env}")
+
+# 환경변수 매핑 (NEXT_PUBLIC_* → worker용 변수)
+if not os.getenv('SUPABASE_URL') and os.getenv('NEXT_PUBLIC_SUPABASE_URL'):
+    os.environ['SUPABASE_URL'] = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+
+# 환경변수 확인
+if not os.getenv('SUPABASE_URL'):
+    print("Error: SUPABASE_URL not set. Please check .env file.")
+    sys.exit(1)
 
 from supabase import create_client
-from config import get_settings
+from config import Settings
 from services.embedding_service import get_embedding_service, ChunkType
 from utils.hwp_parser import HWPParser
 from utils.pdf_parser import PDFParser
@@ -39,7 +65,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-settings = get_settings()
+# dotenv 로드 후 새로운 Settings 인스턴스 생성
+settings = Settings()
 
 
 class BackfillProcessor:

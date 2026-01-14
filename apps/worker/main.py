@@ -782,7 +782,8 @@ async def process_resume(request: ProcessRequest, _: bool = Depends(verify_api_k
             embedding_service = get_embedding_service()
             embedding_result: EmbeddingResult = await embedding_service.process_candidate(
                 data=analyzed_data,
-                generate_embeddings=True
+                generate_embeddings=True,
+                raw_text=request.text  # PRD v0.1: 원본 텍스트 전달
             )
 
             if embedding_result.success:
@@ -1188,7 +1189,8 @@ async def run_pipeline(
             embedding_service = get_embedding_service()
             embedding_result = await embedding_service.process_candidate(
                 data=analyzed_data,
-                generate_embeddings=True
+                generate_embeddings=True,
+                raw_text=text  # PRD v0.1: 원본 텍스트 전달하여 raw 청크 생성
             )
             chunk_count = len(embedding_result.chunks) if embedding_result and embedding_result.success else 0
             logger.info(f"[Pipeline] Embeddings generated: {chunk_count} chunks")
