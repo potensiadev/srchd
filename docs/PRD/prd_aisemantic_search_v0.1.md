@@ -1,8 +1,8 @@
 # PRD: 이력서 원본 텍스트 Semantic 검색 v0.1
 
-> **문서 버전**: 0.1.3
+> **문서 버전**: 0.1.4
 > **작성일**: 2026-01-14
-> **상태**: Phase 4 프로덕션 배포 완료 ✅
+> **상태**: Phase 5 품질 강화 완료 ✅
 
 ---
 
@@ -251,6 +251,7 @@ Acceptance Criteria:
 | **Phase 2** | RPC 함수 수정, 검색 API 테스트 | Week 2 | ✅ 완료 |
 | **Phase 3** | QA 검증, 기존 데이터 백필 (선택) | Week 3 | ⏳ 필요시 실행 |
 | **Phase 4** | 프로덕션 배포, 모니터링 | Week 4 | ✅ 완료 |
+| **Phase 5** | P0/P1/P2 이슈 해결, 엣지케이스 테스트 강화 | Week 5 | ✅ 완료 |
 
 ---
 
@@ -313,6 +314,21 @@ Acceptance Criteria:
 - [x] --dry-run, --limit, --user-id, --batch-size 옵션 지원
 - [ ] 실행 완료 (기존 데이터에 파일 경로 없어 스킵됨)
 
+#### P0/P1/P2 이슈 해결 ✅ (Phase 5)
+- [x] P0: tiktoken 기반 정확한 토큰 수 계산 (8192 토큰 제한 준수)
+- [x] P1: 한글 최적화 (50% 이상 한글 시 chunk_size=2000, overlap=500)
+- [x] P1: 지수 백오프 + jitter 재시도 로직 (최대 3회)
+- [x] P2: Pre-filtered Vector Search 최적화 (migration 033)
+- [x] 중앙화 설정: `ChunkingConfig` 클래스 추가
+
+#### 테스트 강화 ✅ (Phase 5)
+- [x] 기본 유닛 테스트 30개
+- [x] Critical 엣지케이스 10개 (API 재시도, 지수 백오프)
+- [x] High 엣지케이스 24개 (경계값, 한글 임계값, NULL 바이트, NFD)
+- [x] Medium 엣지케이스 33개 (최소 길이, 자모, 한자, 이모지, 제어문자)
+- [x] Low 엣지케이스 42개 (일본어, 다국어, 특수 유니코드, 실제 이력서)
+- [x] **총 139개 테스트 PASSED**
+
 ---
 
 ## 12. 승인
@@ -335,6 +351,7 @@ Acceptance Criteria:
 | 0.1.1 | 2026-01-14 | AI Assistant | Phase 1 구현 완료, 체크리스트 업데이트 |
 | 0.1.2 | 2026-01-14 | AI Assistant | Phase 2 E2E 테스트 완료, 테스트 결과 추가 |
 | 0.1.3 | 2026-01-14 | AI Assistant | Phase 4 프로덕션 배포 완료 |
+| 0.1.4 | 2026-01-14 | AI Assistant | Phase 5 품질 강화 완료 (P0/P1/P2 해결, 139개 테스트) |
 
 ---
 
@@ -345,11 +362,14 @@ Acceptance Criteria:
 | 파일 경로 | 변경 내용 |
 |----------|----------|
 | `supabase/migrations/032_raw_text_chunks.sql` | ENUM 확장 및 RPC 함수 가중치 수정 |
-| `apps/worker/services/embedding_service.py` | ChunkType 확장, _build_raw_text_chunks() 추가 |
+| `supabase/migrations/033_optimized_prefiltered_search.sql` | Pre-filtered Vector Search 최적화 |
+| `apps/worker/services/embedding_service.py` | ChunkType 확장, tiktoken, 한글 최적화, 재시도 로직 |
+| `apps/worker/config.py` | ChunkingConfig 클래스 추가 |
 | `apps/worker/tasks.py` | raw_text 파라미터 전달 |
 | `apps/worker/main.py` | run_pipeline(), /process에 raw_text 전달 |
-| `apps/worker/scripts/backfill_raw_chunks.py` | 백필 스크립트 신규 생성 |
-| `apps/worker/tests/test_raw_text_chunks.py` | 유닛 테스트 15개 추가 |
+| `apps/worker/scripts/backfill_raw_chunks.py` | 백필 스크립트 (재시도 로직 포함) |
+| `apps/worker/tests/test_raw_text_chunks.py` | 유닛 테스트 139개 (엣지케이스 109개 포함) |
+| `apps/worker/requirements.txt` | tiktoken 의존성 추가 |
 | `apps/worker/run_local.py` | 로컬 개발용 실행 스크립트 |
 | `types/candidate.ts` | ChunkType, CHUNK_WEIGHTS 확장 |
 
@@ -420,7 +440,7 @@ Keywords only in raw text (not in structured data):
 
 ### 테스트 파일
 - `tests/e2e/raw-text-search.spec.ts` - Playwright E2E 테스트
-- `apps/worker/tests/test_raw_text_chunks.py` - 유닛 테스트 (15개)
+- `apps/worker/tests/test_raw_text_chunks.py` - 유닛 테스트 (139개)
 
 ---
 
@@ -461,3 +481,74 @@ python scripts/backfill_raw_chunks.py --batch-size=10
 1. **새 이력서**: 업로드 시 자동으로 raw 청크 생성됨
 2. **기존 이력서**: 백필 스크립트 실행 필요 (선택사항)
 3. **Gemini API**: 429 Quota 초과 시 OpenAI로 자동 폴백
+
+---
+
+## 16. Phase 5: 품질 강화 (P0/P1/P2 이슈 해결)
+
+### 16.1 해결된 이슈
+
+| 우선순위 | 이슈 | 해결 방안 | 파일 |
+|---------|-----|----------|-----|
+| **P0** | 토큰 수 부정확 (문자 수 기반) | tiktoken 기반 정확한 토큰 계산 | `embedding_service.py` |
+| **P1** | 한글 청킹 비효율 | 한글 감지 시 chunk_size=2000, overlap=500 | `embedding_service.py`, `config.py` |
+| **P1** | API 실패 시 재시도 없음 | 지수 백오프 + jitter 재시도 (최대 3회) | `embedding_service.py` |
+| **P2** | 벡터 검색 성능 | Pre-filtered Vector Search 최적화 | `033_optimized_prefiltered_search.sql` |
+
+### 16.2 ChunkingConfig 설정값
+
+```python
+class ChunkingConfig:
+    # 구조화 데이터
+    MAX_STRUCTURED_CHUNK_CHARS = 2000
+
+    # 원본 텍스트
+    MAX_RAW_FULL_CHARS = 8000
+    RAW_SECTION_CHUNK_SIZE = 1500
+    RAW_SECTION_OVERLAP = 300
+    RAW_SECTION_MIN_LENGTH = 100
+
+    # 한글 최적화 (50% 이상이면 한글로 판단)
+    KOREAN_THRESHOLD = 0.5
+    KOREAN_CHUNK_SIZE = 2000
+    KOREAN_OVERLAP = 500
+
+    # 재시도 설정 (지수 백오프)
+    MAX_EMBEDDING_RETRIES = 3
+    RETRY_BASE_WAIT_SECONDS = 1.0
+    RETRY_MAX_WAIT_SECONDS = 10.0
+```
+
+### 16.3 테스트 커버리지
+
+| 카테고리 | 테스트 수 | 설명 |
+|---------|----------|-----|
+| 기본 유닛 테스트 | 30개 | 청킹 로직, 한글 감지, 슬라이딩 윈도우 |
+| **Critical** 엣지케이스 | 10개 | API 재시도, 지수 백오프, 최대 대기시간 |
+| **High** 엣지케이스 | 24개 | 경계값, 한글 임계값, NULL 바이트, NFD 정규화 |
+| **Medium** 엣지케이스 | 33개 | 최소 길이, 자모, 한자, 이모지, 제어문자 |
+| **Low** 엣지케이스 | 42개 | 일본어, 다국어, 특수 유니코드, 실제 이력서 |
+| **총계** | **139개** | 모든 테스트 PASSED ✅ |
+
+### 16.4 테스트 실행
+
+```bash
+cd apps/worker
+pytest tests/test_raw_text_chunks.py -v
+
+# 결과
+# ========== 139 passed in 2.34s ==========
+```
+
+### 16.5 Migration 033: Pre-filtered Vector Search
+
+```sql
+-- 주요 최적화
+1. 후보자 ID 사전 필터링 (LIMIT 적용)
+2. 벡터 검색 범위 제한으로 성능 향상
+3. 청크 타입별 가중치 검색
+
+-- 가중치
+summary(1.0) > career(0.9) > skill(0.85) > project(0.8)
+> raw_full(0.7) > raw_section(0.65) > education(0.5)
+```

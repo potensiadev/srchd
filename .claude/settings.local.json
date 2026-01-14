@@ -76,7 +76,10 @@
       "Bash(winget install:*)",
       "Bash(export PATH=\"$HOME/bin:$PATH\")",
       "Bash(k6 run:*)",
-      "Bash(WEBHOOK_SECRET=da8ffa43dc2b722887199683d0a40fa78a5471f85f5e8bec61fc1c1110ef9da0 k6 run:*)"
+      "Bash(WEBHOOK_SECRET=da8ffa43dc2b722887199683d0a40fa78a5471f85f5e8bec61fc1c1110ef9da0 k6 run:*)",
+      "Bash(iconv:*)",
+      "Bash(git restore:*)",
+      "Bash(git reset:*)"
     ]
   }
 }
