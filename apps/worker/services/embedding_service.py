@@ -30,6 +30,8 @@ class ChunkType(str, Enum):
     PROJECT = "project"       # 개별 프로젝트
     SKILL = "skill"           # 기술 스택
     EDUCATION = "education"   # 학력
+    RAW_FULL = "raw_full"     # 원본 텍스트 전체 (PRD v0.1)
+    RAW_SECTION = "raw_section"  # 원본 텍스트 섹션 (PRD v0.1)
 
 
 @dataclass
@@ -191,14 +193,16 @@ class EmbeddingService:
     async def process_candidate(
         self,
         data: Dict[str, Any],
-        generate_embeddings: bool = True
+        generate_embeddings: bool = True,
+        raw_text: str = None
     ) -> EmbeddingResult:
         """
         후보자 데이터를 청킹하고 임베딩 생성
 
         Args:
-            data: 분석된 이력서 데이터
+            data: 분석된 이력서 데이터 (구조화)
             generate_embeddings: 임베딩 생성 여부
+            raw_text: 원본 이력서 텍스트 (PRD v0.1: 전체 텍스트 검색용)
 
         Returns:
             EmbeddingResult with chunks and embeddings
@@ -211,9 +215,9 @@ class EmbeddingService:
         logger.info("=" * 60)
 
         try:
-            # 1. 청크 생성
+            # 1. 청크 생성 (구조화 데이터 + 원본 텍스트)
             logger.info("[EmbeddingService] Step 1: 청크 생성")
-            chunks = self._create_chunks(data)
+            chunks = self._create_chunks(data, raw_text)
 
             if not chunks:
                 logger.warning("[EmbeddingService] ⚠️ 청크가 생성되지 않음 - 데이터가 비어있을 수 있음")
@@ -308,8 +312,8 @@ class EmbeddingService:
                 error=str(e)
             )
 
-    def _create_chunks(self, data: Dict[str, Any]) -> List[Chunk]:
-        """후보자 데이터에서 청크 생성"""
+    def _create_chunks(self, data: Dict[str, Any], raw_text: str = None) -> List[Chunk]:
+        """후보자 데이터에서 청크 생성 (구조화 + 원본 텍스트)"""
         chunks = []
 
         # 1. Summary 청크 (전체 요약)
@@ -334,6 +338,12 @@ class EmbeddingService:
         education_chunk = self._build_education_chunk(data)
         if education_chunk:
             chunks.append(education_chunk)
+
+        # 6. Raw Text 청크 (원본 텍스트) - PRD v0.1
+        if raw_text:
+            raw_chunks = self._build_raw_text_chunks(raw_text)
+            chunks.extend(raw_chunks)
+            logger.info(f"[EmbeddingService] Raw 청크 {len(raw_chunks)}개 추가 (원본 텍스트 {len(raw_text)}자)")
 
         return chunks
 
@@ -609,6 +619,81 @@ class EmbeddingService:
                 "major": data.get("education_major"),
             }
         )
+
+    def _build_raw_text_chunks(self, raw_text: str) -> List[Chunk]:
+        """
+        원본 텍스트 청크 생성 (PRD v0.1: prd_aisemantic_search_v0.1.md)
+
+        청킹 전략:
+        1. raw_full: 전체 텍스트 (1개, 최대 8000자)
+        2. raw_section: 슬라이딩 윈도우 (N개, 1500자 청크, 300자 오버랩)
+
+        Args:
+            raw_text: 파싱된 원본 이력서 텍스트
+
+        Returns:
+            List[Chunk]: raw_full + raw_section 청크들
+        """
+        chunks = []
+
+        if not raw_text or len(raw_text.strip()) < 100:
+            logger.debug("[EmbeddingService] Raw 텍스트가 너무 짧음 (< 100자), 스킵")
+            return chunks
+
+        # ─────────────────────────────────────────────────
+        # 1. raw_full: 전체 텍스트 (최대 8000자)
+        # ─────────────────────────────────────────────────
+        MAX_RAW_FULL_CHARS = 8000
+
+        chunks.append(Chunk(
+            chunk_type=ChunkType.RAW_FULL,
+            chunk_index=0,
+            content=raw_text[:MAX_RAW_FULL_CHARS],
+            metadata={
+                "original_length": len(raw_text),
+                "truncated": len(raw_text) > MAX_RAW_FULL_CHARS
+            }
+        ))
+
+        # ─────────────────────────────────────────────────
+        # 2. raw_section: 슬라이딩 윈도우 청킹
+        #    - 청크 크기: 1500자
+        #    - 오버랩: 300자
+        #    - 최소 청크 길이: 100자
+        # ─────────────────────────────────────────────────
+        CHUNK_SIZE = 1500
+        OVERLAP = 300
+        MIN_CHUNK_LENGTH = 100
+
+        # 1500자 이상일 때만 섹션 분할
+        if len(raw_text) > CHUNK_SIZE:
+            section_index = 0
+
+            for start in range(0, len(raw_text), CHUNK_SIZE - OVERLAP):
+                section = raw_text[start:start + CHUNK_SIZE]
+
+                # 최소 길이 체크
+                if len(section.strip()) < MIN_CHUNK_LENGTH:
+                    continue
+
+                chunks.append(Chunk(
+                    chunk_type=ChunkType.RAW_SECTION,
+                    chunk_index=section_index,
+                    content=section,
+                    metadata={
+                        "start_pos": start,
+                        "end_pos": min(start + CHUNK_SIZE, len(raw_text)),
+                        "section_length": len(section)
+                    }
+                ))
+                section_index += 1
+
+        logger.debug(
+            f"[EmbeddingService] Raw 청킹 완료: "
+            f"raw_full=1, raw_section={len(chunks) - 1}"
+        )
+
+        return chunks
 
 
 # 싱글톤 인스턴스

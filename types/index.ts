@@ -424,7 +424,7 @@ export interface Database {
         Row: {
           id: string;
           candidate_id: string;
-          chunk_type: 'summary' | 'career' | 'project' | 'skill' | 'education';
+          chunk_type: 'summary' | 'career' | 'project' | 'skill' | 'education' | 'raw_full' | 'raw_section';
           content: string;
           embedding: number[] | null;
           metadata: Record<string, unknown>;
@@ -432,14 +432,14 @@ export interface Database {
         };
         Insert: {
           candidate_id: string;
-          chunk_type: 'summary' | 'career' | 'project' | 'skill' | 'education';
+          chunk_type: 'summary' | 'career' | 'project' | 'skill' | 'education' | 'raw_full' | 'raw_section';
           content: string;
           embedding?: number[] | null;
           metadata?: Record<string, unknown>;
         };
         Update: {
           candidate_id?: string;
-          chunk_type?: 'summary' | 'career' | 'project' | 'skill' | 'education';
+          chunk_type?: 'summary' | 'career' | 'project' | 'skill' | 'education' | 'raw_full' | 'raw_section';
           content?: string;
           embedding?: number[] | null;
           metadata?: Record<string, unknown>;

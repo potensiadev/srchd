@@ -195,13 +195,19 @@ export interface SearchResponse {
 // Vector Chunk Types (pgvector)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export type ChunkType = 'summary' | 'career' | 'project' | 'skill' | 'education';
+export type ChunkType = 'summary' | 'career' | 'project' | 'skill' | 'education' | 'raw_full' | 'raw_section';
 
+/**
+ * 청크 타입별 검색 가중치
+ * PRD v0.1: raw_full(0.7), raw_section(0.65) 추가
+ */
 export const CHUNK_WEIGHTS: Record<ChunkType, number> = {
   summary: 1.0,
   career: 0.9,
   skill: 0.85,
   project: 0.8,
+  raw_full: 0.7,      // PRD v0.1: 원본 텍스트 전체
+  raw_section: 0.65,  // PRD v0.1: 원본 텍스트 섹션
   education: 0.5,
 };
 

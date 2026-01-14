@@ -564,6 +564,7 @@ def process_resume(
 
         # ─────────────────────────────────────────────────
         # Step 3: 청킹 + 임베딩 (Embedding Service)
+        # PRD v0.1: 원본 텍스트도 청킹하여 전체 텍스트 검색 지원
         # ─────────────────────────────────────────────────
         embedding_service = get_embedding_service()
         embeddings_failed = False
@@ -571,7 +572,11 @@ def process_resume(
 
         try:
             embedding_result: EmbeddingResult = asyncio.run(
-                embedding_service.process_candidate(data=analyzed_data, generate_embeddings=True)
+                embedding_service.process_candidate(
+                    data=analyzed_data,
+                    generate_embeddings=True,
+                    raw_text=text  # PRD v0.1: 원본 텍스트 전달
+                )
             )
         except Exception as embed_error:
             logger.error(f"[Task] Embedding generation exception: {embed_error}")
