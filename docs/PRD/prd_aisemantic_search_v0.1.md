@@ -1,8 +1,8 @@
 # PRD: 이력서 원본 텍스트 Semantic 검색 v0.1
 
-> **문서 버전**: 0.1.1
+> **문서 버전**: 0.1.2
 > **작성일**: 2026-01-14
-> **상태**: Phase 1 구현 완료 ✅ | E2E 테스트 대기
+> **상태**: Phase 2 E2E 테스트 완료 ✅ | 프로덕션 배포 대기
 
 ---
 
@@ -248,7 +248,7 @@ Acceptance Criteria:
 | Phase | 범위 | 일정 | 상태 |
 |-------|-----|-----|-----|
 | **Phase 1** | DB 스키마 마이그레이션, Python 청킹 로직 | Week 1 | ✅ 완료 |
-| **Phase 2** | RPC 함수 수정, 검색 API 테스트 | Week 2 | 🔄 E2E 테스트 대기 |
+| **Phase 2** | RPC 함수 수정, 검색 API 테스트 | Week 2 | ✅ 완료 |
 | **Phase 3** | QA 검증, 기존 데이터 백필 (선택) | Week 3 | ⏳ 대기 |
 | **Phase 4** | 프로덕션 배포, 모니터링 | Week 4 | ⏳ 대기 |
 
@@ -333,6 +333,7 @@ Acceptance Criteria:
 |-----|-----|-------|----------|
 | 0.1 | 2026-01-14 | AI Assistant | 최초 작성 |
 | 0.1.1 | 2026-01-14 | AI Assistant | Phase 1 구현 완료, 체크리스트 업데이트 |
+| 0.1.2 | 2026-01-14 | AI Assistant | Phase 2 E2E 테스트 완료, 테스트 결과 추가 |
 
 ---
 
@@ -375,3 +376,47 @@ CHUNK_WEIGHTS = {
     'education': 0.5,
 }
 ```
+
+---
+
+## 14. E2E 테스트 결과
+
+### 테스트 환경
+- Worker: localhost:8000 (uvicorn)
+- OpenAI: GPT-4o (임베딩: text-embedding-3-small)
+- 테스트 일자: 2026-01-14
+
+### 테스트 케이스 결과
+
+| TC ID | 테스트 내용 | 결과 |
+|-------|-----------|-----|
+| TC-01 | Worker Health Check | ✅ PASSED |
+| TC-02 | Raw Chunk Creation (short text) | ✅ PASSED |
+| TC-03 | Raw Chunk Creation (long text > 1500 chars) | ✅ PASSED |
+| TC-04 | Sliding Window Chunking | ✅ PASSED |
+| TC-05 | Keywords Only in Raw Text | ✅ PASSED |
+| TC-06 | process_candidate with raw_text | ✅ PASSED |
+
+### 상세 결과
+
+```
+=== process_candidate with raw_text ===
+Total Chunks: 7
+- summary: 1
+- career: 1
+- project: 1
+- skill: 1
+- raw_full: 1
+- raw_section: 2
+
+Keywords only in raw text (not in structured data):
+- "ASML EUV scanners": FOUND
+- "Defect Inspection": FOUND
+- "MATLAB": FOUND
+
+=== ALL TESTS PASSED ===
+```
+
+### 테스트 파일
+- `tests/e2e/raw-text-search.spec.ts` - Playwright E2E 테스트
+- `apps/worker/tests/test_raw_text_chunks.py` - 유닛 테스트 (15개)
