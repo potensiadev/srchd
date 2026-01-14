@@ -1,0 +1,49 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e6] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e7]:
+      - img [ref=e8]
+    - generic [ref=e11]:
+      - button "Open issues overlay" [ref=e12]:
+        - generic [ref=e13]:
+          - generic [ref=e14]: "1"
+          - generic [ref=e15]: "2"
+        - generic [ref=e16]:
+          - text: Issue
+          - generic [ref=e17]: s
+      - button "Collapse issues badge" [ref=e18]:
+        - img [ref=e19]
+  - generic [ref=e24]:
+    - generic [ref=e25]:
+      - img [ref=e27]
+      - heading "HR Screener" [level=1] [ref=e30]
+      - paragraph [ref=e31]: 헤드헌터 전용 후보자 관리 플랫폼
+    - generic [ref=e32]:
+      - generic [ref=e33]: 등록되지 않은 이메일입니다. 회원가입을 진행해주세요.
+      - generic [ref=e34]:
+        - text: 이메일
+        - textbox "이메일" [ref=e35]:
+          - /placeholder: name@company.com
+          - text: prohustler@naver.com
+      - generic [ref=e36]:
+        - text: 비밀번호
+        - textbox "비밀번호" [ref=e37]:
+          - /placeholder: ••••••••
+          - text: Vmfhgjtmffj100*
+      - button "로그인" [ref=e38]
+      - generic [ref=e43]: 또는
+      - button "Google로 계속하기" [ref=e44]:
+        - img [ref=e45]
+        - text: Google로 계속하기
+    - paragraph [ref=e50]:
+      - text: 계정이 없으신가요?
+      - link "회원가입" [ref=e51] [cursor=pointer]:
+        - /url: /signup
+  - generic [ref=e52]:
+    - img [ref=e54]
+    - button "Open Tanstack query devtools" [ref=e102] [cursor=pointer]:
+      - img [ref=e103]
+  - alert [ref=e151]
+```

@@ -79,7 +79,9 @@
       "Bash(WEBHOOK_SECRET=da8ffa43dc2b722887199683d0a40fa78a5471f85f5e8bec61fc1c1110ef9da0 k6 run:*)",
       "Bash(iconv:*)",
       "Bash(git restore:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(node -e:*)",
+      "Bash(npm run lint:*)"
     ]
   }
 }
