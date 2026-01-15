@@ -202,6 +202,8 @@ const testimonials = [
     author: "김소연",
     role: "시니어 파트너",
     company: "Executive Search Korea",
+    avatarBg: "from-violet-500 to-purple-600",
+    avatarUrl: null, // Replace with actual photo URL when available
   },
   {
     quote: "5년치 이력서 3,000개를 드디어 활용하게 됐어요. 예전 후보 찾느라 폴더 뒤지던 시간이 0이 됐습니다.",
@@ -209,6 +211,8 @@ const testimonials = [
     author: "박준혁",
     role: "헤드헌터",
     company: "Tech Talent Partners",
+    avatarBg: "from-blue-500 to-cyan-600",
+    avatarUrl: null, // Replace with actual photo URL when available
   },
   {
     quote: "JD 받고 같은 날 후보 3명 제안했어요. 클라이언트가 깜짝 놀라더라고요. 경쟁사보다 하루 빨랐습니다.",
@@ -216,6 +220,8 @@ const testimonials = [
     author: "이민지",
     role: "리크루팅 매니저",
     company: "Global HR Solutions",
+    avatarBg: "from-emerald-500 to-teal-600",
+    avatarUrl: null, // Replace with actual photo URL when available
   },
 ];
 
@@ -227,7 +233,7 @@ const pricingTiers = [
     period: "월",
     description: "시작하기 좋은 플랜",
     features: ["월 100건 분석", "기본 검색", "이메일 지원"],
-    cta: "무료로 시작",
+    cta: "무료로 시작하기",
     popular: false,
   },
   {
@@ -236,7 +242,7 @@ const pricingTiers = [
     period: "월",
     description: "성장하는 팀을 위한",
     features: ["무제한 분석", "스마트 검색", "JD 자동 매칭", "팀 협업 (3명)", "우선 지원"],
-    cta: "Pro 시작하기",
+    cta: "무료로 시작하기",
     popular: true,
   },
   {
@@ -254,12 +260,53 @@ const pricingTiers = [
 const companyLogos = ["Executive Search Korea", "Tech Talent", "HR Partners", "Recruit Pro", "Talent Bridge"];
 
 // ============================================
+// ANIMATION HELPERS (Accessibility)
+// ============================================
+
+const getAnimationProps = (prefersReducedMotion: boolean) => ({
+  fadeInUp: {
+    initial: prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    transition: prefersReducedMotion ? { duration: 0 } : { duration: 0.6 },
+  },
+  fadeIn: {
+    initial: prefersReducedMotion ? { opacity: 1 } : { opacity: 0 },
+    animate: { opacity: 1 },
+    transition: prefersReducedMotion ? { duration: 0 } : { duration: 0.8 },
+  },
+  scaleIn: {
+    initial: prefersReducedMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.95 },
+    animate: { opacity: 1, scale: 1 },
+    transition: prefersReducedMotion ? { duration: 0 } : { duration: 0.6 },
+  },
+  slideInLeft: {
+    initial: prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: -20 },
+    animate: { opacity: 1, x: 0 },
+    transition: prefersReducedMotion ? { duration: 0 } : { duration: 0.6 },
+  },
+  slideInRight: {
+    initial: prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 },
+    transition: prefersReducedMotion ? { duration: 0 } : { duration: 0.6 },
+  },
+});
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 
 export default function LandingPage() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [showExitPopup, setShowExitPopup] = useState(false);
+  const [exitPopupShown, setExitPopupShown] = useState(false);
+
+  // Lead Capture State
+  const [showLeadCapture, setShowLeadCapture] = useState(false);
+  const [leadName, setLeadName] = useState("");
+  const [leadEmail, setLeadEmail] = useState("");
+  const [leadSubmitting, setLeadSubmitting] = useState(false);
 
   // Demo Section Refs
   const demo1Ref = useRef<HTMLDivElement>(null);
@@ -276,6 +323,8 @@ export default function LandingPage() {
   const [demo2Step, setDemo2Step] = useState<"idle" | "input" | "analyzing" | "matching" | "complete">("idle");
   const [demo2JD, setDemo2JD] = useState("");
   const demo2TimeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  const [demo2MobileSlide, setDemo2MobileSlide] = useState(0);
+  const demo2CarouselRef = useRef<HTMLDivElement>(null);
 
   // Demo 3 State
   const [demo3Query, setDemo3Query] = useState("");
@@ -289,6 +338,19 @@ export default function LandingPage() {
     setMounted(true);
   }, []);
 
+  // Detect prefers-reduced-motion for accessibility
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mediaQuery.matches);
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setPrefersReducedMotion(e.matches);
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768) {
@@ -298,6 +360,25 @@ export default function LandingPage() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Exit intent detection (desktop only)
+  useEffect(() => {
+    if (!mounted || exitPopupShown) return;
+
+    const handleMouseLeave = (e: MouseEvent) => {
+      // Only trigger when mouse leaves from the top of the viewport
+      if (e.clientY <= 0 && !exitPopupShown) {
+        // Check if on desktop (not mobile)
+        if (window.innerWidth >= 768) {
+          setShowExitPopup(true);
+          setExitPopupShown(true);
+        }
+      }
+    };
+
+    document.addEventListener("mouseleave", handleMouseLeave);
+    return () => document.removeEventListener("mouseleave", handleMouseLeave);
+  }, [mounted, exitPopupShown]);
 
   // Demo 3 typing animation text
   const demo3TypingText = "경력 10년 이상의 컨설팅펌 출신 전략기획 후보자 찾아줘";
@@ -316,6 +397,26 @@ export default function LandingPage() {
     demo2TimeoutRefs.current = [];
     setDemo2Step("idle");
     setDemo2JD("");
+    setDemo2MobileSlide(0);
+  }, []);
+
+  // Handle Demo 2 carousel scroll
+  const handleDemo2Scroll = useCallback(() => {
+    if (!demo2CarouselRef.current) return;
+    const scrollLeft = demo2CarouselRef.current.scrollLeft;
+    const slideWidth = demo2CarouselRef.current.offsetWidth;
+    const newSlide = Math.round(scrollLeft / slideWidth);
+    setDemo2MobileSlide(newSlide);
+  }, []);
+
+  // Scroll to specific slide on mobile
+  const scrollToDemo2Slide = useCallback((index: number) => {
+    if (!demo2CarouselRef.current) return;
+    const slideWidth = demo2CarouselRef.current.offsetWidth;
+    demo2CarouselRef.current.scrollTo({
+      left: slideWidth * index,
+      behavior: "smooth",
+    });
   }, []);
 
   // Reset Demo 3
@@ -352,11 +453,14 @@ export default function LandingPage() {
   const runDemo2 = useCallback(() => {
     setDemo2JD(sampleJD);
     setDemo2Step("input");
+    scrollToDemo2Slide(0); // Start at step 1
 
     const t1 = setTimeout(() => {
       setDemo2Step("analyzing");
+      scrollToDemo2Slide(1); // Move to step 2
       const t2 = setTimeout(() => {
         setDemo2Step("matching");
+        scrollToDemo2Slide(2); // Move to step 3
         const t3 = setTimeout(() => {
           setDemo2Step("complete");
         }, 1050); // 1500 * 0.7 = 1050
@@ -365,11 +469,22 @@ export default function LandingPage() {
       demo2TimeoutRefs.current.push(t2);
     }, 700); // 1000 * 0.7 = 700
     demo2TimeoutRefs.current.push(t1);
-  }, []);
+  }, [scrollToDemo2Slide]);
 
-  // Typing animation for Demo 3
+  // Typing animation for Demo 3 (respects reduced motion)
   const runDemo3WithTyping = useCallback(() => {
     resetDemo3();
+
+    // If user prefers reduced motion, skip typing animation
+    if (prefersReducedMotion) {
+      setDemo3Query(demo3TypingText);
+      setDemo3Searching(true);
+      demo3TimeoutRef.current = setTimeout(() => {
+        setDemo3Searching(false);
+        setDemo3Results(searchResults[demo3TypingText]);
+      }, 300);
+      return;
+    }
 
     // Small delay before starting
     demo3TimeoutRef.current = setTimeout(() => {
@@ -392,97 +507,67 @@ export default function LandingPage() {
         }
       }, 50); // 50ms per character for natural typing feel
     }, 300);
-  }, [resetDemo3]);
+  }, [resetDemo3, prefersReducedMotion]);
 
-  // Intersection Observer for Demo 1
+  // Consolidated Intersection Observer for all demos (Performance optimization)
   useEffect(() => {
     if (!mounted) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            // Reset and start when entering view
-            resetDemo1();
-            demo1TimeoutRef.current = setTimeout(() => {
-              runDemo1();
-            }, 500);
-          } else {
-            // Reset when leaving view
-            resetDemo1();
+          const target = entry.target;
+
+          // Demo 1
+          if (target === demo1Ref.current) {
+            if (entry.isIntersecting) {
+              resetDemo1();
+              demo1TimeoutRef.current = setTimeout(() => {
+                runDemo1();
+              }, 500);
+            } else {
+              resetDemo1();
+            }
+          }
+
+          // Demo 2
+          if (target === demo2Ref.current) {
+            if (entry.isIntersecting) {
+              resetDemo2();
+              const t = setTimeout(() => {
+                runDemo2();
+              }, 500);
+              demo2TimeoutRefs.current.push(t);
+            } else {
+              resetDemo2();
+            }
+          }
+
+          // Demo 3
+          if (target === demo3Ref.current) {
+            if (entry.isIntersecting) {
+              runDemo3WithTyping();
+            } else {
+              resetDemo3();
+            }
           }
         });
       },
       { threshold: 0.4 }
     );
 
-    if (demo1Ref.current) {
-      observer.observe(demo1Ref.current);
-    }
+    // Observe all demo refs
+    if (demo1Ref.current) observer.observe(demo1Ref.current);
+    if (demo2Ref.current) observer.observe(demo2Ref.current);
+    if (demo3Ref.current) observer.observe(demo3Ref.current);
 
     return () => {
       observer.disconnect();
       resetDemo1();
-    };
-  }, [mounted, resetDemo1, runDemo1]);
-
-  // Intersection Observer for Demo 2
-  useEffect(() => {
-    if (!mounted) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            resetDemo2();
-            const t = setTimeout(() => {
-              runDemo2();
-            }, 500);
-            demo2TimeoutRefs.current.push(t);
-          } else {
-            resetDemo2();
-          }
-        });
-      },
-      { threshold: 0.4 }
-    );
-
-    if (demo2Ref.current) {
-      observer.observe(demo2Ref.current);
-    }
-
-    return () => {
-      observer.disconnect();
       resetDemo2();
-    };
-  }, [mounted, resetDemo2, runDemo2]);
-
-  // Intersection Observer for Demo 3
-  useEffect(() => {
-    if (!mounted) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            runDemo3WithTyping();
-          } else {
-            resetDemo3();
-          }
-        });
-      },
-      { threshold: 0.4 }
-    );
-
-    if (demo3Ref.current) {
-      observer.observe(demo3Ref.current);
-    }
-
-    return () => {
-      observer.disconnect();
       resetDemo3();
     };
-  }, [mounted, runDemo3WithTyping, resetDemo3]);
+  }, [mounted, resetDemo1, runDemo1, resetDemo2, runDemo2, runDemo3WithTyping, resetDemo3]);
 
   // Demo 3 Search
   const runDemo3Search = (query: string) => {
@@ -498,14 +583,57 @@ export default function LandingPage() {
     }, 800);
   };
 
+  // Lead Capture Handlers
+  const handleSignupClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setShowLeadCapture(true);
+  };
+
+  const handleLeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leadEmail.trim()) return;
+
+    setLeadSubmitting(true);
+
+    // Simulate API call (replace with actual lead capture API)
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Store lead data (in real implementation, send to backend/CRM)
+    console.log("Lead captured:", { name: leadName, email: leadEmail });
+
+    // Reset and redirect to signup
+    setLeadSubmitting(false);
+    setShowLeadCapture(false);
+    setLeadName("");
+    setLeadEmail("");
+
+    // Redirect to signup with email pre-filled
+    window.location.href = `/signup?email=${encodeURIComponent(leadEmail)}&name=${encodeURIComponent(leadName)}`;
+  };
+
+  const handleSkipLeadCapture = () => {
+    setShowLeadCapture(false);
+    setLeadName("");
+    setLeadEmail("");
+    window.location.href = "/signup";
+  };
+
   if (!mounted) return null;
 
   return (
     <div className="min-h-screen bg-white text-gray-900 overflow-hidden">
+      {/* Skip to main content link for keyboard navigation (Accessibility) */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded-lg focus:font-medium focus:shadow-lg"
+      >
+        본문으로 건너뛰기
+      </a>
+
       {/* ============================================
           NAVIGATION
       ============================================ */}
-      <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50">
+      <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50" role="navigation" aria-label="메인 네비게이션">
         <div className="max-w-7xl mx-auto px-6 md:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -530,25 +658,27 @@ export default function LandingPage() {
             <Link href="/login" className="text-sm font-medium text-gray-600 hover:text-primary transition-colors">
               로그인
             </Link>
-            <Link
-              href="/signup"
+            <button
+              onClick={handleSignupClick}
               className="px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-sm text-white font-medium transition-all shadow-sm"
             >
               무료로 시작하기
-            </Link>
+            </button>
           </div>
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="md:hidden p-2 text-gray-600 hover:text-gray-900 transition-colors"
-            aria-label="Toggle menu"
+            aria-label={mobileMenuOpen ? "메뉴 닫기" : "메뉴 열기"}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-menu"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {mobileMenuOpen ? <X className="w-6 h-6" aria-hidden="true" /> : <Menu className="w-6 h-6" aria-hidden="true" />}
           </button>
         </div>
 
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-100 bg-white">
+          <div id="mobile-menu" className="md:hidden border-t border-gray-100 bg-white" role="menu">
             <div className="px-6 py-4 space-y-4">
               {navLinks.map((link) => (
                 <Link
@@ -568,20 +698,22 @@ export default function LandingPage() {
                 >
                   로그인
                 </Link>
-                <Link
-                  href="/signup"
-                  onClick={() => setMobileMenuOpen(false)}
+                <button
+                  onClick={(e) => {
+                    setMobileMenuOpen(false);
+                    handleSignupClick(e);
+                  }}
                   className="block w-full py-3 px-4 rounded-lg bg-primary text-white text-center font-medium"
                 >
                   무료로 시작하기
-                </Link>
+                </button>
               </div>
             </div>
           </div>
         )}
       </nav>
 
-      <main className="flex-1">
+      <main id="main-content" className="flex-1" role="main">
         {/* ============================================
             SECTION 1: HERO
         ============================================ */}
@@ -643,13 +775,13 @@ export default function LandingPage() {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="flex flex-col sm:flex-row items-center justify-center gap-4"
             >
-              <Link
-                href="/signup"
+              <button
+                onClick={handleSignupClick}
                 className="group flex items-center gap-2 px-8 py-4 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
               >
                 무료로 시작하기
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </Link>
+              </button>
               <button
                 onClick={() => document.getElementById("demo-section")?.scrollIntoView({ behavior: "smooth" })}
                 className="group flex items-center gap-2 px-8 py-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-900 font-semibold text-lg transition-all"
@@ -821,42 +953,45 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               className="bg-gray-900 rounded-3xl p-6 md:p-10 shadow-2xl"
+              role="region"
+              aria-label="이력서 분석 데모"
+              aria-live="polite"
             >
               {/* Demo Header */}
-              <div className="flex items-center gap-2 mb-6">
+              <div className="flex items-center gap-2 mb-6" aria-hidden="true">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
                 <div className="w-3 h-3 rounded-full bg-green-500" />
-                <span className="ml-4 text-gray-400 text-sm">RAI - 이력서 분석</span>
+                <span className="ml-4 text-gray-300 text-sm">RAI - 이력서 분석</span>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-4 md:gap-6">
                 {/* Left: Upload */}
-                <div className="space-y-4">
+                <div className="space-y-3 md:space-y-4">
                   <div
-                    className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
+                    className={`border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
                       demo1Step !== "idle" ? "border-primary bg-primary/10" : "border-gray-700 bg-gray-800"
                     }`}
                   >
                     {demo1Step === "idle" && (
                       <>
-                        <Upload className="w-12 h-12 mx-auto mb-4 text-gray-500" />
-                        <p className="text-white font-medium mb-2">이력서를 드래그하거나 클릭하세요</p>
-                        <p className="text-gray-400 text-sm">PDF, HWP, DOCX 지원</p>
+                        <Upload className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 md:mb-4 text-gray-400" />
+                        <p className="text-white font-medium mb-1 md:mb-2 text-sm md:text-base">이력서를 드래그하거나 클릭하세요</p>
+                        <p className="text-gray-300 text-xs md:text-sm">PDF, HWP, DOCX 지원</p>
                       </>
                     )}
                     {demo1Step === "uploading" && (
                       <>
-                        <FileText className="w-12 h-12 mx-auto mb-4 text-primary" />
-                        <p className="text-white font-medium mb-2">이력서_박지현_2024.pdf</p>
-                        <p className="text-gray-400 text-sm">2.4 MB</p>
+                        <FileText className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 md:mb-4 text-primary" />
+                        <p className="text-white font-medium mb-1 md:mb-2 text-sm md:text-base">이력서_박지현_2024.pdf</p>
+                        <p className="text-gray-300 text-xs md:text-sm">2.4 MB</p>
                       </>
                     )}
                     {(demo1Step === "analyzing" || demo1Step === "complete") && (
                       <>
-                        <FileText className="w-12 h-12 mx-auto mb-4 text-primary" />
-                        <p className="text-white font-medium mb-2">이력서_박지현_2024.pdf</p>
-                        <p className="text-emerald-400 text-sm">✓ 업로드 완료</p>
+                        <FileText className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 md:mb-4 text-primary" />
+                        <p className="text-white font-medium mb-1 md:mb-2 text-sm md:text-base">이력서_박지현_2024.pdf</p>
+                        <p className="text-emerald-400 text-xs md:text-sm">✓ 업로드 완료</p>
                       </>
                     )}
                   </div>
@@ -874,7 +1009,7 @@ export default function LandingPage() {
                           style={{ width: `${demo1Progress}%` }}
                         />
                       </div>
-                      <p className="text-gray-400 text-sm mt-2">{Math.ceil((100 - demo1Progress) / 10)}초 남음</p>
+                      <p className="text-gray-300 text-sm mt-2">{Math.ceil((100 - demo1Progress) / 10)}초 남음</p>
                     </div>
                   )}
 
@@ -900,32 +1035,32 @@ export default function LandingPage() {
                 </div>
 
                 {/* Right: Result */}
-                <div className="bg-gray-800 rounded-2xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-semibold">분석 결과</h3>
+                <div className="bg-gray-800 rounded-2xl p-4 md:p-6">
+                  <div className="flex items-center justify-between mb-3 md:mb-4">
+                    <h3 className="text-white font-semibold text-sm md:text-base">분석 결과</h3>
                     {demo1Step === "complete" && (
-                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium">
+                      <span className="px-2 md:px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs md:text-sm font-medium">
                         신뢰도 {demoResumeResult.confidence}%
                       </span>
                     )}
                   </div>
 
                   {demo1Step === "complete" ? (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2 md:space-y-3">
                       {[
                         { label: "이름", value: demoResumeResult.name },
                         { label: "현재 직책", value: `${demoResumeResult.currentRole} @ ${demoResumeResult.currentCompany}` },
                         { label: "총 경력", value: demoResumeResult.totalExperience },
                         { label: "학력", value: demoResumeResult.education },
                       ].map((field, i) => (
-                        <div key={i} className="p-3 bg-gray-700/50 rounded-xl">
-                          <p className="text-gray-400 text-xs mb-1">{field.label}</p>
-                          <p className="text-white font-medium">{field.value}</p>
+                        <div key={i} className="p-2 md:p-3 bg-gray-700/50 rounded-xl">
+                          <p className="text-gray-300 text-xs mb-0.5 md:mb-1">{field.label}</p>
+                          <p className="text-white font-medium text-sm md:text-base truncate">{field.value}</p>
                         </div>
                       ))}
-                      <div className="p-3 bg-gray-700/50 rounded-xl">
-                        <p className="text-gray-400 text-xs mb-2">핵심 스킬</p>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="p-2 md:p-3 bg-gray-700/50 rounded-xl">
+                        <p className="text-gray-300 text-xs mb-1.5 md:mb-2">핵심 스킬</p>
+                        <div className="flex flex-wrap gap-1.5 md:gap-2">
                           {demoResumeResult.skills.slice(0, 4).map((skill) => (
                             <span key={skill} className="px-2 py-1 rounded-full bg-primary/20 text-primary text-xs">
                               {skill}
@@ -935,10 +1070,10 @@ export default function LandingPage() {
                       </div>
                     </motion.div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                      <FileSearch className="w-12 h-12 mb-4" />
-                      <p>이력서를 업로드하면</p>
-                      <p>분석 결과가 표시됩니다</p>
+                    <div className="flex flex-col items-center justify-center h-48 md:h-64 text-gray-500">
+                      <FileSearch className="w-10 h-10 md:w-12 md:h-12 mb-3 md:mb-4" />
+                      <p className="text-sm md:text-base">이력서를 업로드하면</p>
+                      <p className="text-sm md:text-base">분석 결과가 표시됩니다</p>
                     </div>
                   )}
                 </div>
@@ -947,7 +1082,7 @@ export default function LandingPage() {
               {/* Auto-play indicator */}
               {demo1Step === "idle" && (
                 <div className="mt-6 flex justify-center">
-                  <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-sm">
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm">
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                     데모가 곧 시작됩니다
                   </div>
@@ -1092,7 +1227,7 @@ export default function LandingPage() {
                 DEMO 2
               </span>
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">JD만 붙이면, 후보자가 나옵니다</h2>
-              <p className="text-gray-400">기술 용어를 몰라도 됩니다. AI가 해석하고 매칭합니다.</p>
+              <p className="text-gray-300">기술 용어를 몰라도 됩니다. AI가 해석하고 매칭합니다.</p>
             </motion.div>
 
             <motion.div
@@ -1100,123 +1235,273 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              className="grid md:grid-cols-3 gap-4"
+              role="region"
+              aria-label="JD 매칭 데모"
+              aria-live="polite"
             >
-              {/* Step 1: JD Input */}
-              <div className="bg-gray-800 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
-                    1
-                  </span>
-                  <h4 className="text-white font-medium">JD 붙여넣기</h4>
+              {/* Desktop: Grid layout */}
+              <div className="hidden md:grid md:grid-cols-3 gap-4" role="list" aria-label="JD 매칭 단계">
+                {/* Step 1: JD Input */}
+                <div className="bg-gray-800 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                      1
+                    </span>
+                    <h4 className="text-white font-medium">JD 붙여넣기</h4>
+                  </div>
+                  <div className="bg-gray-700 rounded-xl p-3 h-48 overflow-hidden">
+                    {demo2Step !== "idle" ? (
+                      <pre className="text-gray-300 text-xs whitespace-pre-wrap">{demo2JD.slice(0, 300)}...</pre>
+                    ) : (
+                      <p className="text-gray-500 text-sm">클라이언트에게 받은 JD를 붙여넣으세요...</p>
+                    )}
+                  </div>
                 </div>
-                <div className="bg-gray-700 rounded-xl p-3 h-48 overflow-hidden">
-                  {demo2Step !== "idle" ? (
-                    <pre className="text-gray-300 text-xs whitespace-pre-wrap">{demo2JD.slice(0, 300)}...</pre>
+
+                {/* Step 2: AI Analysis */}
+                <div className="bg-gray-800 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                      2
+                    </span>
+                    <h4 className="text-white font-medium">AI가 해석</h4>
+                  </div>
+                  {demo2Step === "analyzing" || demo2Step === "matching" || demo2Step === "complete" ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+                      <div>
+                        <p className="text-gray-300 text-xs mb-2">🎯 필수 요건</p>
+                        <div className="flex flex-wrap gap-1">
+                          {jdParsedResult.required.map((r) => (
+                            <span key={r} className="px-2 py-1 bg-red-500/20 text-red-300 rounded text-xs">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-gray-300 text-xs mb-2">⭐ 우대 사항</p>
+                        <div className="flex flex-wrap gap-1">
+                          {jdParsedResult.preferred.map((p) => (
+                            <span key={p} className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded text-xs">
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
+                        <p className="text-purple-300 text-xs flex items-start gap-2">
+                          <Brain className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          {jdParsedResult.aiNote}
+                        </p>
+                      </div>
+                    </motion.div>
                   ) : (
-                    <p className="text-gray-500 text-sm">클라이언트에게 받은 JD를 붙여넣으세요...</p>
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                      <Zap className="w-8 h-8 mb-2" />
+                      <p className="text-sm">JD를 입력하면</p>
+                      <p className="text-sm">자동으로 분석합니다</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 3: Matched Candidates */}
+                <div className="bg-gray-800 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                      3
+                    </span>
+                    <h4 className="text-white font-medium">매칭 후보자</h4>
+                    {demo2Step === "complete" && (
+                      <span className="ml-auto text-emerald-400 text-xs font-medium">7명 발견</span>
+                    )}
+                  </div>
+                  {demo2Step === "complete" ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
+                      {jdMatchedCandidates.map((c, i) => (
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.1 }}
+                          className="flex items-center gap-3 p-2 bg-gray-700 rounded-lg"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-sm">
+                            {c.name[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm font-medium truncate">{c.name}</p>
+                            <p className="text-gray-300 text-xs truncate">{c.currentRole}</p>
+                          </div>
+                          <span className="text-emerald-400 text-sm font-bold">{c.matchScore}%</span>
+                        </motion.div>
+                      ))}
+                      <p className="text-gray-500 text-xs text-center mt-2">+ 4명 더 보기</p>
+                    </motion.div>
+                  ) : demo2Step === "matching" ? (
+                    <div className="flex flex-col items-center justify-center h-48">
+                      <Loader2 className="w-8 h-8 text-purple-400 animate-spin mb-2" />
+                      <p className="text-gray-300 text-sm">보유 이력서 3,247건에서 검색 중...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                      <Users className="w-8 h-8 mb-2" />
+                      <p className="text-sm">분석이 완료되면</p>
+                      <p className="text-sm">매칭 후보자가 표시됩니다</p>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Step 2: AI Analysis */}
-              <div className="bg-gray-800 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
-                    2
-                  </span>
-                  <h4 className="text-white font-medium">AI가 해석</h4>
-                </div>
-                {demo2Step === "analyzing" || demo2Step === "matching" || demo2Step === "complete" ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
-                    <div>
-                      <p className="text-gray-400 text-xs mb-2">🎯 필수 요건</p>
-                      <div className="flex flex-wrap gap-1">
-                        {jdParsedResult.required.map((r) => (
-                          <span key={r} className="px-2 py-1 bg-red-500/20 text-red-300 rounded text-xs">
-                            {r}
-                          </span>
-                        ))}
+              {/* Mobile: Horizontal Carousel */}
+              <div className="md:hidden">
+                <div
+                  ref={demo2CarouselRef}
+                  onScroll={handleDemo2Scroll}
+                  className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide -mx-6 px-6"
+                  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+                >
+                  {/* Step 1: JD Input */}
+                  <div className="flex-shrink-0 w-full snap-center px-2 first:pl-0 last:pr-0">
+                    <div className="bg-gray-800 rounded-2xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                          1
+                        </span>
+                        <h4 className="text-white font-medium">JD 붙여넣기</h4>
+                      </div>
+                      <div className="bg-gray-700 rounded-xl p-3 h-48 overflow-hidden">
+                        {demo2Step !== "idle" ? (
+                          <pre className="text-gray-300 text-xs whitespace-pre-wrap">{demo2JD.slice(0, 300)}...</pre>
+                        ) : (
+                          <p className="text-gray-500 text-sm">클라이언트에게 받은 JD를 붙여넣으세요...</p>
+                        )}
                       </div>
                     </div>
-                    <div>
-                      <p className="text-gray-400 text-xs mb-2">⭐ 우대 사항</p>
-                      <div className="flex flex-wrap gap-1">
-                        {jdParsedResult.preferred.map((p) => (
-                          <span key={p} className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded text-xs">
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
-                      <p className="text-purple-300 text-xs flex items-start gap-2">
-                        <Brain className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        {jdParsedResult.aiNote}
-                      </p>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
-                    <Zap className="w-8 h-8 mb-2" />
-                    <p className="text-sm">JD를 입력하면</p>
-                    <p className="text-sm">자동으로 분석합니다</p>
                   </div>
-                )}
-              </div>
 
-              {/* Step 3: Matched Candidates */}
-              <div className="bg-gray-800 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
-                    3
-                  </span>
-                  <h4 className="text-white font-medium">매칭 후보자</h4>
-                  {demo2Step === "complete" && (
-                    <span className="ml-auto text-emerald-400 text-xs font-medium">7명 발견</span>
-                  )}
+                  {/* Step 2: AI Analysis */}
+                  <div className="flex-shrink-0 w-full snap-center px-2">
+                    <div className="bg-gray-800 rounded-2xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                          2
+                        </span>
+                        <h4 className="text-white font-medium">AI가 해석</h4>
+                      </div>
+                      {demo2Step === "analyzing" || demo2Step === "matching" || demo2Step === "complete" ? (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+                          <div>
+                            <p className="text-gray-300 text-xs mb-2">🎯 필수 요건</p>
+                            <div className="flex flex-wrap gap-1">
+                              {jdParsedResult.required.map((r) => (
+                                <span key={r} className="px-2 py-1 bg-red-500/20 text-red-300 rounded text-xs">
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-gray-300 text-xs mb-2">⭐ 우대 사항</p>
+                            <div className="flex flex-wrap gap-1">
+                              {jdParsedResult.preferred.map((p) => (
+                                <span key={p} className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded text-xs">
+                                  {p}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
+                            <p className="text-purple-300 text-xs flex items-start gap-2">
+                              <Brain className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                              {jdParsedResult.aiNote}
+                            </p>
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                          <Zap className="w-8 h-8 mb-2" />
+                          <p className="text-sm">JD를 입력하면</p>
+                          <p className="text-sm">자동으로 분석합니다</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Step 3: Matched Candidates */}
+                  <div className="flex-shrink-0 w-full snap-center px-2 first:pl-0 last:pr-0">
+                    <div className="bg-gray-800 rounded-2xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="w-6 h-6 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold">
+                          3
+                        </span>
+                        <h4 className="text-white font-medium">매칭 후보자</h4>
+                        {demo2Step === "complete" && (
+                          <span className="ml-auto text-emerald-400 text-xs font-medium">7명 발견</span>
+                        )}
+                      </div>
+                      {demo2Step === "complete" ? (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
+                          {jdMatchedCandidates.map((c, i) => (
+                            <motion.div
+                              key={i}
+                              initial={{ opacity: 0, x: 10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.1 }}
+                              className="flex items-center gap-3 p-2 bg-gray-700 rounded-lg"
+                            >
+                              <div className="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-sm">
+                                {c.name[0]}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white text-sm font-medium truncate">{c.name}</p>
+                                <p className="text-gray-300 text-xs truncate">{c.currentRole}</p>
+                              </div>
+                              <span className="text-emerald-400 text-sm font-bold">{c.matchScore}%</span>
+                            </motion.div>
+                          ))}
+                          <p className="text-gray-500 text-xs text-center mt-2">+ 4명 더 보기</p>
+                        </motion.div>
+                      ) : demo2Step === "matching" ? (
+                        <div className="flex flex-col items-center justify-center h-48">
+                          <Loader2 className="w-8 h-8 text-purple-400 animate-spin mb-2" />
+                          <p className="text-gray-300 text-sm">보유 이력서 3,247건에서 검색 중...</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+                          <Users className="w-8 h-8 mb-2" />
+                          <p className="text-sm">분석이 완료되면</p>
+                          <p className="text-sm">매칭 후보자가 표시됩니다</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                {demo2Step === "complete" ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
-                    {jdMatchedCandidates.map((c, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        className="flex items-center gap-3 p-2 bg-gray-700 rounded-lg"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-sm">
-                          {c.name[0]}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white text-sm font-medium truncate">{c.name}</p>
-                          <p className="text-gray-400 text-xs truncate">{c.currentRole}</p>
-                        </div>
-                        <span className="text-emerald-400 text-sm font-bold">{c.matchScore}%</span>
-                      </motion.div>
-                    ))}
-                    <p className="text-gray-500 text-xs text-center mt-2">+ 4명 더 보기</p>
-                  </motion.div>
-                ) : demo2Step === "matching" ? (
-                  <div className="flex flex-col items-center justify-center h-48">
-                    <Loader2 className="w-8 h-8 text-purple-400 animate-spin mb-2" />
-                    <p className="text-gray-400 text-sm">보유 이력서 3,247건에서 검색 중...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-48 text-gray-500">
-                    <Users className="w-8 h-8 mb-2" />
-                    <p className="text-sm">분석이 완료되면</p>
-                    <p className="text-sm">매칭 후보자가 표시됩니다</p>
-                  </div>
-                )}
+
+                {/* Mobile Carousel Dots */}
+                <div className="flex justify-center gap-2 mt-4">
+                  {[0, 1, 2].map((index) => (
+                    <button
+                      key={index}
+                      onClick={() => scrollToDemo2Slide(index)}
+                      className={`w-2 h-2 rounded-full transition-all ${
+                        demo2MobileSlide === index
+                          ? "bg-purple-500 w-6"
+                          : "bg-gray-600 hover:bg-gray-500"
+                      }`}
+                      aria-label={`Go to step ${index + 1}`}
+                    />
+                  ))}
+                </div>
+
+                {/* Swipe hint */}
+                <p className="text-center text-gray-500 text-xs mt-2">좌우로 스와이프하세요</p>
               </div>
             </motion.div>
 
             {/* Auto-play indicator */}
             {demo2Step === "idle" && (
               <div className="mt-8 flex justify-center">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 text-gray-400 text-sm">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm">
                   <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
                   데모가 곧 시작됩니다
                 </div>
@@ -1231,12 +1516,12 @@ export default function LandingPage() {
               className="mt-10 bg-gray-800 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8"
             >
               <div className="text-center md:text-left">
-                <p className="text-gray-400 text-sm">기존</p>
+                <p className="text-gray-300 text-sm">기존</p>
                 <p className="text-white">JD 분석 2시간 + 후보 검색 3시간 = <strong className="text-red-400">5시간</strong></p>
               </div>
-              <ArrowRight className="w-6 h-6 text-gray-600 rotate-90 md:rotate-0" />
+              <ArrowRight className="w-6 h-6 text-gray-500 rotate-90 md:rotate-0" />
               <div className="text-center md:text-left">
-                <p className="text-gray-400 text-sm">RAI</p>
+                <p className="text-gray-300 text-sm">RAI</p>
                 <p className="text-white">JD 붙이기 10초 + 자동 매칭 = <strong className="text-emerald-400">1분</strong></p>
               </div>
             </motion.div>
@@ -1369,12 +1654,19 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               className="bg-white rounded-2xl shadow-lg p-6 md:p-8"
+              role="region"
+              aria-label="자연어 검색 데모"
+              aria-live="polite"
             >
               {/* Search Input with Typing Animation */}
-              <div className={`flex items-center gap-2 border-2 rounded-xl p-3 mb-4 transition-colors ${
-                demo3IsTyping ? "border-primary bg-primary/5" : "border-gray-200"
-              }`}>
-                <Search className={`w-5 h-5 ${demo3IsTyping ? "text-primary" : "text-gray-400"}`} />
+              <div
+                className={`flex items-center gap-2 border-2 rounded-xl p-3 mb-4 transition-colors ${
+                  demo3IsTyping ? "border-primary bg-primary/5" : "border-gray-200"
+                }`}
+                role="search"
+                aria-label="후보자 검색"
+              >
+                <Search className={`w-5 h-5 ${demo3IsTyping ? "text-primary" : "text-gray-400"}`} aria-hidden="true" />
                 <div className="flex-1 relative">
                   <span className={`${demo3Query ? "text-gray-900" : "text-gray-400"}`}>
                     {demo3Query || "예: 컨설팅펌 출신 전략기획 10년차"}
@@ -1418,31 +1710,31 @@ export default function LandingPage() {
                     </div>
 
                     {/* Candidates */}
-                    <div className="space-y-3 mb-6">
+                    <div className="space-y-2 md:space-y-3 mb-6">
                       {demo3Results.candidates.map((c, i) => (
                         <motion.div
                           key={i}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: i * 0.1 }}
-                          className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                          className="flex items-center gap-3 md:gap-4 p-3 md:p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
                         >
-                          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm md:text-base flex-shrink-0">
                             {c.name[0]}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h5 className="font-medium text-gray-900">{c.name}</h5>
-                            <p className="text-sm text-gray-500">{c.currentRole}</p>
+                            <h5 className="font-medium text-gray-900 text-sm md:text-base">{c.name}</h5>
+                            <p className="text-xs md:text-sm text-gray-500 truncate">{c.currentRole}</p>
                             <div className="flex flex-wrap gap-1 mt-1">
                               {c.highlights.map((h) => (
-                                <span key={h} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs text-gray-600">
+                                <span key={h} className="px-1.5 md:px-2 py-0.5 bg-white border border-gray-200 rounded text-xs text-gray-600">
                                   {h}
                                 </span>
                               ))}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <span className="text-2xl font-bold text-primary">{c.matchScore}%</span>
+                          <div className="text-right flex-shrink-0">
+                            <span className="text-xl md:text-2xl font-bold text-primary">{c.matchScore}%</span>
                             <p className="text-xs text-gray-400">매칭</p>
                           </div>
                         </motion.div>
@@ -1603,13 +1895,13 @@ export default function LandingPage() {
             <p className="text-xl text-gray-900 mb-6">
               <strong>매달 99,000원</strong>으로 <strong className="text-emerald-600">1,500만원</strong> 추가 수익 기회를 만드세요.
             </p>
-            <Link
-              href="/signup"
+            <button
+              onClick={handleSignupClick}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold text-lg transition-all shadow-lg"
             >
-              무료 체험 시작
+              무료로 시작하기
               <ArrowRight className="w-5 h-5" />
-            </Link>
+            </button>
           </motion.div>
         </section>
 
@@ -1625,7 +1917,7 @@ export default function LandingPage() {
               className="text-center mb-12"
             >
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">헤드헌터들의 실제 후기</h2>
-              <p className="text-gray-400">RAI를 사용하는 채용 전문가들의 이야기</p>
+              <p className="text-gray-300">RAI를 사용하는 채용 전문가들의 이야기</p>
             </motion.div>
 
             <div className="grid md:grid-cols-3 gap-6">
@@ -1657,12 +1949,20 @@ export default function LandingPage() {
 
                   {/* Author */}
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold">
-                      {t.author[0]}
-                    </div>
+                    {t.avatarUrl ? (
+                      <img
+                        src={t.avatarUrl}
+                        alt={`${t.author} 프로필 사진`}
+                        className="w-12 h-12 rounded-full object-cover border-2 border-white/20"
+                      />
+                    ) : (
+                      <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${t.avatarBg} flex items-center justify-center text-white font-bold text-lg shadow-lg`}>
+                        {t.author[0]}
+                      </div>
+                    )}
                     <div>
                       <p className="text-white font-medium">{t.author}</p>
-                      <p className="text-gray-400 text-sm">{t.role}, {t.company}</p>
+                      <p className="text-gray-300 text-sm">{t.role}, {t.company}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -1730,16 +2030,25 @@ export default function LandingPage() {
                   ))}
                 </ul>
 
-                <Link
-                  href={tier.name === "Enterprise" ? "/support" : "/signup"}
-                  className={`block w-full py-3 rounded-xl text-center font-semibold transition-all ${
-                    tier.popular
-                      ? "bg-white text-primary hover:bg-gray-100"
-                      : "bg-gray-100 text-gray-900 hover:bg-gray-200"
-                  }`}
-                >
-                  {tier.cta}
-                </Link>
+                {tier.name === "Enterprise" ? (
+                  <Link
+                    href="/support"
+                    className="block w-full py-3 rounded-xl text-center font-semibold transition-all bg-gray-100 text-gray-900 hover:bg-gray-200"
+                  >
+                    {tier.cta}
+                  </Link>
+                ) : (
+                  <button
+                    onClick={handleSignupClick}
+                    className={`block w-full py-3 rounded-xl text-center font-semibold transition-all ${
+                      tier.popular
+                        ? "bg-white text-primary hover:bg-gray-100"
+                        : "bg-gray-100 text-gray-900 hover:bg-gray-200"
+                    }`}
+                  >
+                    {tier.cta}
+                  </button>
+                )}
               </motion.div>
             ))}
           </div>
@@ -1766,13 +2075,13 @@ export default function LandingPage() {
               신용카드 없이 바로 시작할 수 있습니다.
             </p>
 
-            <Link
-              href="/signup"
+            <button
+              onClick={handleSignupClick}
               className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-primary font-semibold text-lg hover:bg-gray-100 transition-all shadow-lg"
             >
-              무료 체험 시작
+              무료로 시작하기
               <ArrowRight className="w-5 h-5" />
-            </Link>
+            </button>
 
             <div className="flex items-center justify-center gap-6 mt-8 text-sm text-white/60 flex-wrap">
               <div className="flex items-center gap-2">
@@ -1793,9 +2102,22 @@ export default function LandingPage() {
       </main>
 
       {/* ============================================
+          MOBILE STICKY CTA
+      ============================================ */}
+      <div className="fixed bottom-0 left-0 right-0 md:hidden bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 z-50 safe-area-pb">
+        <button
+          onClick={handleSignupClick}
+          className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold text-base transition-all shadow-lg"
+        >
+          무료로 시작하기
+          <ArrowRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* ============================================
           FOOTER
       ============================================ */}
-      <footer className="border-t border-gray-200 bg-white px-6 md:px-8 py-12">
+      <footer className="border-t border-gray-200 bg-white px-6 md:px-8 py-12 pb-24 md:pb-12">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -1816,6 +2138,206 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* ============================================
+          EXIT INTENT POPUP (Desktop only)
+      ============================================ */}
+      <AnimatePresence>
+        {showExitPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            onClick={() => setShowExitPopup(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="exit-popup-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setShowExitPopup(false)}
+                className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="팝업 닫기"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Content */}
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                  <Sparkles className="w-8 h-8 text-primary" />
+                </div>
+
+                <h2 id="exit-popup-title" className="text-2xl font-bold text-gray-900 mb-3">
+                  잠깐만요!
+                </h2>
+                <p className="text-gray-600 mb-6">
+                  지금 가입하시면 <strong className="text-primary">14일 무료 체험</strong>과 함께
+                  <br />
+                  온보딩 가이드를 보내드려요.
+                </p>
+
+                {/* Benefits */}
+                <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <span>신용카드 없이 바로 시작</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <span>14일 동안 모든 기능 무료 사용</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <span>언제든지 취소 가능</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <button
+                  onClick={(e) => {
+                    setShowExitPopup(false);
+                    handleSignupClick(e);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold transition-all"
+                >
+                  무료로 시작하기
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+
+                <button
+                  onClick={() => setShowExitPopup(false)}
+                  className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  나중에 할게요
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ============================================
+          LEAD CAPTURE MODAL
+      ============================================ */}
+      <AnimatePresence>
+        {showLeadCapture && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            onClick={() => setShowLeadCapture(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lead-capture-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setShowLeadCapture(false)}
+                className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="팝업 닫기"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Content */}
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-5">
+                  <Zap className="w-7 h-7 text-primary" />
+                </div>
+
+                <h2 id="lead-capture-title" className="text-2xl font-bold text-gray-900 mb-2">
+                  시작 가이드를 보내드릴게요
+                </h2>
+                <p className="text-gray-500 mb-6 text-sm">
+                  5분 만에 첫 후보 제안하는 방법을
+                  <br />
+                  이메일로 받아보세요.
+                </p>
+
+                {/* Form */}
+                <form onSubmit={handleLeadSubmit} className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="이름"
+                    value={leadName}
+                    onChange={(e) => setLeadName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-gray-900 placeholder:text-gray-400"
+                  />
+                  <input
+                    type="email"
+                    placeholder="업무용 이메일"
+                    value={leadEmail}
+                    onChange={(e) => setLeadEmail(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all text-gray-900 placeholder:text-gray-400"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={leadSubmitting || !leadEmail.trim()}
+                    className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary/90 disabled:bg-primary/50 text-white font-semibold transition-all flex items-center justify-center gap-2"
+                  >
+                    {leadSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        처리 중...
+                      </>
+                    ) : (
+                      <>
+                        가이드 받고 시작하기
+                        <ArrowRight className="w-5 h-5" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Benefits */}
+                <div className="mt-5 pt-5 border-t border-gray-100">
+                  <div className="flex items-center justify-center gap-4 text-xs text-gray-400">
+                    <span className="flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                      신용카드 불필요
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                      14일 무료
+                    </span>
+                  </div>
+                </div>
+
+                {/* Skip option */}
+                <button
+                  onClick={handleSkipLeadCapture}
+                  className="mt-4 text-sm text-gray-400 hover:text-primary transition-colors underline underline-offset-2"
+                >
+                  건너뛰고 바로 가입하기
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
