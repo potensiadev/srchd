@@ -2,7 +2,7 @@
 
 > **배포 완료**: 2025-01-02
 > - Frontend: Vercel (Production)
-> - Worker: Railway (`raiprod.up.railway.app`)
+> - Worker: Railway (`srchd.up.railway.app`)
 > - Database: Supabase Cloud
 
 ## Architecture Overview

@@ -15,7 +15,7 @@
       "Bash(curl:*)",
       "Bash(dir:*)",
       "Bash(ls:*)",
-      "Bash(powershell -Command \"Invoke-RestMethod -Uri ''https://raiprod.up.railway.app/health'' -Method Get\")",
+      "Bash(powershell -Command \"Invoke-RestMethod -Uri ''https://srchd.up.railway.app/health'' -Method Get\")",
       "Bash(powershell -Command \"\\(Get-Content ''c:\\\\Users\\\\prohu\\\\Downloads\\\\logs.1767407117838.log'' | Measure-Object -Line\\).Lines\")",
       "Bash(npx supabase:*)",
       "Bash(python3:*)",
@@ -90,7 +90,8 @@
       "Bash(start \"\" \"D:\\\\RAI\\\\recruiter-pain-redesign.html\")",
       "Bash(start \"\" \"D:\\\\RAI\\\\recruiter-pain-v2.html\")",
       "Bash(start \"\" \"D:\\\\RAI\\\\recruiter-pain-v3.html\")",
-      "Skill(webapp-testing)"
+      "Skill(webapp-testing)",
+      "Bash(railway status:*)"
     ]
   }
 }

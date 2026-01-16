@@ -120,7 +120,7 @@ ENCRYPTION_KEY=  # 64자 hex
 | 서비스 | 플랫폼 | URL |
 |--------|--------|-----|
 | Frontend | Vercel | Production 배포 완료 |
-| Worker API | Railway | `raiprod.up.railway.app` |
+| Worker API | Railway | `srchd.up.railway.app` |
 | Database | Supabase | PostgreSQL + pgvector |
 
 ### 서비스 로드맵
