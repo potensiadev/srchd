@@ -33,9 +33,9 @@ export default function SignupPage() {
     <div className="space-y-6">
       {/* Logo */}
       <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-2">Srchd</h1>
-        <p className="text-gray-500 text-base mb-4">
-          회원가입
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-2">회원가입</h1>
+        <p className="text-gray-800 text-base mb-4">
+          헤드헌터님의 시간을 아껴드릴게요
         </p>
       </div>
 

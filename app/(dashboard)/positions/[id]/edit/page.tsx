@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { DetailPageSkeleton } from "@/components/ui/empty-state";
 import type { PositionPriority, PositionStatus, JobType } from "@/types/position";
 
 interface FormData {
@@ -34,7 +35,7 @@ interface FormData {
   requiredEducationLevel: string;
   preferredMajors: string[];
   locationCity: string;
-  jobType: JobType;
+  jobType: JobType | "";
   salaryMin: number | null;
   salaryMax: number | null;
   priority: PositionPriority;
@@ -42,7 +43,8 @@ interface FormData {
   deadline: string;
 }
 
-const JOB_TYPES: { value: JobType; label: string }[] = [
+const JOB_TYPES: { value: JobType | ""; label: string }[] = [
+  { value: "", label: "선택 안 함" },
   { value: "full-time", label: "정규직" },
   { value: "contract", label: "계약직" },
   { value: "freelance", label: "프리랜서" },
@@ -97,7 +99,7 @@ export default function EditPositionPage() {
     requiredEducationLevel: "",
     preferredMajors: [],
     locationCity: "",
-    jobType: "full-time",
+    jobType: "",
     salaryMin: null,
     salaryMax: null,
     priority: "normal",
@@ -133,7 +135,7 @@ export default function EditPositionPage() {
           requiredEducationLevel: position.requiredEducationLevel || "",
           preferredMajors: position.preferredMajors || [],
           locationCity: position.locationCity || "",
-          jobType: position.jobType || "full-time",
+          jobType: position.jobType || "",
           salaryMin: position.salaryMin,
           salaryMax: position.salaryMax,
           priority: position.priority || "normal",
@@ -158,11 +160,6 @@ export default function EditPositionPage() {
       toast.error("오류", "포지션명을 입력해주세요.");
       return;
     }
-    if (formData.requiredSkills.length === 0) {
-      toast.error("오류", "최소 하나의 필수 스킬을 입력해주세요.");
-      return;
-    }
-
     // Salary validation
     if (formData.salaryMin !== null && formData.salaryMax !== null && formData.salaryMax < formData.salaryMin) {
       setSalaryError("연봉 상한 금액이 연봉 하한 금액보다 낮게 입력되었어요. 다시 확인해주세요.");
@@ -240,11 +237,7 @@ export default function EditPositionPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-10 h-10 animate-spin text-primary" />
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   return (
@@ -358,16 +351,16 @@ export default function EditPositionPage() {
           </div>
         </section>
 
-        {/* 스킬 요건 */}
+        {/* 자격 요건 */}
         <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-6">
           <div className="flex items-center gap-2 text-gray-900 font-medium">
             <Users className="w-5 h-5 text-gray-400" />
-            스킬 요건
+            자격 요건
           </div>
 
           <div>
             <label className="block text-sm text-gray-500 mb-2">
-              필수 스킬 <span className="text-red-500">*</span>
+              필수 자격
             </label>
             <div className="flex gap-2">
               <input
@@ -380,7 +373,7 @@ export default function EditPositionPage() {
                     addSkill("required");
                   }
                 }}
-                placeholder="스킬 입력 후 Enter (쉼표로 여러 개 입력)"
+                placeholder="자격 요건 입력 후 Enter (쉼표로 여러 개 입력)"
                 className="flex-1 px-4 py-3 rounded-xl bg-white border border-gray-200
                          text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
               />
@@ -414,7 +407,7 @@ export default function EditPositionPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-500 mb-2">우대 스킬</label>
+            <label className="block text-sm text-gray-500 mb-2">우대사항</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -426,7 +419,7 @@ export default function EditPositionPage() {
                     addSkill("preferred");
                   }
                 }}
-                placeholder="스킬 입력 후 Enter"
+                placeholder="우대사항 입력 후 Enter"
                 className="flex-1 px-4 py-3 rounded-xl bg-white border border-gray-200
                          text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
               />

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, CheckCircle, AlertTriangle, ArrowRight, X, FileText, Loader2, RotateCcw } from "lucide-react";
+import { Upload, CheckCircle, AlertTriangle, ArrowRight, X, FileText, Loader2, RotateCcw, Bot, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import GravityDropZone from "@/components/upload/GravityDropZone";
 import ProcessingVisualization, { ProcessingPhase } from "@/components/upload/ProcessingVisualization";
@@ -597,17 +597,17 @@ export default function UploadPage() {
         <InfoCard
           title="지원 형식"
           description="HWP, HWPX, DOC, DOCX, PDF"
-          icon="📄"
+          icon={<FileText className="w-6 h-6 text-primary" />}
         />
         <InfoCard
           title="AI 분석"
           description="2-Way Cross-Check (GPT-4o + Gemini)"
-          icon="🤖"
+          icon={<Bot className="w-6 h-6 text-purple-500" />}
         />
         <InfoCard
           title="개인정보 보호"
           description="AES-256 암호화 + PII 마스킹"
-          icon="🔒"
+          icon={<ShieldCheck className="w-6 h-6 text-emerald-500" />}
         />
       </div>
     </div>
@@ -621,11 +621,11 @@ function InfoCard({
 }: {
   title: string;
   description: string;
-  icon: string;
+  icon: ReactNode;
 }) {
   return (
     <div className="p-4 rounded-xl bg-white border border-gray-100 shadow-sm">
-      <div className="text-2xl mb-2">{icon}</div>
+      <div className="mb-2">{icon}</div>
       <h4 className="font-medium text-gray-900">{title}</h4>
       <p className="text-sm text-gray-500">{description}</p>
     </div>

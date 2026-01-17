@@ -60,7 +60,7 @@
       "Bash(done)",
       "Bash(Select-String \"013\")",
       "Bash(git stash:*)",
-      "WebFetch(domain:rai-lyart.vercel.app)",
+      "WebFetch(domain:srchd.vercel.app)",
       "Bash(vercel:*)",
       "Bash(npm uninstall:*)",
       "Bash(npx ts-node:*)",

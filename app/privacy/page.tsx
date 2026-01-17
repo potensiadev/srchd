@@ -72,7 +72,7 @@ export default function PrivacyPage() {
       >
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <span className="text-xl font-bold tracking-tight text-gray-900">Srchd</span>
+            <span className="text-xl font-bold tracking-tight text-gray-900">서치드</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -396,7 +396,7 @@ export default function PrivacyPage() {
               <Sparkles className="w-4 h-4 text-gray-400" />
             </div>
             <span className="text-sm text-gray-500">
-              © 2025 Srchd. All rights reserved.
+              © 2025 서치드. All rights reserved.
             </span>
           </div>
           <div className="flex items-center gap-8 text-sm text-gray-500">

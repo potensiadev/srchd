@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -17,9 +17,13 @@ import {
   Calendar,
   Building2,
   Target,
+  ChevronDown,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EmptyState } from "@/components/ui/empty-state";
+import { EmptyState, CardSkeleton } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PositionStatus, PositionPriority } from "@/types/position";
 
 interface Position {
@@ -38,17 +42,17 @@ interface Position {
 }
 
 const STATUS_CONFIG: Record<PositionStatus, { label: string; icon: typeof CheckCircle2; color: string }> = {
-  open: { label: "진행중", icon: CheckCircle2, color: "text-emerald-400 bg-emerald-500/20 border-emerald-500/30" },
-  paused: { label: "일시중지", icon: PauseCircle, color: "text-yellow-400 bg-yellow-500/20 border-yellow-500/30" },
-  closed: { label: "마감", icon: AlertCircle, color: "text-slate-400 bg-slate-500/20 border-slate-500/30" },
-  filled: { label: "채용완료", icon: CheckCircle2, color: "text-blue-400 bg-blue-500/20 border-blue-500/30" },
+  open: { label: "진행중", icon: CheckCircle2, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+  paused: { label: "일시중지", icon: PauseCircle, color: "text-amber-600 bg-amber-50 border-amber-200" },
+  closed: { label: "마감", icon: AlertCircle, color: "text-gray-500 bg-gray-100 border-gray-200" },
+  filled: { label: "채용완료", icon: CheckCircle2, color: "text-blue-600 bg-blue-50 border-blue-200" },
 };
 
 const PRIORITY_CONFIG: Record<PositionPriority, { label: string; color: string }> = {
-  urgent: { label: "긴급", color: "text-red-400 bg-red-500/20" },
-  high: { label: "높음", color: "text-orange-400 bg-orange-500/20" },
-  normal: { label: "보통", color: "text-slate-400 bg-slate-500/20" },
-  low: { label: "낮음", color: "text-slate-500 bg-slate-600/20" },
+  urgent: { label: "긴급", color: "text-red-600 bg-red-50" },
+  high: { label: "높음", color: "text-orange-600 bg-orange-50" },
+  normal: { label: "보통", color: "text-gray-500 bg-gray-100" },
+  low: { label: "낮음", color: "text-gray-400 bg-gray-50" },
 };
 
 export default function PositionsPage() {
@@ -58,8 +62,17 @@ export default function PositionsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PositionStatus | "all">("all");
   const [sortBy, setSortBy] = useState<"recent" | "deadline" | "priority">("recent");
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    positionId: string;
+    positionTitle: string;
+    newStatus: PositionStatus;
+  } | null>(null);
 
   const supabase = createClient();
+  const toast = useToast();
 
   // positions 조회 함수
   const fetchPositions = async (userId: string) => {
@@ -153,7 +166,61 @@ export default function PositionsPage() {
       const daysLeft = Math.ceil((new Date(p.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
       return daysLeft >= 0 && daysLeft <= 7;
     }).length,
+    closed: positions.filter((p) => p.status === "closed").length,
   };
+
+  // 상태 변경 확인 다이얼로그 열기
+  const openStatusConfirm = (position: Position, newStatus: PositionStatus) => {
+    setOpenDropdownId(null);
+    setConfirmDialog({
+      open: true,
+      positionId: position.id,
+      positionTitle: position.title,
+      newStatus,
+    });
+  };
+
+  // 상태 변경 함수
+  const handleStatusChange = async () => {
+    if (!confirmDialog) return;
+
+    const { positionId, newStatus } = confirmDialog;
+    setConfirmDialog(null);
+    setUpdatingStatusId(positionId);
+
+    try {
+      const response = await fetch(`/api/positions/${positionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error("상태 변경에 실패했습니다.");
+      }
+
+      // 로컬 상태 업데이트
+      setPositions((prev) =>
+        prev.map((p) => (p.id === positionId ? { ...p, status: newStatus } : p))
+      );
+
+      toast.success("상태 변경", `포지션 상태가 "${STATUS_CONFIG[newStatus].label}"으로 변경되었습니다.`);
+    } catch (error) {
+      console.error("Status update error:", error);
+      toast.error("오류", "상태 변경에 실패했습니다.");
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
+
+  // 드롭다운 외부 클릭 감지
+  useEffect(() => {
+    const handleClickOutside = () => setOpenDropdownId(null);
+    if (openDropdownId) {
+      document.addEventListener("click", handleClickOutside);
+      return () => document.removeEventListener("click", handleClickOutside);
+    }
+  }, [openDropdownId]);
 
   return (
     <div className="space-y-6">
@@ -176,7 +243,7 @@ export default function PositionsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="p-4 rounded-xl bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -221,19 +288,30 @@ export default function PositionsPage() {
             </div>
           </div>
         </div>
+        <div className="p-4 rounded-xl bg-white border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-gray-500/10">
+              <XCircle className="w-5 h-5 text-gray-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{stats.closed}</p>
+              <p className="text-sm text-gray-500">마감</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
             placeholder="포지션명, 회사명, 스킬로 검색..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10
-                     text-white placeholder:text-slate-500 focus:outline-none focus:border-primary/50"
+            className="w-full pl-10 pr-4 py-3 rounded-xl bg-white border border-gray-200
+                     text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
           />
         </div>
 
@@ -241,7 +319,7 @@ export default function PositionsPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white
+            className="px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-700
                      focus:outline-none focus:border-primary/50 cursor-pointer"
           >
             <option value="all">전체 상태</option>
@@ -252,11 +330,11 @@ export default function PositionsPage() {
           </select>
 
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-slate-500" />
+            <Filter className="w-5 h-5 text-gray-400" />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white
+              className="px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-700
                        focus:outline-none focus:border-primary/50 cursor-pointer"
             >
               <option value="recent">최근 등록순</option>
@@ -269,8 +347,8 @@ export default function PositionsPage() {
 
       {/* Position Cards */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <CardSkeleton count={6} />
         </div>
       ) : filteredPositions.length === 0 ? (
         <EmptyState
@@ -314,99 +392,181 @@ export default function PositionsPage() {
               }
             }
 
+            const isDropdownOpen = openDropdownId === position.id;
+            const isUpdating = updatingStatusId === position.id;
+
             return (
-              <Link
+              <div
                 key={position.id}
-                href={`/positions/${position.id}`}
-                className="group p-5 rounded-2xl bg-gradient-to-br from-slate-800/80 to-slate-900/80
-                         border border-white/10 hover:border-primary/30
-                         transition-all duration-300 hover:shadow-lg hover:shadow-primary/10
-                         hover:-translate-y-1"
+                className="group relative p-5 rounded-xl bg-white
+                         border border-gray-200 hover:border-primary/40
+                         transition-all duration-200 hover:shadow-md
+                         hover:-translate-y-0.5"
               >
-                {/* Card Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-white group-hover:text-primary transition-colors truncate">
-                      {position.title}
-                    </h3>
-                    {position.client_company && (
-                      <p className="text-sm text-slate-400 flex items-center gap-1.5 mt-1">
-                        <Building2 className="w-3.5 h-3.5" />
-                        {position.client_company}
-                        {position.department && ` / ${position.department}`}
-                      </p>
-                    )}
-                  </div>
-                  {/* Priority Badge */}
-                  {position.priority !== "normal" && (
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-full text-xs font-medium",
-                      priorityConfig.color
-                    )}>
-                      {priorityConfig.label}
-                    </span>
-                  )}
-                </div>
-
-                {/* Experience */}
-                <div className="flex items-center gap-2 text-sm text-slate-400 mb-3">
-                  <span>
-                    경력 {position.min_exp_years}년
-                    {position.max_exp_years && ` ~ ${position.max_exp_years}년`}
-                  </span>
-                </div>
-
-                {/* Skills */}
-                {position.required_skills && position.required_skills.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap mb-4">
-                    {position.required_skills.slice(0, 4).map((skill, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded-md bg-slate-700/50 text-xs text-slate-300"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                    {position.required_skills.length > 4 && (
-                      <span className="text-xs text-slate-500">
-                        +{position.required_skills.length - 4}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Footer */}
-                <div className="pt-3 border-t border-white/5 flex items-center justify-between">
-                  {/* Status & Deadline */}
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border",
-                      statusConfig.color
-                    )}>
-                      <StatusIcon className="w-3 h-3" />
+                {/* Status Dropdown - Top Right */}
+                <div className="absolute top-4 right-4 z-10">
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setOpenDropdownId(isDropdownOpen ? null : position.id);
+                      }}
+                      disabled={isUpdating}
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all",
+                        statusConfig.color,
+                        "hover:opacity-80",
+                        isUpdating && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {isUpdating ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <StatusIcon className="w-3 h-3" />
+                      )}
                       {statusConfig.label}
-                    </span>
-                    {deadlineText && (
+                      <ChevronDown className={cn("w-3 h-3 transition-transform", isDropdownOpen && "rotate-180")} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isDropdownOpen && (
+                      <div
+                        className="absolute right-0 top-full mt-1 w-32 py-1 bg-white rounded-lg border border-gray-200 shadow-lg z-20"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {(Object.keys(STATUS_CONFIG) as PositionStatus[]).map((status) => {
+                          const config = STATUS_CONFIG[status];
+                          const Icon = config.icon;
+                          const isActive = position.status === status;
+                          return (
+                            <button
+                              key={status}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!isActive) {
+                                  openStatusConfirm(position, status);
+                                }
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
+                                isActive
+                                  ? "bg-gray-50 text-gray-900"
+                                  : "text-gray-600 hover:bg-gray-50"
+                              )}
+                            >
+                              <Icon className="w-3.5 h-3.5" />
+                              {config.label}
+                              {isActive && <CheckCircle2 className="w-3 h-3 ml-auto text-primary" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Clickable Area for Navigation */}
+                <Link
+                  href={`/positions/${position.id}`}
+                  className="block"
+                >
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between mb-3 pr-24">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 group-hover:text-primary transition-colors truncate">
+                        {position.title}
+                      </h3>
+                      {position.client_company && (
+                        <p className="text-sm text-gray-500 flex items-center gap-1.5 mt-1">
+                          <Building2 className="w-3.5 h-3.5" />
+                          {position.client_company}
+                          {position.department && ` / ${position.department}`}
+                        </p>
+                      )}
+                    </div>
+                    {/* Priority Badge */}
+                    {position.priority !== "normal" && (
                       <span className={cn(
-                        "flex items-center gap-1 text-xs",
-                        deadlineUrgent ? "text-orange-400" : "text-slate-500"
+                        "px-2 py-0.5 rounded-full text-xs font-medium shrink-0",
+                        priorityConfig.color
                       )}>
-                        <Calendar className="w-3 h-3" />
-                        {deadlineText}
+                        {priorityConfig.label}
                       </span>
                     )}
                   </div>
 
-                  {/* Match Count */}
-                  <div className="flex items-center gap-1 text-xs text-slate-400">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>{position.match_count || 0}명 매칭</span>
+                  {/* Experience */}
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
+                    <span>
+                      {!position.min_exp_years && !position.max_exp_years
+                        ? "경력무관"
+                        : position.max_exp_years
+                          ? `경력 ${position.min_exp_years}년 ~ ${position.max_exp_years}년`
+                          : `경력 ${position.min_exp_years}년 이상`}
+                    </span>
                   </div>
-                </div>
-              </Link>
+
+                  {/* Skills */}
+                  {position.required_skills && position.required_skills.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-4">
+                      {position.required_skills.slice(0, 4).map((skill, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-0.5 rounded-md bg-gray-100 text-xs text-gray-600"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                      {position.required_skills.length > 4 && (
+                        <span className="text-xs text-gray-400">
+                          +{position.required_skills.length - 4}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+                    {/* Deadline */}
+                    <div className="flex items-center gap-3">
+                      {deadlineText && (
+                        <span className={cn(
+                          "flex items-center gap-1 text-xs",
+                          deadlineUrgent ? "text-orange-500" : deadlineText === "마감됨" ? "text-red-500" : "text-gray-400"
+                        )}>
+                          <Calendar className="w-3 h-3" />
+                          {deadlineText}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Match Count */}
+                    <div className="flex items-center gap-1 text-xs text-gray-400">
+                      <Users className="w-3.5 h-3.5" />
+                      <span>{position.match_count || 0}명 매칭</span>
+                    </div>
+                  </div>
+                </Link>
+              </div>
             );
           })}
         </div>
+      )}
+
+      {/* Status Change Confirmation Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          open={confirmDialog.open}
+          onOpenChange={(open) => !open && setConfirmDialog(null)}
+          title="상태 변경"
+          description={`"${confirmDialog.positionTitle}" 포지션의 상태를 "${STATUS_CONFIG[confirmDialog.newStatus].label}"으로 변경하시겠습니까?`}
+          confirmLabel="변경"
+          cancelLabel="취소"
+          variant="warning"
+          onConfirm={handleStatusChange}
+        />
       )}
     </div>
   );

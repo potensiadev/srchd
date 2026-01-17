@@ -59,7 +59,7 @@ export default function PrivacyShield({ content, blurCheck = true }: PrivacyShie
                 <div className="absolute inset-0 flex items-center justify-center">
                     <motion.div
                         animate={{ opacity: isHovered ? 0.3 : 1, scale: isHovered ? 0.8 : 1 }}
-                        className="flex flex-col items-center gap-2 text-slate-400"
+                        className="flex flex-col items-center gap-2 text-gray-400"
                     >
                         <Lock size={24} />
                         <span className="text-xs uppercase tracking-widest font-bold">Protected PII</span>

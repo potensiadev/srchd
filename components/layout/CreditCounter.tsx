@@ -25,10 +25,10 @@ export default function CreditCounter({ className }: { className?: string }) {
     if (isLoading) {
         return (
             <div className={cn("flex flex-col gap-1", className)}>
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+                <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">
                     Credits
                 </span>
-                <div className="flex items-center gap-2 font-mono text-xl text-slate-500">
+                <div className="flex items-center gap-2 font-mono text-xl text-gray-500">
                     <Loader2 className="w-4 h-4 animate-spin" />
                 </div>
             </div>
@@ -39,7 +39,7 @@ export default function CreditCounter({ className }: { className?: string }) {
     if (error) {
         return (
             <div className={cn("flex flex-col gap-1", className)}>
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+                <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">
                     Credits
                 </span>
                 <div className="flex items-center gap-2 text-rose-400 text-sm">
@@ -56,7 +56,7 @@ export default function CreditCounter({ className }: { className?: string }) {
 
     return (
         <div className={cn("flex flex-col gap-1", className)}>
-            <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+            <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">
                 Credits
             </span>
             <div
@@ -70,7 +70,7 @@ export default function CreditCounter({ className }: { className?: string }) {
                 )}
             >
                 <SimpleRollingNumber value={remainingCredits} />
-                <span className="text-xs text-slate-500 font-normal">AVAL</span>
+                <span className="text-xs text-gray-500 font-normal">AVAL</span>
             </div>
 
             {/* Low credit warning */}

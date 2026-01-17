@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,14 +17,20 @@ import {
   Briefcase,
   Target,
   ChevronDown,
+  ChevronUp,
   ExternalLink,
   MessageSquare,
   X,
   Check,
   AlertCircle,
+  FileText,
+  DollarSign,
+  Clock,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { DetailPageSkeleton } from "@/components/ui/empty-state";
 import type { Position, PositionCandidate, MatchStage, PositionStatus } from "@/types/position";
 
 const STAGE_CONFIG: Record<MatchStage, { label: string; color: string; bgColor: string; borderColor: string }> = {
@@ -49,6 +55,28 @@ const STATUS_CONFIG: Record<PositionStatus, { label: string; color: string; bgCo
   filled: { label: "채용완료", color: "text-blue-600", bgColor: "bg-blue-50", borderColor: "border-blue-200" },
 };
 
+const PRIORITY_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
+  urgent: { label: "긴급", color: "text-red-600", bgColor: "bg-red-50", borderColor: "border-red-200" },
+  high: { label: "높음", color: "text-orange-600", bgColor: "bg-orange-50", borderColor: "border-orange-200" },
+  normal: { label: "보통", color: "text-gray-600", bgColor: "bg-gray-50", borderColor: "border-gray-200" },
+  low: { label: "낮음", color: "text-gray-500", bgColor: "bg-gray-50", borderColor: "border-gray-200" },
+};
+
+const JOB_TYPE_LABELS: Record<string, string> = {
+  "full-time": "정규직",
+  "contract": "계약직",
+  "freelance": "프리랜서",
+  "internship": "인턴",
+};
+
+const EDUCATION_LABELS: Record<string, string> = {
+  "high_school": "고졸",
+  "associate": "전문학사",
+  "bachelor": "학사",
+  "master": "석사",
+  "doctorate": "박사",
+};
+
 interface ScoreDistribution {
   excellent: number;
   good: number;
@@ -64,12 +92,14 @@ export default function PositionDetailPage() {
 
   const [position, setPosition] = useState<Position | null>(null);
   const [matches, setMatches] = useState<PositionCandidate[]>([]);
+  const [isJdExpanded, setIsJdExpanded] = useState(true);
   const [scoreDistribution, setScoreDistribution] = useState<ScoreDistribution>({
     excellent: 0, good: 0, fair: 0, low: 0
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isDeletingRef = useRef(false);
   const [selectedStage, setSelectedStage] = useState<MatchStage | "all">("all");
   const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState("");
@@ -81,7 +111,10 @@ export default function PositionDetailPage() {
       const response = await fetch(`/api/positions/${positionId}`);
       if (!response.ok) {
         if (response.status === 404) {
-          toast.error("오류", "포지션을 찾을 수 없습니다.");
+          // 삭제 후 리다이렉션 중에는 에러 토스트 표시하지 않음
+          if (!isDeletingRef.current) {
+            toast.error("오류", "포지션을 찾을 수 없습니다.");
+          }
           router.push("/positions");
           return;
         }
@@ -195,6 +228,7 @@ export default function PositionDetailPage() {
     }
 
     setIsDeleting(true);
+    isDeletingRef.current = true;
     try {
       const response = await fetch(`/api/positions/${positionId}`, {
         method: "DELETE",
@@ -206,7 +240,7 @@ export default function PositionDetailPage() {
     } catch (error) {
       console.error("Delete position error:", error);
       toast.error("오류", "포지션 삭제에 실패했습니다.");
-    } finally {
+      isDeletingRef.current = false;
       setIsDeleting(false);
     }
   };
@@ -223,11 +257,7 @@ export default function PositionDetailPage() {
   }, {} as Record<MatchStage, number>);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-10 h-10 animate-spin text-primary" />
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (!position) {
@@ -243,6 +273,7 @@ export default function PositionDetailPage() {
   }
 
   const statusConfig = STATUS_CONFIG[position.status];
+  const priorityConfig = PRIORITY_CONFIG[position.priority] || PRIORITY_CONFIG.normal;
 
   return (
     <div className="space-y-6">
@@ -266,6 +297,16 @@ export default function PositionDetailPage() {
               )}>
                 {statusConfig.label}
               </span>
+              {position.priority && position.priority !== "normal" && (
+                <span className={cn(
+                  "px-2.5 py-0.5 rounded-full text-xs font-medium border",
+                  priorityConfig.bgColor,
+                  priorityConfig.color,
+                  priorityConfig.borderColor
+                )}>
+                  {priorityConfig.label}
+                </span>
+              )}
             </div>
             {position.clientCompany && (
               <p className="text-gray-500 flex items-center gap-1.5">
@@ -318,8 +359,11 @@ export default function PositionDetailPage() {
             경력
           </div>
           <p className="text-gray-900 font-medium">
-            {position.minExpYears}년
-            {position.maxExpYears && ` ~ ${position.maxExpYears}년`}
+            {!position.minExpYears && !position.maxExpYears
+              ? "경력무관"
+              : position.maxExpYears
+                ? `${position.minExpYears}년 ~ ${position.maxExpYears}년`
+                : `${position.minExpYears}년 이상`}
           </p>
         </div>
         {position.requiredEducationLevel && (
@@ -328,7 +372,9 @@ export default function PositionDetailPage() {
               <GraduationCap className="w-4 h-4" />
               학력
             </div>
-            <p className="text-gray-900 font-medium">{position.requiredEducationLevel}</p>
+            <p className="text-gray-900 font-medium">
+              {EDUCATION_LABELS[position.requiredEducationLevel] || position.requiredEducationLevel}
+            </p>
           </div>
         )}
         {position.locationCity && (
@@ -351,29 +397,91 @@ export default function PositionDetailPage() {
             </p>
           </div>
         )}
+        {position.jobType && (
+          <div className="p-4 rounded-xl bg-white border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+              <Clock className="w-4 h-4" />
+              근무 형태
+            </div>
+            <p className="text-gray-900 font-medium">
+              {JOB_TYPE_LABELS[position.jobType] || position.jobType}
+            </p>
+          </div>
+        )}
+        {(position.salaryMin || position.salaryMax) && (
+          <div className="p-4 rounded-xl bg-white border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+              <DollarSign className="w-4 h-4" />
+              연봉
+            </div>
+            <p className="text-gray-900 font-medium">
+              {position.salaryMin && position.salaryMax
+                ? `${position.salaryMin.toLocaleString()}만원 ~ ${position.salaryMax.toLocaleString()}만원`
+                : position.salaryMin
+                  ? `${position.salaryMin.toLocaleString()}만원 이상`
+                  : `${position.salaryMax?.toLocaleString()}만원 이하`}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Skills */}
-      {position.requiredSkills && position.requiredSkills.length > 0 && (
+      {/* Job Description - Collapsible */}
+      {position.description && (
+        <div className="rounded-xl bg-white border border-gray-200 shadow-sm overflow-hidden">
+          <button
+            onClick={() => setIsJdExpanded(!isJdExpanded)}
+            className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-gray-700 font-medium">
+              <FileText className="w-4 h-4 text-gray-400" />
+              상세 설명 (JD)
+            </div>
+            {isJdExpanded ? (
+              <ChevronUp className="w-5 h-5 text-gray-400" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-gray-400" />
+            )}
+          </button>
+          {isJdExpanded && (
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line pt-4">
+                {position.description}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Skills & Qualifications */}
+      {((position.requiredSkills && position.requiredSkills.length > 0) ||
+        (position.preferredSkills && position.preferredSkills.length > 0) ||
+        (position.preferredMajors && position.preferredMajors.length > 0)) && (
         <div className="p-6 rounded-xl bg-white border border-gray-200 shadow-sm">
-          <div className="flex items-center gap-2 text-gray-500 text-sm mb-3 font-medium">
-            <Target className="w-4 h-4" />
-            필수 스킬
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {position.requiredSkills.map((skill, idx) => (
-              <span
-                key={idx}
-                className="px-3 py-1 rounded-lg bg-primary/10 text-primary text-sm font-medium"
-              >
-                {skill}
-              </span>
-            ))}
-          </div>
+          {position.requiredSkills && position.requiredSkills.length > 0 && (
+            <>
+              <div className="flex items-center gap-2 text-gray-500 text-sm mb-3 font-medium">
+                <Target className="w-4 h-4" />
+                필수 자격
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {position.requiredSkills.map((skill, idx) => (
+                  <span
+                    key={idx}
+                    className="px-3 py-1 rounded-lg bg-primary/10 text-primary text-sm font-medium"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
           {position.preferredSkills && position.preferredSkills.length > 0 && (
             <>
-              <div className="flex items-center gap-2 text-gray-500 text-sm mt-6 mb-3 font-medium">
-                우대 스킬
+              <div className={cn(
+                "flex items-center gap-2 text-gray-500 text-sm mb-3 font-medium",
+                position.requiredSkills && position.requiredSkills.length > 0 && "mt-6"
+              )}>
+                우대사항
               </div>
               <div className="flex flex-wrap gap-2">
                 {position.preferredSkills.map((skill, idx) => (
@@ -382,6 +490,28 @@ export default function PositionDetailPage() {
                     className="px-3 py-1 rounded-lg bg-gray-100 text-gray-600 text-sm"
                   >
                     {skill}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          {position.preferredMajors && position.preferredMajors.length > 0 && (
+            <>
+              <div className={cn(
+                "flex items-center gap-2 text-gray-500 text-sm mb-3 font-medium",
+                ((position.requiredSkills && position.requiredSkills.length > 0) ||
+                 (position.preferredSkills && position.preferredSkills.length > 0)) && "mt-6"
+              )}>
+                <BookOpen className="w-4 h-4" />
+                우대 전공
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {position.preferredMajors.map((major, idx) => (
+                  <span
+                    key={idx}
+                    className="px-3 py-1 rounded-lg bg-blue-50 text-blue-600 text-sm border border-blue-100"
+                  >
+                    {major}
                   </span>
                 ))}
               </div>

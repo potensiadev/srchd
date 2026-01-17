@@ -1,33 +1,59 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Upload, Users, BarChart3, ShieldAlert, Settings, Hexagon, Briefcase, LogOut } from "lucide-react";
+import { Upload, Users, BarChart3, Settings, Briefcase, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import CreditCounter from "./CreditCounter";
+import { useCredits } from "@/hooks";
+import { createClient } from "@/lib/supabase/client";
+import { PLAN_CONFIG, type PlanId } from "@/lib/paddle/config";
 
 const NAV_ITEMS = [
     { icon: Users, label: "Candidates", href: "/candidates" },
     { icon: Briefcase, label: "Positions", href: "/positions" },
     { icon: Upload, label: "Upload", href: "/upload" },
     { icon: BarChart3, label: "Analytics", href: "/analytics" },
-    { icon: ShieldAlert, label: "Risk Management", href: "/risk", alert: true },
     { icon: Settings, label: "Settings", href: "/settings" },
 ];
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+    const [userEmail, setUserEmail] = useState<string>("");
+    const { data: creditsData } = useCredits();
+    const supabase = createClient();
+
+    useEffect(() => {
+        const fetchUserEmail = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.email) {
+                setUserEmail(user.email);
+            }
+        };
+        fetchUserEmail();
+    }, [supabase.auth]);
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        router.push("/?logged_out=true");
+    };
 
     const isActive = (href: string) => {
         return pathname.startsWith(href);
     };
 
+    // Get plan display name
+    const planId = (creditsData?.plan || "starter") as PlanId;
+    const planName = PLAN_CONFIG[planId]?.name || "Starter";
+
     return (
         <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-white border-r border-gray-100 flex flex-col justify-between p-6">
             {/* Brand */}
             <Link href="/candidates" className="flex items-center mb-10">
-                <h1 className="font-bold text-xl tracking-tight text-gray-900">Srchd</h1>
+                <h1 className="font-bold text-xl tracking-tight text-gray-900">서치드</h1>
             </Link>
 
             {/* Navigation */}
@@ -58,11 +84,6 @@ export default function Sidebar() {
                                     className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-primary rounded-r-full"
                                 />
                             )}
-
-                            {/* Risk Alert Badge */}
-                            {item.alert && (
-                                <span className="ml-auto w-2 h-2 rounded-full bg-rose-500 shadow-sm" />
-                            )}
                         </Link>
                     );
                 })}
@@ -81,12 +102,18 @@ export default function Sidebar() {
                         <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
                             <Users size={14} />
                         </div>
-                        <div className="text-xs">
-                            <p className="font-medium text-gray-900">User Account</p>
-                            <p className="text-gray-400">Pro Plan</p>
+                        <div className="text-xs max-w-[140px]">
+                            <p className="font-medium text-gray-900 truncate" title={userEmail}>
+                                {userEmail || "Loading..."}
+                            </p>
+                            <p className="text-gray-400">{planName} Plan</p>
                         </div>
                     </div>
-                    <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <button
+                        onClick={handleLogout}
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                        title="로그아웃"
+                    >
                         <LogOut size={16} />
                     </button>
                 </div>

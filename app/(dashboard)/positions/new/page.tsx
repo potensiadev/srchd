@@ -19,6 +19,9 @@ import {
   Upload,
   Sparkles,
   CheckCircle,
+  ClipboardList,
+  ListChecks,
+  Gift,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
@@ -29,6 +32,10 @@ interface FormData {
   clientCompany: string;
   department: string;
   description: string;
+  responsibilities: string;
+  qualifications: string;
+  preferredQualifications: string;
+  benefits: string;
   requiredSkills: string[];
   preferredSkills: string[];
   minExpYears: number;
@@ -36,14 +43,15 @@ interface FormData {
   requiredEducationLevel: string;
   preferredMajors: string[];
   locationCity: string;
-  jobType: JobType;
+  jobType: JobType | "";
   salaryMin: number | null;
   salaryMax: number | null;
   priority: PositionPriority;
   deadline: string;
 }
 
-const JOB_TYPES: { value: JobType; label: string }[] = [
+const JOB_TYPES: { value: JobType | ""; label: string }[] = [
+  { value: "", label: "선택 안 함" },
   { value: "full-time", label: "정규직" },
   { value: "contract", label: "계약직" },
   { value: "freelance", label: "프리랜서" },
@@ -76,6 +84,8 @@ export default function NewPositionPage() {
   const [skillInput, setSkillInput] = useState("");
   const [preferredSkillInput, setPreferredSkillInput] = useState("");
   const [majorInput, setMajorInput] = useState("");
+  const [requiredSkillsText, setRequiredSkillsText] = useState("");
+  const [preferredSkillsText, setPreferredSkillsText] = useState("");
   const [salaryError, setSalaryError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
@@ -83,6 +93,10 @@ export default function NewPositionPage() {
     clientCompany: "",
     department: "",
     description: "",
+    responsibilities: "",
+    qualifications: "",
+    preferredQualifications: "",
+    benefits: "",
     requiredSkills: [],
     preferredSkills: [],
     minExpYears: 0,
@@ -90,7 +104,7 @@ export default function NewPositionPage() {
     requiredEducationLevel: "",
     preferredMajors: [],
     locationCity: "",
-    jobType: "full-time",
+    jobType: "",
     salaryMin: null,
     salaryMax: null,
     priority: "normal",
@@ -141,6 +155,10 @@ export default function NewPositionPage() {
         clientCompany: extracted.clientCompany || prev.clientCompany,
         department: extracted.department || prev.department,
         description: extracted.description || prev.description,
+        responsibilities: extracted.responsibilities || prev.responsibilities,
+        qualifications: extracted.qualifications || prev.qualifications,
+        preferredQualifications: extracted.preferredQualifications || prev.preferredQualifications,
+        benefits: extracted.benefits || prev.benefits,
         requiredSkills: extracted.requiredSkills?.length > 0 ? extracted.requiredSkills : prev.requiredSkills,
         preferredSkills: extracted.preferredSkills?.length > 0 ? extracted.preferredSkills : prev.preferredSkills,
         minExpYears: extracted.minExpYears ?? prev.minExpYears,
@@ -148,10 +166,19 @@ export default function NewPositionPage() {
         requiredEducationLevel: extracted.requiredEducationLevel || prev.requiredEducationLevel,
         preferredMajors: extracted.preferredMajors?.length > 0 ? extracted.preferredMajors : prev.preferredMajors,
         locationCity: extracted.locationCity || prev.locationCity,
-        jobType: (extracted.jobType as JobType) || prev.jobType,
+        jobType: extracted.jobType !== undefined ? (extracted.jobType as JobType | "") : prev.jobType,
         salaryMin: extracted.salaryMin,
         salaryMax: extracted.salaryMax,
+        deadline: extracted.deadline || prev.deadline,
       }));
+
+      // 추출된 스킬 텍스트 필드 채우기
+      if (extracted.requiredSkills?.length > 0) {
+        setRequiredSkillsText(extracted.requiredSkills.join(", "));
+      }
+      if (extracted.preferredSkills?.length > 0) {
+        setPreferredSkillsText(extracted.preferredSkills.join(", "));
+      }
 
       setExtractedFileName(file.name);
       toast.success("추출 완료", "JD에서 정보가 추출되었습니다. 내용을 확인하고 수정해주세요.");
@@ -173,10 +200,6 @@ export default function NewPositionPage() {
     // Validation
     if (!formData.title.trim()) {
       toast.error("오류", "포지션명을 입력해주세요.");
-      return;
-    }
-    if (formData.requiredSkills.length === 0) {
-      toast.error("오류", "최소 하나의 필수 스킬을 입력해주세요.");
       return;
     }
 
@@ -396,16 +419,109 @@ export default function NewPositionPage() {
           </div>
         </section>
 
-        {/* 스킬 요건 */}
+        {/* 주요 업무 */}
+        <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-gray-900 font-medium">
+            <ClipboardList className="w-5 h-5 text-blue-500" />
+            주요 업무
+          </div>
+          <p className="text-sm text-gray-500">
+            JD에서 추출된 주요업무/담당업무 내용입니다. 수정하거나 직접 입력할 수 있습니다.
+          </p>
+          <textarea
+            value={formData.responsibilities}
+            onChange={(e) => setFormData({ ...formData, responsibilities: e.target.value })}
+            placeholder="예:&#10;- 백엔드 시스템 설계 및 개발&#10;- API 개발 및 최적화&#10;- 데이터베이스 설계 및 관리"
+            rows={6}
+            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                     text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+          />
+        </section>
+
+        {/* 자격 요건 */}
+        <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-gray-900 font-medium">
+            <ListChecks className="w-5 h-5 text-emerald-500" />
+            자격 요건
+          </div>
+          <p className="text-sm text-gray-500">
+            JD에서 추출된 필수 자격요건 내용입니다. 학력, 경력, 기술 요건 등 전체 맥락이 보존됩니다.
+          </p>
+          <textarea
+            value={formData.qualifications}
+            onChange={(e) => setFormData({ ...formData, qualifications: e.target.value })}
+            placeholder="예:&#10;- 컴퓨터공학 또는 관련 전공 학사 이상&#10;- 백엔드 개발 경력 3년 이상&#10;- Python, Java 등 1개 이상 언어 능숙"
+            rows={6}
+            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                     text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+          />
+        </section>
+
+        {/* 우대 사항 */}
+        <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-gray-900 font-medium">
+            <Sparkles className="w-5 h-5 text-amber-500" />
+            우대 사항
+          </div>
+          <p className="text-sm text-gray-500">
+            JD에서 추출된 우대사항 내용입니다. 우대 조건의 전체 맥락이 보존됩니다.
+          </p>
+          <textarea
+            value={formData.preferredQualifications}
+            onChange={(e) => setFormData({ ...formData, preferredQualifications: e.target.value })}
+            placeholder="예:&#10;- 대규모 트래픽 처리 경험&#10;- MSA 아키텍처 경험&#10;- 오픈소스 기여 경험"
+            rows={6}
+            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                     text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+          />
+        </section>
+
+        {/* 복리후생 */}
+        <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-gray-900 font-medium">
+            <Gift className="w-5 h-5 text-purple-500" />
+            복리후생
+            <span className="text-xs text-gray-400 font-normal">(선택)</span>
+          </div>
+          <p className="text-sm text-gray-500">
+            JD에 복리후생 정보가 있으면 자동으로 추출됩니다.
+          </p>
+          <textarea
+            value={formData.benefits}
+            onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
+            placeholder="예:&#10;- 유연근무제&#10;- 자기개발비 지원&#10;- 건강검진 지원"
+            rows={4}
+            className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                     text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+          />
+        </section>
+
+        {/* 필수 스킬 */}
         <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-6">
           <div className="flex items-center gap-2 text-gray-900 font-medium">
-            <Users className="w-5 h-5 text-gray-400" />
-            스킬 요건
+            <Users className="w-5 h-5 text-primary" />
+            필수 스킬
           </div>
 
+          {/* 추출된 필수 스킬 텍스트 */}
           <div>
             <label className="block text-sm text-gray-500 mb-2">
-              필수 스킬 <span className="text-red-500">*</span>
+              추출된 필수 스킬 (JD에서 추출)
+            </label>
+            <textarea
+              value={requiredSkillsText}
+              onChange={(e) => setRequiredSkillsText(e.target.value)}
+              placeholder="JD 파일 업로드 시 자동으로 추출된 필수 스킬이 표시됩니다. 직접 입력하거나 수정할 수 있습니다."
+              rows={3}
+              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                       text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+            />
+          </div>
+
+          {/* 필수 스킬 태그 입력 */}
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">
+              필수 스킬 태그
             </label>
             <div className="flex gap-2">
               <input
@@ -450,9 +566,35 @@ export default function NewPositionPage() {
               </div>
             )}
           </div>
+        </section>
 
+        {/* 우대 스킬 */}
+        <section className="p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-6">
+          <div className="flex items-center gap-2 text-gray-900 font-medium">
+            <Sparkles className="w-5 h-5 text-amber-500" />
+            우대 스킬
+          </div>
+
+          {/* 추출된 우대 스킬 텍스트 */}
           <div>
-            <label className="block text-sm text-gray-500 mb-2">우대 스킬</label>
+            <label className="block text-sm text-gray-500 mb-2">
+              추출된 우대 스킬 (JD에서 추출)
+            </label>
+            <textarea
+              value={preferredSkillsText}
+              onChange={(e) => setPreferredSkillsText(e.target.value)}
+              placeholder="JD 파일 업로드 시 자동으로 추출된 우대 스킬이 표시됩니다. 직접 입력하거나 수정할 수 있습니다."
+              rows={3}
+              className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200
+                       text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+            />
+          </div>
+
+          {/* 우대 스킬 태그 입력 */}
+          <div>
+            <label className="block text-sm text-gray-500 mb-2">
+              우대 스킬 태그
+            </label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -464,14 +606,14 @@ export default function NewPositionPage() {
                     addSkill("preferred");
                   }
                 }}
-                placeholder="스킬 입력 후 Enter"
+                placeholder="스킬 입력 후 Enter (쉼표로 여러 개 입력)"
                 className="flex-1 px-4 py-3 rounded-xl bg-white border border-gray-200
                          text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
               />
               <button
                 type="button"
                 onClick={() => addSkill("preferred")}
-                className="px-4 py-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                className="px-4 py-3 rounded-xl bg-amber-100 text-amber-600 hover:bg-amber-200 transition-colors"
               >
                 <Plus className="w-5 h-5" />
               </button>
@@ -481,13 +623,13 @@ export default function NewPositionPage() {
                 {formData.preferredSkills.map((skill) => (
                   <span
                     key={skill}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm font-medium"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200"
                   >
                     {skill}
                     <button
                       type="button"
                       onClick={() => removeSkill("preferred", skill)}
-                      className="hover:text-gray-900 transition-colors"
+                      className="hover:text-amber-900 transition-colors"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>

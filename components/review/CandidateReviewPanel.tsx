@@ -415,8 +415,8 @@ export default function CandidateReviewPanel({
             <span
               key={index}
               onClick={() => onKeywordSelect?.(skill)}
-              className={`px-3 py-1 rounded-full bg-slate-50 text-sm text-slate-700
-                       border border-slate-200 font-medium transition-colors
+              className={`px-3 py-1 rounded-full bg-gray-50 text-sm text-gray-700
+                       border border-gray-200 font-medium transition-colors
                        ${onKeywordSelect ? "cursor-pointer hover:border-primary hover:text-primary hover:bg-primary/5" : ""}`}
             >
               {skill}

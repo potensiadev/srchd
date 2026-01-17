@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Loader2, Shield, Zap, Clock } from "lucide-react";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -34,45 +34,41 @@ function LoginForm() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Logo */}
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-6">Srchd</h1>
-        <p className="text-gray-500 text-base">
-          헤드헌터 전용 후보자 관리 플랫폼
-        </p>
-      </div>
-
+    <div className="space-y-8">
       {/* Login Card */}
-      <div className="p-8 rounded-3xl bg-white shadow-2xl shadow-black/5 border border-gray-100 space-y-6">
+      <div className="p-8 rounded-2xl bg-white shadow-xl shadow-gray-200/50 border border-gray-100 space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Login
+          </h1>
+          <p className="text-gray-500 text-m">
+            오늘도 헤드헌터님을 돕겠습니다
+          </p>
+        </div>
+
         {error && (
           <div
-            className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 text-sm"
+            className="p-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-sm"
             data-testid="login-error"
           >
             {error}
           </div>
         )}
 
-        <div className="text-center space-y-2">
-          <p className="text-gray-600 text-sm">
-            Google 계정으로 안전하게 로그인하세요
-          </p>
-        </div>
-
         <Button
           type="button"
           variant="outline"
-          className="w-full h-12 text-base font-medium"
+          className="w-full h-12 text-sm font-medium border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all"
           size="lg"
           onClick={handleGoogleLogin}
           disabled={isLoading}
           data-testid="google-login-button"
         >
           {isLoading ? (
-            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            <Loader2 className="w-5 h-5 mr-3 animate-spin" />
           ) : (
-            <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -91,27 +87,52 @@ function LoginForm() {
               />
             </svg>
           )}
-          Google로 계속하기
+          Google 계정으로 로그인
         </Button>
 
-        <p className="text-xs text-gray-400 text-center">
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-100"></div>
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="px-4 bg-white text-gray-400">안전한 로그인</span>
+          </div>
+        </div>
+
+        {/* Trust Badges */}
+        {/* <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col items-center text-center p-3 rounded-lg bg-gray-50">
+            <Shield className="w-4 h-4 text-primary mb-1.5" />
+            <span className="text-xs text-gray-600">보안 인증</span>
+          </div>
+          <div className="flex flex-col items-center text-center p-3 rounded-lg bg-gray-50">
+            <Zap className="w-4 h-4 text-primary mb-1.5" />
+            <span className="text-xs text-gray-600">빠른 설정</span>
+          </div>
+          <div className="flex flex-col items-center text-center p-3 rounded-lg bg-gray-50">
+            <Clock className="w-4 h-4 text-primary mb-1.5" />
+            <span className="text-xs text-gray-600">24시간 접근</span>
+          </div>
+        </div> */}
+
+        <p className="text-xs text-gray-400 text-center leading-relaxed">
           로그인 시{" "}
-          <Link href="/terms" className="underline hover:text-gray-600">
+          <Link href="/terms" className="text-gray-500 hover:text-primary underline-offset-2 hover:underline">
             서비스 이용약관
           </Link>
           {" "}및{" "}
-          <Link href="/privacy" className="underline hover:text-gray-600">
+          <Link href="/privacy" className="text-gray-500 hover:text-primary underline-offset-2 hover:underline">
             개인정보처리방침
           </Link>
-          에 동의하게 됩니다.
+          에 동의합니다.
         </p>
       </div>
 
       {/* Footer */}
       <p className="text-center text-sm text-gray-500">
-        아직 계정이 없으신가요?{" "}
-        <Link href="/signup" className="text-primary font-semibold hover:underline">
-          회원가입
+        처음이신가요?{" "}
+        <Link href="/signup" className="text-primary font-medium hover:underline underline-offset-2">
+          무료로 시작하기
         </Link>
       </p>
     </div>

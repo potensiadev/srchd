@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/client";
 import {
   User,
   CreditCard,
-  Bell,
   LogOut,
   Loader2,
   Check,
@@ -22,6 +21,7 @@ import { openCheckout } from "@/lib/paddle/client";
 import { PLAN_CONFIG, type PlanId } from "@/lib/paddle/config";
 import { useToast } from "@/components/ui/toast";
 import { RefundRequestModal, RefundHistory } from "@/components/refund";
+import { SettingsSkeleton } from "@/components/ui/empty-state";
 
 interface UserProfile {
   id: string;
@@ -37,7 +37,7 @@ function SettingsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "subscription" | "notifications">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "subscription">("profile");
   const [showRefundModal, setShowRefundModal] = useState(false);
 
   // Form states
@@ -140,7 +140,7 @@ function SettingsContent() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/?logged_out=true");
   };
 
   // Paddle 결제 시작
@@ -187,20 +187,15 @@ function SettingsContent() {
   const tabs = [
     { id: "profile", label: "프로필", icon: User },
     { id: "subscription", label: "구독", icon: CreditCard },
-    { id: "notifications", label: "알림", icon: Bell },
   ] as const;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+    return <SettingsSkeleton />;
   }
 
   if (!profile) {
     return (
-      <div className="text-center py-20 text-slate-400">
+      <div className="text-center py-20 text-gray-400">
         프로필을 불러올 수 없습니다
       </div>
     );
@@ -465,34 +460,6 @@ function SettingsContent() {
             </div>
           )}
 
-          {/* Notifications Tab */}
-          {activeTab === "notifications" && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">알림 설정</h2>
-
-              <div className="space-y-4">
-                {[
-                  { id: "processing", label: "처리 완료 알림", desc: "이력서 분석이 완료되면 알림을 받습니다" },
-                  { id: "weekly", label: "주간 리포트", desc: "매주 월요일 분석 통계를 이메일로 받습니다" },
-                  { id: "warning", label: "위험 알림", desc: "낮은 신뢰도 후보자가 발생하면 알림을 받습니다" },
-                ].map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-4 rounded-xl bg-white border border-gray-100 shadow-sm"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{item.label}</p>
-                      <p className="text-sm text-gray-500">{item.desc}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" defaultChecked />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

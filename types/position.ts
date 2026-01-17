@@ -38,6 +38,12 @@ export interface Position {
   description?: string;
   summary?: string;
 
+  // JD 상세 섹션 (원문 보존)
+  responsibilities?: string;          // 주요업무/담당업무 원문
+  qualifications?: string;            // 자격요건/필수요건 원문
+  preferredQualifications?: string;   // 우대사항/우대요건 원문
+  benefits?: string;                  // 복리후생/혜택
+
   // 필수 요건
   requiredSkills: string[];
   preferredSkills: string[];
@@ -161,6 +167,10 @@ export interface CreatePositionRequest {
   clientCompany?: string;
   department?: string;
   description?: string;
+  responsibilities?: string;
+  qualifications?: string;
+  preferredQualifications?: string;
+  benefits?: string;
   requiredSkills: string[];
   preferredSkills?: string[];
   minExpYears: number;
@@ -180,6 +190,10 @@ export interface UpdatePositionRequest {
   clientCompany?: string;
   department?: string;
   description?: string;
+  responsibilities?: string;
+  qualifications?: string;
+  preferredQualifications?: string;
+  benefits?: string;
   requiredSkills?: string[];
   preferredSkills?: string[];
   minExpYears?: number;
@@ -289,6 +303,10 @@ export function toPosition(row: Record<string, unknown>): Position {
     department: row.department as string | undefined,
     description: row.description as string | undefined,
     summary: row.summary as string | undefined,
+    responsibilities: row.responsibilities as string | undefined,
+    qualifications: row.qualifications as string | undefined,
+    preferredQualifications: row.preferred_qualifications as string | undefined,
+    benefits: row.benefits as string | undefined,
     requiredSkills: (row.required_skills as string[]) || [],
     preferredSkills: (row.preferred_skills as string[]) || [],
     minExpYears: (row.min_exp_years as number) || 0,

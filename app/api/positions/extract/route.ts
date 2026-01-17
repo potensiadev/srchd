@@ -2,7 +2,7 @@
  * POST /api/positions/extract
  * JD 파일에서 포지션 정보 추출
  * - 텍스트 기반 PDF/DOCX: 텍스트 추출 후 GPT-4로 분석
- * - 이미지 기반 PDF: GPT-4 Vision으로 OCR + 분석
+ * - 이미지 기반 PDF/DOCX: GPT-4 Vision으로 OCR + 분석
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -10,6 +10,13 @@ import { createClient } from "@/lib/supabase/server";
 import { withRateLimit } from "@/lib/rate-limit";
 import OpenAI from "openai";
 import { pdfToPng } from "pdf-to-png-converter";
+import { exec } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+const execPromise = promisify(exec);
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +45,10 @@ interface ExtractedPosition {
   clientCompany: string;
   department: string;
   description: string;
+  responsibilities: string | null;
+  qualifications: string | null;
+  preferredQualifications: string | null;
+  benefits: string | null;
   requiredSkills: string[];
   preferredSkills: string[];
   minExpYears: number;
@@ -48,6 +59,7 @@ interface ExtractedPosition {
   jobType: string;
   salaryMin: number | null;
   salaryMax: number | null;
+  deadline: string | null;
 }
 
 /**
@@ -126,26 +138,38 @@ Return a JSON object with the following structure:
   "title": "직책/포지션명 (예: 시니어 백엔드 개발자)",
   "clientCompany": "채용 회사명 (없으면 빈 문자열)",
   "department": "부서명 (없으면 빈 문자열)",
-  "description": "직무 설명 요약 (2-3문장)",
+  "description": "직무 설명 요약 (최소 3줄, 최대 7줄). 담당 업무, 주요 역할, 프로젝트 내용 등 핵심 정보를 포함하여 상세하게 작성",
+  "responsibilities": "주요업무/담당업무 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "qualifications": "자격요건/필수요건 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "preferredQualifications": "우대사항/우대요건 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "benefits": "복리후생/혜택 섹션 원문 (없으면 null)",
   "requiredSkills": ["필수 스킬 배열", "최대 10개"],
   "preferredSkills": ["우대 스킬 배열", "최대 5개"],
   "minExpYears": 최소 경력 년수 (숫자, 신입이면 0),
   "maxExpYears": 최대 경력 년수 (숫자 또는 null),
-  "requiredEducationLevel": "학력 요건 (bachelor/master/doctorate/high_school 또는 빈 문자열)",
+  "requiredEducationLevel": "학력 요건 (bachelor/master/doctorate/high_school/associate 또는 빈 문자열). 대졸=bachelor, 초대졸/전문학사=associate, 고졸=high_school",
   "preferredMajors": ["우대 전공 배열"],
   "locationCity": "근무지 (예: 서울 강남)",
-  "jobType": "고용 형태 (full-time/contract/freelance/internship)",
+  "jobType": "고용 형태 (full-time/contract/freelance/internship). 명시되지 않으면 빈 문자열",
   "salaryMin": 최소 연봉 만원 단위 (숫자 또는 null),
-  "salaryMax": 최대 연봉 만원 단위 (숫자 또는 null)
+  "salaryMax": 최대 연봉 만원 단위 (숫자 또는 null),
+  "deadline": "지원/채용 마감일 (YYYY-MM-DD 형식, 또는 null)"
 }
 
 Important:
+- description은 JD의 핵심 내용을 담아 최소 3줄 이상 작성. 담당 업무, 역할, 책임, 프로젝트 범위 등을 포함
+- responsibilities: "주요업무", "담당업무", "수행업무", "Role", "Responsibilities", "Job Description", "업무 내용" 등의 섹션을 찾아 원문 그대로 추출. bullet point, 번호 매기기 등 원문 형식 보존
+- qualifications: "자격요건", "필수요건", "지원자격", "Requirements", "필수 사항", "필요 역량", "자격 조건" 등의 섹션을 찾아 원문 그대로 추출. 각 JD마다 형식이 다를 수 있으므로 유연하게 인식
+- preferredQualifications: "우대사항", "우대요건", "Preferred", "우대 사항", "우대 조건", "Plus", "Nice to have" 등의 섹션을 찾아 원문 그대로 추출
+- benefits: "복리후생", "혜택", "Benefits", "처우", "근무환경", "지원사항" 등의 섹션이 있으면 원문 그대로 추출, 없으면 null (요약하지 말고 있는 그대로)
 - Extract skills as specific technologies/tools (e.g., "Python", "React", "AWS" not "프로그래밍 능력")
 - If information is not found, use empty string for strings, empty array for arrays, null for optional numbers
-- Education level must be one of: bachelor, master, doctorate, high_school, or empty string
-- Job type must be one of: full-time, contract, freelance, internship
+- Education level: 대졸/학사=bachelor, 석사=master, 박사=doctorate, 초대졸/전문학사=associate, 고졸=high_school
+- Job type must be one of: full-time, contract, freelance, internship, or empty string if not specified
 - For salary, convert to 만원 (10,000 KRW) unit. e.g., 5000만원 → 5000, 50,000,000원 → 5000
-- Parse Korean/English JD equally well`;
+- For deadline: 지원기간이 "시작일 ~ 종료일" 형태면 종료일을 마감일로 사용. "제출 기한", "마감일", "접수 마감" 등의 날짜를 찾아 YYYY-MM-DD 형식으로 변환. 예: "2026.01.18" → "2026-01-18", "2026년 1월 18일" → "2026-01-18"
+- Parse Korean/English JD equally well
+- DO NOT hardcode section names - look for semantic meaning and various expressions`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -172,6 +196,10 @@ Important:
       clientCompany: parsed.clientCompany || "",
       department: parsed.department || "",
       description: parsed.description || "",
+      responsibilities: parsed.responsibilities || null,
+      qualifications: parsed.qualifications || null,
+      preferredQualifications: parsed.preferredQualifications || null,
+      benefits: parsed.benefits || null,
       requiredSkills: Array.isArray(parsed.requiredSkills) ? parsed.requiredSkills.slice(0, 20) : [],
       preferredSkills: Array.isArray(parsed.preferredSkills) ? parsed.preferredSkills.slice(0, 10) : [],
       minExpYears: typeof parsed.minExpYears === "number" ? parsed.minExpYears : 0,
@@ -179,9 +207,10 @@ Important:
       requiredEducationLevel: parsed.requiredEducationLevel || "",
       preferredMajors: Array.isArray(parsed.preferredMajors) ? parsed.preferredMajors : [],
       locationCity: parsed.locationCity || "",
-      jobType: parsed.jobType || "full-time",
+      jobType: parsed.jobType || "",
       salaryMin: typeof parsed.salaryMin === "number" ? parsed.salaryMin : null,
       salaryMax: typeof parsed.salaryMax === "number" ? parsed.salaryMax : null,
+      deadline: parsed.deadline || null,
     };
   } catch {
     console.error("Failed to parse GPT response:", content);
@@ -216,6 +245,69 @@ async function convertPdfToImages(buffer: Buffer): Promise<string[]> {
 }
 
 /**
+ * DOCX를 이미지로 변환 (LibreOffice 사용)
+ */
+async function convertDocxToImages(buffer: Buffer): Promise<string[]> {
+  const tempDir = os.tmpdir();
+  const timestamp = Date.now();
+  const inputPath = path.join(tempDir, `docx_${timestamp}.docx`);
+  let pdfPath: string | null = null;
+
+  try {
+    // DOCX 파일을 임시 디렉토리에 저장
+    fs.writeFileSync(inputPath, buffer);
+    console.log(`DOCX saved to: ${inputPath}`);
+
+    // LibreOffice로 PDF 변환 시도 (Windows/Mac: soffice, Linux: libreoffice)
+    const commands = [
+      `soffice --headless --convert-to pdf --outdir "${tempDir}" "${inputPath}"`,
+      `libreoffice --headless --convert-to pdf --outdir "${tempDir}" "${inputPath}"`,
+      `"C:\\Program Files\\LibreOffice\\program\\soffice.exe" --headless --convert-to pdf --outdir "${tempDir}" "${inputPath}"`,
+    ];
+
+    for (const cmd of commands) {
+      try {
+        console.log(`Trying command: ${cmd}`);
+        await execPromise(cmd, { timeout: 60000 });
+
+        // PDF 파일 경로 확인
+        const expectedPdfPath = path.join(tempDir, `docx_${timestamp}.pdf`);
+        if (fs.existsSync(expectedPdfPath)) {
+          pdfPath = expectedPdfPath;
+          console.log(`PDF created at: ${pdfPath}`);
+          break;
+        }
+      } catch (cmdError) {
+        console.log(`Command failed: ${cmd}`, cmdError);
+        continue;
+      }
+    }
+
+    if (!pdfPath) {
+      console.log("LibreOffice not available or conversion failed");
+      return [];
+    }
+
+    // PDF를 이미지로 변환
+    const pdfBuffer = fs.readFileSync(pdfPath);
+    const images = await convertPdfToImages(pdfBuffer);
+
+    return images;
+  } catch (error) {
+    console.error("DOCX to images conversion failed:", error);
+    return [];
+  } finally {
+    // 임시 파일 정리
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+      if (pdfPath && fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+    } catch (cleanupError) {
+      console.warn("Temp file cleanup failed:", cleanupError);
+    }
+  }
+}
+
+/**
  * GPT-4 Vision으로 이미지에서 JD 정보 추출 (OCR + 분석)
  */
 async function extractPositionFromImages(imageUrls: string[]): Promise<ExtractedPosition> {
@@ -229,27 +321,39 @@ Return a JSON object with the following structure:
   "title": "직책/포지션명 (예: 시니어 백엔드 개발자)",
   "clientCompany": "채용 회사명 (없으면 빈 문자열)",
   "department": "부서명 (없으면 빈 문자열)",
-  "description": "직무 설명 요약 (2-3문장)",
+  "description": "직무 설명 요약 (최소 3줄, 최대 7줄). 담당 업무, 주요 역할, 프로젝트 내용 등 핵심 정보를 포함하여 상세하게 작성",
+  "responsibilities": "주요업무/담당업무 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "qualifications": "자격요건/필수요건 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "preferredQualifications": "우대사항/우대요건 섹션 원문 (bullet point 형식 유지, 없으면 null)",
+  "benefits": "복리후생/혜택 섹션 원문 (없으면 null)",
   "requiredSkills": ["필수 스킬 배열", "최대 10개"],
   "preferredSkills": ["우대 스킬 배열", "최대 5개"],
   "minExpYears": 최소 경력 년수 (숫자, 신입이면 0),
   "maxExpYears": 최대 경력 년수 (숫자 또는 null),
-  "requiredEducationLevel": "학력 요건 (bachelor/master/doctorate/high_school 또는 빈 문자열)",
+  "requiredEducationLevel": "학력 요건 (bachelor/master/doctorate/high_school/associate 또는 빈 문자열). 대졸=bachelor, 초대졸/전문학사=associate, 고졸=high_school",
   "preferredMajors": ["우대 전공 배열"],
   "locationCity": "근무지 (예: 서울 강남)",
-  "jobType": "고용 형태 (full-time/contract/freelance/internship)",
+  "jobType": "고용 형태 (full-time/contract/freelance/internship). 명시되지 않으면 빈 문자열",
   "salaryMin": 최소 연봉 만원 단위 (숫자 또는 null),
-  "salaryMax": 최대 연봉 만원 단위 (숫자 또는 null)
+  "salaryMax": 최대 연봉 만원 단위 (숫자 또는 null),
+  "deadline": "지원/채용 마감일 (YYYY-MM-DD 형식, 또는 null)"
 }
 
 Important:
 - First read and extract all text from the images carefully
+- description은 JD의 핵심 내용을 담아 최소 3줄 이상 작성. 담당 업무, 역할, 책임, 프로젝트 범위 등을 포함
+- responsibilities: "주요업무", "담당업무", "수행업무", "Role", "Responsibilities", "Job Description", "업무 내용" 등의 섹션을 찾아 원문 그대로 추출. bullet point, 번호 매기기 등 원문 형식 보존
+- qualifications: "자격요건", "필수요건", "지원자격", "Requirements", "필수 사항", "필요 역량", "자격 조건" 등의 섹션을 찾아 원문 그대로 추출. 각 JD마다 형식이 다를 수 있으므로 유연하게 인식
+- preferredQualifications: "우대사항", "우대요건", "Preferred", "우대 사항", "우대 조건", "Plus", "Nice to have" 등의 섹션을 찾아 원문 그대로 추출
+- benefits: "복리후생", "혜택", "Benefits", "처우", "근무환경", "지원사항" 등의 섹션이 있으면 원문 그대로 추출, 없으면 null (요약하지 말고 있는 그대로)
 - Extract skills as specific technologies/tools (e.g., "Python", "React", "AWS")
 - If information is not found, use empty string for strings, empty array for arrays, null for optional numbers
-- Education level must be one of: bachelor, master, doctorate, high_school, or empty string
-- Job type must be one of: full-time, contract, freelance, internship
+- Education level: 대졸/학사=bachelor, 석사=master, 박사=doctorate, 초대졸/전문학사=associate, 고졸=high_school
+- Job type must be one of: full-time, contract, freelance, internship, or empty string if not specified
 - For salary, convert to 만원 (10,000 KRW) unit
-- Parse Korean/English JD equally well`;
+- For deadline: 지원기간이 "시작일 ~ 종료일" 형태면 종료일을 마감일로 사용. "제출 기한", "마감일", "접수 마감" 등의 날짜를 찾아 YYYY-MM-DD 형식으로 변환. 예: "2026.01.18" → "2026-01-18", "2026년 1월 18일" → "2026-01-18"
+- Parse Korean/English JD equally well
+- DO NOT hardcode section names - look for semantic meaning and various expressions`;
 
   // 이미지들을 content array로 구성
   const imageContents: OpenAI.Chat.Completions.ChatCompletionContentPart[] = imageUrls.map((url) => ({
@@ -289,6 +393,10 @@ Important:
       clientCompany: parsed.clientCompany || "",
       department: parsed.department || "",
       description: parsed.description || "",
+      responsibilities: parsed.responsibilities || null,
+      qualifications: parsed.qualifications || null,
+      preferredQualifications: parsed.preferredQualifications || null,
+      benefits: parsed.benefits || null,
       requiredSkills: Array.isArray(parsed.requiredSkills) ? parsed.requiredSkills.slice(0, 20) : [],
       preferredSkills: Array.isArray(parsed.preferredSkills) ? parsed.preferredSkills.slice(0, 10) : [],
       minExpYears: typeof parsed.minExpYears === "number" ? parsed.minExpYears : 0,
@@ -296,9 +404,10 @@ Important:
       requiredEducationLevel: parsed.requiredEducationLevel || "",
       preferredMajors: Array.isArray(parsed.preferredMajors) ? parsed.preferredMajors : [],
       locationCity: parsed.locationCity || "",
-      jobType: parsed.jobType || "full-time",
+      jobType: parsed.jobType || "",
       salaryMin: typeof parsed.salaryMin === "number" ? parsed.salaryMin : null,
       salaryMax: typeof parsed.salaryMax === "number" ? parsed.salaryMax : null,
+      deadline: parsed.deadline || null,
     };
   } catch {
     console.error("Failed to parse GPT Vision response:", content);
@@ -420,32 +529,40 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      // DOCX인데 텍스트가 부족한 경우
-      if (textExtractionFailed) {
-        return NextResponse.json(
-          { success: false, error: "파일에서 텍스트를 추출하는데 실패했습니다." },
-          { status: 400 }
-        );
-      }
+      // DOCX인데 텍스트가 부족한 경우 - Vision OCR 시도
+      console.log("DOCX text extraction insufficient, trying Vision OCR...");
+      usedOcr = true;
 
-      // 텍스트가 적더라도 있으면 분석 시도
-      if (trimmedTextLength > 0) {
-        try {
-          extractedPosition = await extractPositionFromText(extractedText);
-        } catch (error) {
-          console.error("Position extraction error:", error);
-          return NextResponse.json(
-            {
-              success: false,
-              error: error instanceof Error ? error.message : "JD 분석에 실패했습니다.",
-            },
-            { status: 500 }
-          );
+      try {
+        const imageUrls = await convertDocxToImages(buffer);
+
+        if (imageUrls.length === 0) {
+          // LibreOffice가 없거나 변환 실패 시
+          // 텍스트가 조금이라도 있으면 그걸로 시도
+          if (trimmedTextLength > 0) {
+            console.log("DOCX to image conversion failed, falling back to text analysis...");
+            usedOcr = false;
+            extractedPosition = await extractPositionFromText(extractedText);
+          } else {
+            return NextResponse.json(
+              {
+                success: false,
+                error: "DOCX 파일을 분석할 수 없습니다. LibreOffice가 설치되어 있지 않거나 파일 형식이 올바르지 않습니다."
+              },
+              { status: 400 }
+            );
+          }
+        } else {
+          extractedPosition = await extractPositionFromImages(imageUrls);
         }
-      } else {
+      } catch (error) {
+        console.error("DOCX Vision OCR error:", error);
         return NextResponse.json(
-          { success: false, error: "파일에서 텍스트를 추출하지 못했습니다. 이미지 기반 DOCX는 지원되지 않습니다." },
-          { status: 400 }
+          {
+            success: false,
+            error: error instanceof Error ? error.message : "DOCX 이미지 기반 분석에 실패했습니다.",
+          },
+          { status: 500 }
         );
       }
     }

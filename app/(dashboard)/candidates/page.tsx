@@ -15,7 +15,7 @@ import {
   Code,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EmptyState } from "@/components/ui/empty-state";
+import { EmptyState, CardSkeleton } from "@/components/ui/empty-state";
 
 // Progressive Loading: ProcessingCard
 import ProcessingCard from "@/components/dashboard/ProcessingCard";
@@ -326,7 +326,7 @@ export default function CandidatesPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-xl bg-white border border-gray-100 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -382,8 +382,10 @@ export default function CandidatesPage() {
       )}
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20" data-testid="loading-state">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div data-testid="loading-state">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <CardSkeleton count={6} />
+          </div>
         </div>
       ) : filteredCandidates.length === 0 ? (
         <div data-testid="empty-state">
@@ -393,7 +395,7 @@ export default function CandidatesPage() {
             description={searchQuery ? "다른 조건으로 검색해보세요." : undefined}
             cta={!searchQuery ? {
               label: "이력서 업로드",
-              href: "/dashboard",
+              href: "/upload",
             } : undefined}
           />
         </div>

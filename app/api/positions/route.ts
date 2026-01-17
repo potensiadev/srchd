@@ -74,6 +74,10 @@ function validateCreatePositionRequest(body: unknown): {
       clientCompany: req.clientCompany as string | undefined,
       department: req.department as string | undefined,
       description: req.description as string | undefined,
+      responsibilities: req.responsibilities as string | undefined,
+      qualifications: req.qualifications as string | undefined,
+      preferredQualifications: req.preferredQualifications as string | undefined,
+      benefits: req.benefits as string | undefined,
       requiredSkills: req.requiredSkills as string[],
       preferredSkills: (req.preferredSkills as string[] | undefined) || [],
       minExpYears: req.minExpYears as number,
@@ -81,7 +85,7 @@ function validateCreatePositionRequest(body: unknown): {
       requiredEducationLevel: req.requiredEducationLevel as string | undefined,
       preferredMajors: (req.preferredMajors as string[] | undefined) || [],
       locationCity: req.locationCity as string | undefined,
-      jobType: (req.jobType as CreatePositionRequest["jobType"]) || "full-time",
+      jobType: req.jobType ? (req.jobType as CreatePositionRequest["jobType"]) : undefined,
       salaryMin: req.salaryMin as number | undefined,
       salaryMax: req.salaryMax as number | undefined,
       priority: (req.priority as CreatePositionRequest["priority"]) || "normal",
@@ -118,13 +122,16 @@ export async function POST(request: NextRequest) {
 
     const data = validation.data;
 
-    // JD 임베딩 생성 (description이 있는 경우)
+    // JD 임베딩 생성 (description, responsibilities, 또는 qualifications가 있는 경우)
     let embedding: number[] | null = null;
-    if (data.description && data.description.length > 50) {
+    const hasContent = data.description || data.responsibilities || data.qualifications;
+    if (hasContent) {
       try {
-        // 임베딩용 텍스트: 제목 + 스킬 + 설명
+        // 임베딩용 텍스트: 제목 + 주요업무 + 자격요건 + 스킬 + 설명 (더 풍부한 컨텍스트)
         const embeddingText = [
           data.title,
+          data.responsibilities,
+          data.qualifications,
           `필수 스킬: ${data.requiredSkills.join(", ")}`,
           data.preferredSkills?.length ? `우대 스킬: ${data.preferredSkills.join(", ")}` : "",
           data.description,
@@ -153,6 +160,10 @@ export async function POST(request: NextRequest) {
         client_company: toNullIfEmpty(data.clientCompany),
         department: toNullIfEmpty(data.department),
         description: toNullIfEmpty(data.description),
+        responsibilities: toNullIfEmpty(data.responsibilities),
+        qualifications: toNullIfEmpty(data.qualifications),
+        preferred_qualifications: toNullIfEmpty(data.preferredQualifications),
+        benefits: toNullIfEmpty(data.benefits),
         required_skills: data.requiredSkills,
         preferred_skills: data.preferredSkills,
         min_exp_years: data.minExpYears,

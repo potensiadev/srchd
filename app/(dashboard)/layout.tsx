@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Sidebar from "@/components/layout/Sidebar";
 
 export const metadata: Metadata = {
-  title: "Srchd - Dashboard",
+  title: "서치드 - Dashboard",
   description: "서치드 - AI 기반 이력서 분석 대시보드",
 };
 

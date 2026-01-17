@@ -73,12 +73,12 @@ function FacetSection({
     <div className="mb-4">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between w-full px-2 py-1.5 text-sm font-medium text-slate-300 hover:text-white transition-colors"
+        className="flex items-center justify-between w-full px-2 py-1.5 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
       >
         <div className="flex items-center gap-2">
           {icon}
           <span>{title}</span>
-          <span className="text-xs text-slate-500">({mergedItems.length})</span>
+          <span className="text-xs text-gray-500">({mergedItems.length})</span>
         </div>
         {isExpanded ? (
           <ChevronUp className="w-4 h-4" />
@@ -108,10 +108,10 @@ function FacetSection({
                     disabled={isDisabled}
                     className={`flex items-center justify-between w-full px-2 py-1.5 rounded-lg text-sm transition-colors ${
                       isSelected
-                        ? "bg-primary/20 text-primary border border-primary/30"
+                        ? "bg-primary/10 text-primary border border-primary/30"
                         : isZeroCount
-                        ? "text-slate-600 cursor-not-allowed opacity-50"
-                        : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+                        ? "text-gray-400 cursor-not-allowed opacity-50"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                     }`}
                   >
                     <span className="truncate">{item.value}</span>
@@ -119,9 +119,9 @@ function FacetSection({
                       className={`text-xs px-1.5 py-0.5 rounded ${
                         isSelected
                           ? isZeroCount
-                            ? "bg-yellow-500/20 text-yellow-400"
-                            : "bg-primary/30 text-primary"
-                          : "bg-slate-700 text-slate-500"
+                            ? "bg-amber-100 text-amber-600"
+                            : "bg-primary/20 text-primary"
+                          : "bg-gray-100 text-gray-500"
                       }`}
                     >
                       {item.count}
@@ -132,7 +132,7 @@ function FacetSection({
               {hasMore && (
                 <button
                   onClick={() => setShowAll(!showAll)}
-                  className="w-full px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  className="w-full px-2 py-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
                 >
                   {showAll ? "접기" : `+${mergedItems.length - maxItems}개 더 보기`}
                 </button>
@@ -246,11 +246,11 @@ export default function FacetPanel({
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="w-64 p-4 rounded-xl bg-slate-800/95 backdrop-blur-sm border border-slate-700"
+      className="w-64 p-4 rounded-xl bg-white border border-gray-200 shadow-lg"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-white">Filter by</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Filter by</h3>
         {hasActiveFilters && (
           <button
             onClick={() =>
@@ -262,7 +262,7 @@ export default function FacetPanel({
                 expYearsMax: undefined,
               })
             }
-            className="text-xs text-slate-400 hover:text-white flex items-center gap-1"
+            className="text-xs text-gray-500 hover:text-gray-900 flex items-center gap-1"
           >
             <X className="w-3 h-3" />
             Clear
@@ -273,8 +273,8 @@ export default function FacetPanel({
       {/* Experience Distribution */}
       {expYearsItems.length > 0 && (
         <div className="mb-4">
-          <div className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-slate-300">
-            <Briefcase className="w-4 h-4 text-slate-500" />
+          <div className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-gray-700">
+            <Briefcase className="w-4 h-4 text-gray-400" />
             <span>Experience</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-1">
@@ -291,15 +291,15 @@ export default function FacetPanel({
                   className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
                     isSelected
                       ? isZeroCount
-                        ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                        : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                        ? "bg-amber-50 text-amber-600 border border-amber-200"
+                        : "bg-blue-50 text-blue-600 border border-blue-200"
                       : isZeroCount
-                      ? "bg-slate-700/30 text-slate-600 border border-slate-700 cursor-not-allowed opacity-50"
-                      : "bg-slate-700/50 text-slate-400 hover:text-white border border-slate-600"
+                      ? "bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed opacity-50"
+                      : "bg-gray-50 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200"
                   }`}
                 >
                   <span>{item.label}</span>
-                  <span className={isZeroCount && isSelected ? "text-yellow-500" : "text-slate-500"}>
+                  <span className={isZeroCount && isSelected ? "text-amber-600" : "text-gray-500"}>
                     ({item.count})
                   </span>
                 </button>
@@ -312,7 +312,7 @@ export default function FacetPanel({
       {/* Skills Facet */}
       <FacetSection
         title="Skills"
-        icon={<Code className="w-4 h-4 text-slate-500" />}
+        icon={<Code className="w-4 h-4 text-gray-400" />}
         items={facets.skills}
         selectedItems={filters.skills || []}
         onItemClick={handleSkillClick}
@@ -321,7 +321,7 @@ export default function FacetPanel({
       {/* Companies Facet */}
       <FacetSection
         title="Companies"
-        icon={<Building2 className="w-4 h-4 text-slate-500" />}
+        icon={<Building2 className="w-4 h-4 text-gray-400" />}
         items={facets.companies}
         selectedItems={filters.companies || []}
         onItemClick={handleCompanyClick}

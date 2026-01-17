@@ -1,6 +1,6 @@
 # QA Test Report - RAI v6.0 배포 검증
 **Date**: 2026-01-12
-**Environment**: Production (https://rai-lyart.vercel.app)
+**Environment**: Production (https://srchd.vercel.app)
 **Tester**: Senior QA Engineer
 **Build**: 7ce3cd4
 

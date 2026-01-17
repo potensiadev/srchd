@@ -29,7 +29,7 @@ export function Spinner({ size = "md", className, label }: SpinnerProps) {
         role="status"
         aria-label={label || "Loading"}
       />
-      {label && <span className="text-sm text-slate-400">{label}</span>}
+      {label && <span className="text-sm text-gray-400">{label}</span>}
     </div>
   );
 }
@@ -53,7 +53,7 @@ export function LoadingOverlay({
     >
       <div className="flex flex-col items-center gap-4">
         <Spinner size="xl" />
-        <p className="text-sm text-slate-300">{message}</p>
+        <p className="text-sm text-gray-300">{message}</p>
       </div>
     </div>
   );
@@ -86,7 +86,7 @@ export function InlineLoader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2 text-sm text-slate-400", className)}>
+    <div className={cn("flex items-center gap-2 text-sm text-gray-400", className)}>
       <Spinner size="sm" />
       <span>{text}</span>
     </div>

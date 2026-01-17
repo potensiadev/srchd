@@ -175,7 +175,7 @@ export default function ProductsPage() {
       >
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <span className="text-xl font-bold tracking-tight text-gray-900">Srchd</span>
+            <span className="text-xl font-bold tracking-tight text-gray-900">서치드</span>
           </Link>
 
           {/* Desktop Nav */}
@@ -382,7 +382,7 @@ export default function ProductsPage() {
             <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-gray-400" />
             </div>
-            <span className="text-sm text-gray-500">© 2025 Srchd. All rights reserved.</span>
+            <span className="text-sm text-gray-500">© 2025 서치드. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-8 text-sm text-gray-500">
             <Link href="/terms" className="hover:text-gray-900 transition-colors">

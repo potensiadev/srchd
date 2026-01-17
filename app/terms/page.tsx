@@ -77,7 +77,7 @@ export default function TermsPage() {
       >
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <span className="text-xl font-bold tracking-tight text-gray-900">Srchd</span>
+            <span className="text-xl font-bold tracking-tight text-gray-900">서치드</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -202,7 +202,7 @@ export default function TermsPage() {
                 <h2 className="text-xl font-bold text-gray-900 mb-4">제1조 (목적)</h2>
                 <p className="text-gray-600 leading-relaxed">
                   본 약관은 포텐시아 주식회사(이하 &quot;회사&quot;)가 제공하는 AI 기반 이력서 분석 서비스
-                  &quot;서치드(Srchd)&quot;(이하 &quot;서비스&quot;)의 이용에 관한 회사와 이용자 간의 권리, 의무 및
+                  &quot;서치드&quot;(이하 &quot;서비스&quot;)의 이용에 관한 회사와 이용자 간의 권리, 의무 및
                   책임사항, 기타 필요한 사항을 규정함을 목적으로 합니다.
                 </p>
               </section>
@@ -599,7 +599,7 @@ export default function TermsPage() {
               <Sparkles className="w-4 h-4 text-gray-400" />
             </div>
             <span className="text-sm text-gray-500">
-              © 2025 Srchd. All rights reserved.
+              © 2025 서치드. All rights reserved.
             </span>
           </div>
           <div className="flex items-center gap-8 text-sm text-gray-500">

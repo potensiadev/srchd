@@ -94,7 +94,7 @@ export default function GravityDropZone({
                 "min-h-[300px] flex items-center justify-center",
                 isDragging && "scale-[1.02] border-primary bg-primary/5",
                 isRejected && "border-red-500 bg-red-50",
-                !isDragging && !isRejected && "border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100",
+                !isDragging && !isRejected && "border-gray-300 hover:border-gray-400 bg-gray-50 hover:bg-gray-100",
                 disabled && "opacity-50 cursor-not-allowed"
             )}
         >
@@ -151,7 +151,7 @@ export default function GravityDropZone({
                             }}
                             className={cn(
                                 "absolute top-0 left-1/2 -translate-x-1/2 rounded-full",
-                                isDragging ? "bg-primary" : "bg-slate-400"
+                                isDragging ? "bg-primary" : "bg-gray-400"
                             )}
                         />
                     </motion.div>
@@ -175,7 +175,7 @@ export default function GravityDropZone({
                     transition={{ duration: 1, repeat: isDragging ? Infinity : 0 }}
                     className={cn(
                         "p-6 rounded-full transition-colors duration-300",
-                        isDragging ? "bg-white text-primary shadow-xl" : "bg-white text-slate-400 shadow-sm border border-slate-200",
+                        isDragging ? "bg-white text-primary shadow-xl" : "bg-white text-gray-400 shadow-sm border border-gray-200",
                         isRejected && "bg-red-50 text-red-500 border-red-100"
                     )}
                 >
@@ -204,7 +204,7 @@ export default function GravityDropZone({
                                 initial={{ scale: 0 }}
                                 animate={{ scale: 1 }}
                             >
-                                <Upload size={48} className="text-slate-400" />
+                                <Upload size={48} className="text-gray-400" />
                             </motion.div>
                         )}
                     </AnimatePresence>

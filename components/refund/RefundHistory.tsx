@@ -163,7 +163,7 @@ export function RefundHistory({ className }: RefundHistoryProps) {
 
   if (records.length === 0) {
     return (
-      <div className={cn("text-center py-12 text-slate-400", className)}>
+      <div className={cn("text-center py-12 text-gray-400", className)}>
         환불 내역이 없습니다.
       </div>
     );
@@ -177,7 +177,7 @@ export function RefundHistory({ className }: RefundHistoryProps) {
           onClick={fetchHistory}
           className="p-2 rounded-lg hover:bg-white/10 transition-colors"
         >
-          <RefreshCw className="w-4 h-4 text-slate-400" />
+          <RefreshCw className="w-4 h-4 text-gray-400" />
         </button>
       </div>
 
@@ -204,7 +204,7 @@ export function RefundHistory({ className }: RefundHistoryProps) {
                     >
                       {getTypeLabel(record.type)}
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-gray-400">
                       {formatDate(record.createdAt)}
                     </span>
                   </div>
@@ -232,9 +232,9 @@ export function RefundHistory({ className }: RefundHistoryProps) {
                   {getStatusLabel(record.status)}
                 </span>
                 {expandedId === record.id ? (
-                  <ChevronUp className="w-5 h-5 text-slate-400" />
+                  <ChevronUp className="w-5 h-5 text-gray-400" />
                 ) : (
-                  <ChevronDown className="w-5 h-5 text-slate-400" />
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
                 )}
               </div>
             </button>
@@ -244,40 +244,40 @@ export function RefundHistory({ className }: RefundHistoryProps) {
               <div className="px-4 pb-4 pt-0 border-t border-white/10 space-y-3">
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div>
-                    <p className="text-xs text-slate-400">유형</p>
+                    <p className="text-xs text-gray-400">유형</p>
                     <p className="text-sm text-white">{getTypeLabel(record.type)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">상태</p>
+                    <p className="text-xs text-gray-400">상태</p>
                     <p className="text-sm text-white">{getStatusLabel(record.status)}</p>
                   </div>
                   {record.amount && (
                     <div>
-                      <p className="text-xs text-slate-400">환불 금액</p>
+                      <p className="text-xs text-gray-400">환불 금액</p>
                       <p className="text-sm text-white">{formatCurrency(record.amount)}</p>
                     </div>
                   )}
                   {record.creditsRefunded && (
                     <div>
-                      <p className="text-xs text-slate-400">환불 크레딧</p>
+                      <p className="text-xs text-gray-400">환불 크레딧</p>
                       <p className="text-sm text-white">{record.creditsRefunded}건</p>
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-400">사유</p>
+                  <p className="text-xs text-gray-400">사유</p>
                   <p className="text-sm text-white">{record.reason}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-slate-400">신청일</p>
+                    <p className="text-xs text-gray-400">신청일</p>
                     <p className="text-sm text-white">{formatDate(record.createdAt)}</p>
                   </div>
                   {record.processedAt && (
                     <div>
-                      <p className="text-xs text-slate-400">처리일</p>
+                      <p className="text-xs text-gray-400">처리일</p>
                       <p className="text-sm text-white">{formatDate(record.processedAt)}</p>
                     </div>
                   )}

@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import DOMPurify from "dompurify";
 import { sanitizeExternalUrl } from "@/lib/security/url-validator";
 import type { CandidateDetail, ConfidenceLevel } from "@/types";
+import { DetailPageSkeleton } from "@/components/ui/empty-state";
 
 
 // ─────────────────────────────────────────────────
@@ -467,14 +468,7 @@ export default function CandidateDetailPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 text-primary animate-spin" />
-          <p className="text-gray-500">후보자 정보를 불러오는 중...</p>
-        </div>
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (error || !candidate) {

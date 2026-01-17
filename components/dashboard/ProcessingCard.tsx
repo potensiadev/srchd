@@ -30,7 +30,7 @@ const STATUS_CONFIG = {
   processing: {
     label: "분석 준비 중...",
     progress: 10,
-    color: "from-slate-500 to-slate-400",
+    color: "from-gray-500 to-gray-400",
   },
   parsed: {
     label: "기본 정보 추출 완료",
@@ -207,7 +207,7 @@ export default function ProcessingCard({ candidate }: ProcessingCardProps) {
       )}
 
       {/* Time Indicator */}
-      <div className="relative mt-4 text-xs text-slate-400">
+      <div className="relative mt-4 text-xs text-gray-400">
         {new Date(candidate.created_at).toLocaleString("ko-KR", {
           month: "short",
           day: "numeric",

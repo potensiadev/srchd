@@ -8,6 +8,6 @@ export async function GET(request: NextRequest) {
     // 서버 사이드 로그아웃 (쿠키 삭제 헤더 설정됨)
     await supabase.auth.signOut();
 
-    // 로그인 페이지로 리다이렉트
-    return NextResponse.redirect(`${requestUrl.origin}/login?error=session_expired`);
+    // 랜딩 페이지로 리다이렉트 (로그아웃 메시지 표시)
+    return NextResponse.redirect(`${requestUrl.origin}/?logged_out=true`);
 }

@@ -250,7 +250,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
           "relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all",
           isDragging
             ? "border-primary bg-primary/10 scale-[1.02]"
-            : "border-slate-700 hover:border-slate-600 bg-slate-800/30"
+            : "border-gray-700 hover:border-gray-600 bg-gray-800/30"
         )}
       >
         <input
@@ -269,7 +269,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
           <div
             className={cn(
               "p-4 rounded-full transition-colors",
-              isDragging ? "bg-primary/20 text-primary" : "bg-slate-700 text-slate-400"
+              isDragging ? "bg-primary/20 text-primary" : "bg-gray-700 text-gray-400"
             )}
           >
             {isDragging ? <FolderUp size={40} /> : <Upload size={40} />}
@@ -279,7 +279,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
             <p className="text-lg font-medium text-white">
               {isDragging ? "파일을 여기에 놓으세요" : "이력서 파일을 드래그하거나 클릭하세요"}
             </p>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-gray-400 mt-1">
               {ALLOWED_EXTENSIONS.join(", ")} • 최대 50MB • 최대 {MAX_FILES}개
             </p>
           </div>
@@ -296,7 +296,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
                 파일 목록 ({stats.total}/{MAX_FILES})
               </h3>
               {isUploading && (
-                <div className="flex items-center gap-2 text-sm text-slate-400">
+                <div className="flex items-center gap-2 text-sm text-gray-400">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>업로드 중... {overallProgress}%</span>
                 </div>
@@ -316,8 +316,8 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
               <button
                 onClick={clearFiles}
                 disabled={isUploading}
-                className="px-3 py-1.5 rounded-lg bg-slate-700 text-slate-300 text-sm
-                         hover:bg-slate-600 disabled:opacity-50 transition-colors flex items-center gap-1"
+                className="px-3 py-1.5 rounded-lg bg-gray-700 text-gray-300 text-sm
+                         hover:bg-gray-600 disabled:opacity-50 transition-colors flex items-center gap-1"
               >
                 <Trash2 size={14} />
                 전체 삭제
@@ -327,7 +327,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
 
           {/* Progress Bar */}
           {isUploading && (
-            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
               <motion.div
                 className="h-full bg-primary"
                 initial={{ width: 0 }}
@@ -339,17 +339,17 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
 
           {/* Stats */}
           <div className="flex gap-4 text-sm">
-            <span className="text-slate-400">
+            <span className="text-gray-400">
               대기: <span className="text-white">{stats.pending}</span>
             </span>
-            <span className="text-slate-400">
+            <span className="text-gray-400">
               진행: <span className="text-blue-400">{stats.uploading}</span>
             </span>
-            <span className="text-slate-400">
+            <span className="text-gray-400">
               완료: <span className="text-emerald-400">{stats.success}</span>
             </span>
             {stats.error > 0 && (
-              <span className="text-slate-400">
+              <span className="text-gray-400">
                 실패: <span className="text-red-400">{stats.error}</span>
               </span>
             )}
@@ -373,7 +373,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
                       ? "bg-red-500/10 border-red-500/30"
                       : file.status === "uploading"
                       ? "bg-blue-500/10 border-blue-500/30"
-                      : "bg-slate-800/50 border-slate-700"
+                      : "bg-gray-800/50 border-gray-700"
                   )}
                 >
                   {/* Icon */}
@@ -386,7 +386,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
                         ? "bg-red-500/20 text-red-400"
                         : file.status === "uploading"
                         ? "bg-blue-500/20 text-blue-400"
-                        : "bg-slate-700 text-slate-400"
+                        : "bg-gray-700 text-gray-400"
                     )}
                   >
                     {file.status === "success" ? (
@@ -405,7 +405,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
                     <p className="text-sm font-medium text-white truncate">
                       {file.file.name}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-gray-500">
                       {file.error || (
                         <>
                           {(file.file.size / 1024 / 1024).toFixed(2)} MB
@@ -425,7 +425,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
                       e.stopPropagation();
                       removeFile(file.id);
                     }}
-                    className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-500 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
                   >
                     <X size={16} />
                   </button>
@@ -441,7 +441,7 @@ export default function FileUploader({ onUploadComplete }: FileUploaderProps) {
             className={cn(
               "w-full py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2",
               isUploading || stats.pending === 0
-                ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                ? "bg-gray-700 text-gray-500 cursor-not-allowed"
                 : "bg-primary hover:bg-primary/90 text-white"
             )}
           >

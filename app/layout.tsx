@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Srchd - AI 이력서 분석 플랫폼",
+  title: "서치드 - AI 이력서 분석 플랫폼",
   description: "서치드 - 헤드헌터를 위한 AI 기반 이력서 분석 및 후보자 검색 플랫폼",
 };
 

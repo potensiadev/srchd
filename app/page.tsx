@@ -1,8 +1,9 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Sparkles,
   Shield,
@@ -228,31 +229,22 @@ const testimonials = [
 // Pricing 데이터
 const pricingTiers = [
   {
-    name: "Free",
-    price: "0",
+    name: "Starter",
+    price: "79,000",
     period: "월",
-    description: "일단 써보세요",
-    features: ["월 100건 분석", "기본 검색", "이메일 지원"],
-    cta: "무료로 시작하기",
+    description: "서치드를 시작하세요",
+    features: ["월 50건 이력서 분석", "2-Way AI Cross-Check", "기본 검색", "블라인드 내보내기 (월 30회)", "이메일 지원"],
+    cta: "시작하기",
     popular: false,
   },
   {
     name: "Pro",
-    price: "99,000",
+    price: "149,000",
     period: "월",
-    description: "월 1건 추가 성사 = 1,500만원",
-    features: ["무제한 분석", "스마트 검색", "JD 자동 매칭", "팀 협업 (3명)", "우선 지원"],
+    description: "바쁜 헤드헌터를 위한 플랜",
+    features: ["월 150건 이력서 분석", "3-Way AI Cross-Check", "동의어 검색", "버전 관리", "무제한 블라인드 내보내기", "우선 지원"],
     cta: "14일 무료 체험",
     popular: true,
-  },
-  {
-    name: "Enterprise",
-    price: "문의",
-    period: "",
-    description: "서치펌 전체 생산성 UP",
-    features: ["무제한 분석", "API 액세스", "전담 매니저", "커스텀 연동", "SLA 보장"],
-    cta: "상담 신청",
-    popular: false,
   },
 ];
 
@@ -295,12 +287,16 @@ const getAnimationProps = (prefersReducedMotion: boolean) => ({
 // MAIN COMPONENT
 // ============================================
 
-export default function LandingPage() {
+function LandingPageContent() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [showExitPopup, setShowExitPopup] = useState(false);
   const [exitPopupShown, setExitPopupShown] = useState(false);
+  const [showLogoutMessage, setShowLogoutMessage] = useState(false);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Demo Section Refs
   const demo1Ref = useRef<HTMLDivElement>(null);
@@ -331,6 +327,20 @@ export default function LandingPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Detect logout param and show message
+  useEffect(() => {
+    if (searchParams.get("logged_out") === "true") {
+      setShowLogoutMessage(true);
+      // Clean up URL without refreshing the page
+      router.replace("/", { scroll: false });
+      // Auto-hide after 5 seconds
+      const timer = setTimeout(() => {
+        setShowLogoutMessage(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, router]);
 
   // Detect prefers-reduced-motion for accessibility
   useEffect(() => {
@@ -626,7 +636,7 @@ export default function LandingPage() {
       <nav className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-50" role="navigation" aria-label="메인 네비게이션">
         <div className="max-w-7xl mx-auto px-6 md:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <span className="text-xl font-bold">Srchd</span>
+            <span className="text-xl font-bold">서치드</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
@@ -699,6 +709,36 @@ export default function LandingPage() {
           </div>
         )}
       </nav>
+
+      {/* Logout Success Message */}
+      <AnimatePresence>
+        {showLogoutMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50"
+          >
+            <div className="flex items-center gap-3 px-6 py-4 rounded-xl bg-white border border-gray-200 shadow-lg">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">로그아웃 되었습니다</p>
+                <p className="text-xs text-gray-500">서치드에서 안전하게 로그아웃 되었습니다</p>
+              </div>
+              <button
+                onClick={() => setShowLogoutMessage(false)}
+                className="ml-4 text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="닫기"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main id="main-content" className="flex-1" role="main">
         {/* ============================================
@@ -953,7 +993,7 @@ export default function LandingPage() {
           >
             <img
               src="/demo-resume-analysis.gif"
-              alt="Srchd 이력서 분석 데모"
+              alt="서치드 이력서 분석 데모"
               className="w-full h-auto"
               loading="lazy"
             />
@@ -1876,7 +1916,7 @@ export default function LandingPage() {
             <p className="text-gray-600">하루 일찍 제안하면 성사율이 달라집니다. 그 시간을 드립니다.</p>
           </motion.div>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {pricingTiers.map((tier, i) => (
               <motion.div
                 key={tier.name}
@@ -1884,62 +1924,53 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
-                className={`relative rounded-2xl p-6 ${
+                whileHover={{ scale: 1.02, y: -4 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleSignupClick}
+                className={`relative rounded-2xl p-8 cursor-pointer select-none ${
                   tier.popular
-                    ? "bg-primary text-white shadow-xl scale-105 z-10"
-                    : "bg-white border border-gray-200"
-                }`}
+                    ? "bg-primary text-white shadow-xl ring-4 ring-primary/20 hover:shadow-2xl hover:ring-primary/30"
+                    : "bg-white border-2 border-gray-200 hover:border-primary/50 hover:shadow-lg"
+                } transition-all duration-200`}
               >
                 {tier.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-yellow-400 text-gray-900 text-sm font-bold">
-                    가장 인기
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-yellow-400 text-gray-900 text-sm font-bold shadow-md">
+                    추천
                   </div>
                 )}
 
-                <h3 className={`text-xl font-bold mb-1 ${tier.popular ? "text-white" : "text-gray-900"}`}>
+                <h3 className={`text-2xl font-bold mb-2 ${tier.popular ? "text-white" : "text-gray-900"}`}>
                   {tier.name}
                 </h3>
-                <p className={`text-sm mb-4 ${tier.popular ? "text-white/80" : "text-gray-500"}`}>
+                <p className={`text-sm mb-6 ${tier.popular ? "text-white/80" : "text-gray-500"}`}>
                   {tier.description}
                 </p>
 
-                <div className="mb-6">
+                <div className="mb-8">
                   <span className={`text-4xl font-bold ${tier.popular ? "text-white" : "text-gray-900"}`}>
-                    {tier.price === "문의" ? "" : "₩"}{tier.price}
+                    ₩{tier.price}
                   </span>
-                  {tier.period && (
-                    <span className={tier.popular ? "text-white/60" : "text-gray-500"}>/{tier.period}</span>
-                  )}
+                  <span className={tier.popular ? "text-white/60" : "text-gray-500"}>/{tier.period}</span>
                 </div>
 
-                <ul className="space-y-3 mb-6">
+                <ul className="space-y-4 mb-8">
                   {tier.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2">
-                      <CheckCircle className={`w-4 h-4 ${tier.popular ? "text-white" : "text-primary"}`} />
+                    <li key={f} className="flex items-start gap-3">
+                      <CheckCircle className={`w-5 h-5 shrink-0 mt-0.5 ${tier.popular ? "text-white" : "text-primary"}`} />
                       <span className={tier.popular ? "text-white/90" : "text-gray-600"}>{f}</span>
                     </li>
                   ))}
                 </ul>
 
-                {tier.name === "Enterprise" ? (
-                  <Link
-                    href="/support"
-                    className="block w-full py-3 rounded-xl text-center font-semibold transition-all bg-gray-100 text-gray-900 hover:bg-gray-200"
-                  >
-                    {tier.cta}
-                  </Link>
-                ) : (
-                  <button
-                    onClick={handleSignupClick}
-                    className={`block w-full py-3 rounded-xl text-center font-semibold transition-all ${
-                      tier.popular
-                        ? "bg-white text-primary hover:bg-gray-100"
-                        : "bg-gray-100 text-gray-900 hover:bg-gray-200"
-                    }`}
-                  >
-                    {tier.cta}
-                  </button>
-                )}
+                <div
+                  className={`block w-full py-3.5 rounded-xl text-center font-semibold transition-all ${
+                    tier.popular
+                      ? "bg-white text-primary group-hover:bg-gray-100 shadow-md"
+                      : "bg-primary text-white group-hover:bg-primary/90"
+                  }`}
+                >
+                  {tier.cta}
+                </div>
               </motion.div>
             ))}
           </div>
@@ -2014,7 +2045,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm text-gray-500">© 2025 Srchd. All rights reserved.</span>
+            <span className="text-sm text-gray-500">© 2025 서치드. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-gray-500">
             <Link href="/terms" className="hover:text-primary transition-colors">
@@ -2120,5 +2151,14 @@ export default function LandingPage() {
       </AnimatePresence>
 
     </div>
+  );
+}
+
+// Suspense wrapper for useSearchParams
+export default function LandingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-white" />}>
+      <LandingPageContent />
+    </Suspense>
   );
 }

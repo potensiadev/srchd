@@ -34,8 +34,9 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Worker URL
-const WORKER_URL = process.env.WORKER_URL || "http://localhost:3000";
+// Worker URL - defaults to localhost:8000 for local dev
+// In production, set WORKER_URL env var to point to deployed worker (e.g., Railway)
+const WORKER_URL = process.env.WORKER_URL || "http://localhost:8000";
 
 interface UploadResponse {
   success: boolean;

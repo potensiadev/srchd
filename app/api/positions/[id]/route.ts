@@ -158,6 +158,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (body.clientCompany !== undefined) updateData.client_company = body.clientCompany;
     if (body.department !== undefined) updateData.department = body.department;
     if (body.description !== undefined) updateData.description = body.description;
+    if (body.responsibilities !== undefined) updateData.responsibilities = body.responsibilities;
+    if (body.qualifications !== undefined) updateData.qualifications = body.qualifications;
+    if (body.preferredQualifications !== undefined) updateData.preferred_qualifications = body.preferredQualifications;
+    if (body.benefits !== undefined) updateData.benefits = body.benefits;
     if (body.requiredSkills !== undefined) updateData.required_skills = body.requiredSkills;
     if (body.preferredSkills !== undefined) updateData.preferred_skills = body.preferredSkills;
     if (body.minExpYears !== undefined) updateData.min_exp_years = body.minExpYears;
@@ -173,9 +177,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (body.priority !== undefined) updateData.priority = body.priority;
     if (body.deadline !== undefined) updateData.deadline = body.deadline;
 
-    // description 또는 스킬이 변경되면 임베딩 재생성
+    // description, responsibilities, qualifications, 또는 스킬이 변경되면 임베딩 재생성
     const needsReembedding =
       body.description !== undefined ||
+      body.responsibilities !== undefined ||
+      body.qualifications !== undefined ||
       body.requiredSkills !== undefined ||
       body.preferredSkills !== undefined ||
       body.title !== undefined;
@@ -183,14 +189,20 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (needsReembedding) {
       const newDescription = body.description ?? existing.description;
       const newTitle = body.title ?? existing.title;
+      const newResponsibilities = body.responsibilities ?? existing.responsibilities;
+      const newQualifications = body.qualifications ?? existing.qualifications;
       const newRequiredSkills = body.requiredSkills ?? existing.required_skills;
       const newPreferredSkills = body.preferredSkills ?? existing.preferred_skills;
 
-      if (newDescription && newDescription.length > 50) {
+      // 임베딩에 더 풍부한 컨텍스트 포함
+      const hasContent = newDescription || newResponsibilities || newQualifications;
+      if (hasContent) {
         try {
           const embeddingText = [
             newTitle,
-            `필수 스킬: ${newRequiredSkills.join(", ")}`,
+            newResponsibilities,
+            newQualifications,
+            newRequiredSkills?.length ? `필수 스킬: ${newRequiredSkills.join(", ")}` : "",
             newPreferredSkills?.length ? `우대 스킬: ${newPreferredSkills.join(", ")}` : "",
             newDescription,
           ]
@@ -202,6 +214,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           console.warn("Position embedding regeneration failed:", embeddingError);
         }
       }
+    }
+
+    // 업데이트할 필드가 없으면 기존 데이터 반환
+    if (Object.keys(updateData).length === 0) {
+      return apiSuccess(toPosition(existing as Record<string, unknown>), {
+        message: "변경된 내용이 없습니다.",
+      });
     }
 
     // 업데이트 실행
@@ -216,18 +235,22 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     if (updateError) {
       console.error("Position update error:", updateError);
-      return apiInternalError();
+      return apiInternalError("포지션 수정에 실패했습니다.");
     }
 
-    // 활동 로그 기록
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from("position_activities").insert({
-      position_id: id,
-      activity_type: "position_updated",
-      description: "포지션 정보가 수정되었습니다.",
-      metadata: { updated_fields: Object.keys(updateData) },
-      created_by: user.id,
-    });
+    // 활동 로그 기록 (실패해도 무시)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).from("position_activities").insert({
+        position_id: id,
+        activity_type: "position_updated",
+        description: "포지션 정보가 수정되었습니다.",
+        metadata: { updated_fields: Object.keys(updateData) },
+        created_by: user.id,
+      });
+    } catch (activityError) {
+      console.warn("Activity log insert failed:", activityError);
+    }
 
     // 스킬/경력 변경 시 자동 재매칭
     if (
