@@ -1,0 +1,44 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link "서치드" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e6]: 서치드
+        - generic [ref=e7]:
+          - link "로그인" [ref=e8] [cursor=pointer]:
+            - /url: /login
+          - link "무료로 시작하기" [ref=e9] [cursor=pointer]:
+            - /url: /signup
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - heading "Login" [level=1] [ref=e18]
+          - paragraph [ref=e19]: 오늘도 헤드헌터님을 돕겠습니다
+        - button "Google 계정으로 로그인" [ref=e20]:
+          - img [ref=e21]
+          - text: Google 계정으로 로그인
+        - generic [ref=e30]: 안전한 로그인
+        - paragraph [ref=e31]:
+          - text: 로그인 시
+          - link "서비스 이용약관" [ref=e32] [cursor=pointer]:
+            - /url: /terms
+          - text: 및
+          - link "개인정보처리방침" [ref=e33] [cursor=pointer]:
+            - /url: /privacy
+          - text: 에 동의합니다.
+      - paragraph [ref=e34]:
+        - text: 처음이신가요?
+        - link "무료로 시작하기" [ref=e35] [cursor=pointer]:
+          - /url: /signup
+  - generic [ref=e36]:
+    - img [ref=e38]
+    - button "Open Tanstack query devtools" [ref=e86] [cursor=pointer]:
+      - img [ref=e87]
+  - button "Open Next.js Dev Tools" [ref=e140] [cursor=pointer]:
+    - img [ref=e141]
+  - alert [ref=e144]
+```

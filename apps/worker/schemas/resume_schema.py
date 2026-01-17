@@ -204,18 +204,19 @@ RESUME_JSON_SCHEMA: Dict[str, Any] = {
                 }
             },
             
-            # 프로젝트
+            # 프로젝트 - IMPORTANT: 다양한 헤더에서 추출 (경력 상세, 주요 업무, 수행 과제 등)
             "projects": {
                 "type": "array", 
-                "description": "프로젝트 목록",
+                "description": "프로젝트 목록. IMPORTANT: '프로젝트' 헤더뿐만 아니라 '경력 상세', '주요 업무', '담당 업무', '수행 과제', '성과' 등의 섹션에서도 프로젝트를 추출하세요. 정량적 성과(숫자, %), 사용 기술, 문제-해결 구조가 있으면 프로젝트로 분류하세요.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string"},
-                        "role": {"type": "string"},
-                        "period": {"type": "string"},
-                        "description": {"type": "string"},
-                        "technologies": {"type": "array", "items": {"type": "string"}}
+                        "name": {"type": "string", "description": "프로젝트/이니셔티브 이름"},
+                        "role": {"type": "string", "description": "역할 (PM, 기획자, 개발자 등)"},
+                        "period": {"type": "string", "description": "기간 (YYYY.MM - YYYY.MM)"},
+                        "description": {"type": "string", "description": "프로젝트 설명 및 성과"},
+                        "technologies": {"type": "array", "items": {"type": "string"}, "description": "사용 기술"},
+                        "company": {"type": "string", "description": "프로젝트 수행 회사 (해당 경력에서 추론)"}
                     }
                 }
             },
@@ -279,4 +280,30 @@ RESUME_SCHEMA_PROMPT = """
 - 정보가 없으면 해당 필드를 생략하세요 (null 대신 생략).
 - **summary와 strengths는 반드시 생성하세요!**
 - 반드시 JSON 포맷을 준수하세요.
+
+### ⭐ 프로젝트 추출 특별 지침 (CRITICAL)
+
+**한국 이력서에서 프로젝트 정보는 다양한 섹션명 아래에 있을 수 있습니다:**
+- "프로젝트", "주요 프로젝트", "Projects"
+- "경력 상세", "업무 상세", "주요 업무", "담당 업무"
+- "수행 과제", "성과", "실적", "주요 성과"
+- "프로젝트 경험", "업무 경험"
+
+**섹션 헤더가 '프로젝트'가 아니어도, 다음 특성이 있으면 projects 배열에 추출하세요:**
+1. **구체적인 이니셔티브/과제 이름** (예: "OX퀴즈 리텐션 엔진 기획")
+2. **정량적 성과** (예: "23일만에 20만원 달성", "97% 절감", "DAU 30% 증가")
+3. **사용 기술/도구** (예: "Kubernetes", "Python", "Notion API")
+4. **문제-해결 구조** (배경 → 문제 정의 → 역할 → 성과)
+5. **기간 명시** (예: "2025.01 - 2025.04")
+6. **팀 규모/협업 정보** (예: "개발 1, 디자인 1")
+
+**예시:**
+```
+경력 상세
+OX퀴즈 리텐션 및 상품 가입 전환 엔진 기획 (전북은행) 2025.09 - 2025.10
+배경: 포인트 월렛 출시 이후 플랫폼의 핵심 과제는...
+성과: OX퀴즈는 런칭 23일 만에 단 20만 원의 포인트 비용이...
+```
+→ 이 내용은 '경력 상세' 아래에 있지만, **projects 배열에 추출해야 합니다.**
+
 """

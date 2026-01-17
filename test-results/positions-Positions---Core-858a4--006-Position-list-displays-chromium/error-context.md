@@ -1,0 +1,116 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - link "서치드" [ref=e5] [cursor=pointer]:
+        - /url: /candidates
+        - heading "서치드" [level=1] [ref=e6]
+      - navigation [ref=e7]:
+        - link "Candidates" [ref=e8] [cursor=pointer]:
+          - /url: /candidates
+          - img [ref=e9]
+          - text: Candidates
+        - link "Positions" [ref=e14] [cursor=pointer]:
+          - /url: /positions
+          - img [ref=e15]
+          - text: Positions
+        - link "Analytics" [ref=e19] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e20]
+          - text: Analytics
+        - link "Settings" [ref=e22] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e23]
+          - text: Settings
+      - generic [ref=e26]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Credits
+          - img [ref=e31]
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - img [ref=e36]
+            - generic [ref=e41]:
+              - paragraph [ref=e42]: Loading...
+              - paragraph [ref=e43]: Starter Plan
+          - button "로그아웃" [ref=e44]:
+            - img [ref=e45]
+    - main [ref=e48]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]:
+            - heading "Positions" [level=1] [ref=e52]
+            - paragraph [ref=e53]: 채용 포지션을 관리하고 후보자를 매칭하세요
+          - link "새 포지션" [ref=e54] [cursor=pointer]:
+            - /url: /positions/new
+            - img [ref=e55]
+            - text: 새 포지션
+        - generic [ref=e56]:
+          - generic [ref=e58]:
+            - img [ref=e60]
+            - generic [ref=e63]:
+              - paragraph [ref=e64]: "0"
+              - paragraph [ref=e65]: 전체 포지션
+          - generic [ref=e67]:
+            - img [ref=e69]
+            - generic [ref=e73]:
+              - paragraph [ref=e74]: "0"
+              - paragraph [ref=e75]: 진행중
+          - generic [ref=e77]:
+            - img [ref=e79]
+            - generic [ref=e81]:
+              - paragraph [ref=e82]: "0"
+              - paragraph [ref=e83]: 긴급
+          - generic [ref=e85]:
+            - img [ref=e87]
+            - generic [ref=e90]:
+              - paragraph [ref=e91]: "0"
+              - paragraph [ref=e92]: 7일 내 마감
+          - generic [ref=e94]:
+            - img [ref=e96]
+            - generic [ref=e100]:
+              - paragraph [ref=e101]: "0"
+              - paragraph [ref=e102]: 마감
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - img [ref=e105]
+            - textbox "포지션명, 회사명, 스킬로 검색..." [ref=e108]
+          - generic [ref=e109]:
+            - combobox [ref=e110] [cursor=pointer]:
+              - option "전체 상태" [selected]
+              - option "진행중"
+              - option "일시중지"
+              - option "마감"
+              - option "채용완료"
+            - generic [ref=e111]:
+              - img [ref=e112]
+              - combobox [ref=e114] [cursor=pointer]:
+                - option "최근 등록순" [selected]
+                - option "마감일순"
+                - option "우선순위순"
+        - generic [ref=e115]:
+          - img [ref=e117]
+          - heading "포지션이 없습니다" [level=3] [ref=e124]
+          - paragraph [ref=e125]: 새 포지션을 등록하여 후보자 매칭을 시작해보세요.
+          - link "첫 포지션 등록하기" [ref=e126] [cursor=pointer]:
+            - /url: /positions/new
+            - img [ref=e127]
+            - text: 첫 포지션 등록하기
+  - generic [ref=e128]:
+    - img [ref=e130]
+    - button "Open Tanstack query devtools" [ref=e178] [cursor=pointer]:
+      - img [ref=e179]
+  - generic [ref=e231] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e232]:
+      - img [ref=e233]
+    - generic [ref=e236]:
+      - button "Open issues overlay" [ref=e237]:
+        - generic [ref=e238]:
+          - generic [ref=e239]: "0"
+          - generic [ref=e240]: "1"
+        - generic [ref=e241]: Issue
+      - button "Collapse issues badge" [ref=e242]:
+        - img [ref=e243]
+  - alert [ref=e245]
+```

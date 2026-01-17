@@ -1,3 +1,9 @@
+import { test, expect } from "@playwright/test";
+
+/**
+ * E2E Tests: Analytics Module v2.0
+ *
+ * Tests for analytics dashboard with mocked Supabase RPC calls
  */
 
 test.use({ storageState: 'tests/.auth/user.json' });

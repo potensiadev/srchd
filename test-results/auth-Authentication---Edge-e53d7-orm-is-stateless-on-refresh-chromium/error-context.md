@@ -1,0 +1,63 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link "서치드" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e6]: 서치드
+        - generic [ref=e7]:
+          - link "기능" [ref=e8] [cursor=pointer]:
+            - /url: "#features"
+          - link "가격" [ref=e9] [cursor=pointer]:
+            - /url: "#pricing"
+          - link "서비스 소개" [ref=e10] [cursor=pointer]:
+            - /url: "#about"
+        - generic [ref=e11]:
+          - link "로그인" [ref=e12] [cursor=pointer]:
+            - /url: /login
+          - link "무료로 시작하기" [ref=e13] [cursor=pointer]:
+            - /url: /signup
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - img [ref=e22]
+        - heading "서비스 이용 동의" [level=1] [ref=e24]
+        - paragraph [ref=e25]: 서치드 서비스 이용을 위해 아래 약관에 동의해주세요.
+      - generic [ref=e26]:
+        - generic [ref=e28] [cursor=pointer]:
+          - checkbox "모두 동의합니다" [ref=e29]
+          - generic [ref=e30]: 모두 동의합니다
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - generic [ref=e33] [cursor=pointer]:
+              - checkbox "[필수] 서비스 이용약관" [ref=e34]
+              - generic [ref=e36]: "[필수] 서비스 이용약관"
+            - button "보기" [ref=e37]
+          - generic [ref=e38]:
+            - generic [ref=e39] [cursor=pointer]:
+              - checkbox "[필수] 개인정보 처리방침" [ref=e40]
+              - generic [ref=e42]: "[필수] 개인정보 처리방침"
+            - button "보기" [ref=e43]
+          - generic [ref=e44]:
+            - generic [ref=e45] [cursor=pointer]:
+              - checkbox "[필수] 제3자 개인정보 처리 보증" [ref=e46]
+              - generic [ref=e48]: "[필수] 제3자 개인정보 처리 보증"
+            - button "보기" [ref=e49]
+          - generic [ref=e51]:
+            - img [ref=e52]
+            - generic [ref=e54]:
+              - paragraph [ref=e55]: 중요 안내
+              - paragraph [ref=e56]: 업로드하는 이력서의 정보주체(후보자)로부터 개인정보 수집·이용 동의를 받았음을 보증합니다.
+        - button "동의하고 시작하기" [disabled]
+      - link "다른 계정으로 로그인하기" [ref=e58] [cursor=pointer]:
+        - /url: /api/auth/signout
+  - generic [ref=e59]:
+    - img [ref=e61]
+    - button "Open Tanstack query devtools" [ref=e109] [cursor=pointer]:
+      - img [ref=e110]
+  - button "Open Next.js Dev Tools" [ref=e163] [cursor=pointer]:
+    - img [ref=e164]
+  - alert [ref=e167]
+```

@@ -1,0 +1,228 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - link "서치드" [ref=e5] [cursor=pointer]:
+        - /url: /candidates
+        - heading "서치드" [level=1] [ref=e6]
+      - navigation [ref=e7]:
+        - link "Candidates" [ref=e8] [cursor=pointer]:
+          - /url: /candidates
+          - img [ref=e9]
+          - text: Candidates
+        - link "Positions" [ref=e14] [cursor=pointer]:
+          - /url: /positions
+          - img [ref=e15]
+          - text: Positions
+        - link "Analytics" [ref=e19] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e20]
+          - text: Analytics
+        - link "Settings" [ref=e22] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e23]
+          - text: Settings
+      - generic [ref=e26]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Credits
+          - generic [ref=e30]:
+            - img [ref=e31]
+            - generic [ref=e33]: Error
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - img [ref=e37]
+            - generic [ref=e42]:
+              - paragraph [ref=e43]: Loading...
+              - paragraph [ref=e44]: Starter Plan
+          - button "로그아웃" [ref=e45]:
+            - img [ref=e46]
+    - main [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - link [ref=e52] [cursor=pointer]:
+            - /url: /positions
+            - img [ref=e53]
+          - generic [ref=e55]:
+            - heading "새 포지션 등록" [level=1] [ref=e56]
+            - paragraph [ref=e57]: 채용 포지션 정보를 입력하고 후보자 매칭을 시작하세요
+        - generic [ref=e58]:
+          - generic [ref=e59]:
+            - generic [ref=e60]:
+              - img [ref=e61]
+              - text: JD에서 자동 추출
+            - paragraph [ref=e64]: JD(채용공고) 파일을 업로드하면 AI가 자동으로 포지션 정보를 추출합니다.
+            - generic [ref=e65]:
+              - generic [ref=e66] [cursor=pointer]:
+                - img [ref=e67]
+                - text: JD 파일 업로드
+              - generic [ref=e70]: PDF, DOCX, DOC (최대 5MB)
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - img [ref=e73]
+              - text: 기본 정보
+            - generic [ref=e76]:
+              - generic [ref=e77]:
+                - generic [ref=e78]: 포지션명 *
+                - 'textbox "예: 시니어 백엔드 개발자" [ref=e79]'
+              - generic [ref=e80]:
+                - generic [ref=e81]:
+                  - img [ref=e82]
+                  - text: 고객사
+                - textbox "회사명" [ref=e86]
+              - generic [ref=e87]:
+                - generic [ref=e88]: 부서
+                - 'textbox "예: 개발팀" [ref=e89]'
+            - generic [ref=e90]:
+              - generic [ref=e91]:
+                - img [ref=e92]
+                - text: 상세 설명 (JD)
+              - textbox "포지션 상세 설명, 담당 업무, 자격 요건 등을 입력하세요. 상세할수록 AI 매칭 정확도가 높아집니다." [ref=e95]
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - img [ref=e98]
+              - text: 주요 업무
+            - paragraph [ref=e101]: JD에서 추출된 주요업무/담당업무 내용입니다. 수정하거나 직접 입력할 수 있습니다.
+            - 'textbox "예: - 백엔드 시스템 설계 및 개발 - API 개발 및 최적화 - 데이터베이스 설계 및 관리" [ref=e102]'
+          - generic [ref=e103]:
+            - generic [ref=e104]:
+              - img [ref=e105]
+              - text: 자격 요건
+            - paragraph [ref=e108]: JD에서 추출된 필수 자격요건 내용입니다. 학력, 경력, 기술 요건 등 전체 맥락이 보존됩니다.
+            - 'textbox "예: - 컴퓨터공학 또는 관련 전공 학사 이상 - 백엔드 개발 경력 3년 이상 - Python, Java 등 1개 이상 언어 능숙" [ref=e109]'
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - img [ref=e112]
+              - text: 우대 사항
+            - paragraph [ref=e115]: JD에서 추출된 우대사항 내용입니다. 우대 조건의 전체 맥락이 보존됩니다.
+            - 'textbox "예: - 대규모 트래픽 처리 경험 - MSA 아키텍처 경험 - 오픈소스 기여 경험" [ref=e116]'
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - img [ref=e119]
+              - text: 복리후생
+              - generic [ref=e123]: (선택)
+            - paragraph [ref=e124]: JD에 복리후생 정보가 있으면 자동으로 추출됩니다.
+            - 'textbox "예: - 유연근무제 - 자기개발비 지원 - 건강검진 지원" [ref=e125]'
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - img [ref=e128]
+              - text: 필수 스킬
+            - generic [ref=e133]:
+              - generic [ref=e134]: 추출된 필수 스킬 (JD에서 추출)
+              - textbox "JD 파일 업로드 시 자동으로 추출된 필수 스킬이 표시됩니다. 직접 입력하거나 수정할 수 있습니다." [ref=e135]
+            - generic [ref=e136]:
+              - generic [ref=e137]: 필수 스킬 태그
+              - generic [ref=e138]:
+                - textbox "스킬 입력 후 Enter (쉼표로 여러 개 입력)" [ref=e139]
+                - button [ref=e140]:
+                  - img [ref=e141]
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - img [ref=e144]
+              - text: 우대 스킬
+            - generic [ref=e147]:
+              - generic [ref=e148]: 추출된 우대 스킬 (JD에서 추출)
+              - textbox "JD 파일 업로드 시 자동으로 추출된 우대 스킬이 표시됩니다. 직접 입력하거나 수정할 수 있습니다." [ref=e149]
+            - generic [ref=e150]:
+              - generic [ref=e151]: 우대 스킬 태그
+              - generic [ref=e152]:
+                - textbox "스킬 입력 후 Enter (쉼표로 여러 개 입력)" [ref=e153]
+                - button [ref=e154]:
+                  - img [ref=e155]
+          - generic [ref=e156]:
+            - generic [ref=e157]:
+              - img [ref=e158]
+              - text: 경력 & 학력
+            - generic [ref=e161]:
+              - generic [ref=e162]:
+                - generic [ref=e163]: 최소 경력 (년) *
+                - spinbutton [ref=e164]: "0"
+              - generic [ref=e165]:
+                - generic [ref=e166]: 최대 경력 (년)
+                - spinbutton [ref=e167]
+              - generic [ref=e168]:
+                - generic [ref=e169]: 학력 요건
+                - combobox [ref=e170] [cursor=pointer]:
+                  - option "무관" [selected]
+                  - option "고졸"
+                  - option "전문학사"
+                  - option "학사"
+                  - option "석사"
+                  - option "박사"
+              - generic [ref=e171]:
+                - generic [ref=e172]: 우대 전공
+                - generic [ref=e173]:
+                  - textbox "전공 입력" [ref=e174]
+                  - button [ref=e175]:
+                    - img [ref=e176]
+          - generic [ref=e177]:
+            - generic [ref=e178]:
+              - img [ref=e179]
+              - text: 근무 조건
+            - generic [ref=e182]:
+              - generic [ref=e183]:
+                - generic [ref=e184]: 근무 형태
+                - combobox [ref=e185] [cursor=pointer]:
+                  - option "선택 안 함" [selected]
+                  - option "정규직"
+                  - option "계약직"
+                  - option "프리랜서"
+                  - option "인턴"
+              - generic [ref=e186]:
+                - generic [ref=e187]: 근무지
+                - 'textbox "예: 서울 강남" [ref=e188]'
+              - generic [ref=e189]:
+                - generic [ref=e190]:
+                  - img [ref=e191]
+                  - text: 연봉 하한 (만원)
+                - spinbutton [ref=e193]
+              - generic [ref=e194]:
+                - generic [ref=e195]: 연봉 상한 (만원)
+                - spinbutton [ref=e196]
+          - generic [ref=e197]:
+            - generic [ref=e198]:
+              - img [ref=e199]
+              - text: 우선순위 & 일정
+            - generic [ref=e201]:
+              - generic [ref=e202]:
+                - generic [ref=e203]: 우선순위
+                - generic [ref=e204]:
+                  - button "긴급 즉시 채용 필요" [ref=e205]:
+                    - generic [ref=e206]: 긴급
+                    - generic [ref=e207]: 즉시 채용 필요
+                  - button "높음 2주 내 채용 목표" [ref=e208]:
+                    - generic [ref=e209]: 높음
+                    - generic [ref=e210]: 2주 내 채용 목표
+                  - button "보통 1개월 내 채용 목표" [ref=e211]:
+                    - generic [ref=e212]: 보통
+                    - generic [ref=e213]: 1개월 내 채용 목표
+                  - button "낮음 적합한 인재 발굴 시" [ref=e214]:
+                    - generic [ref=e215]: 낮음
+                    - generic [ref=e216]: 적합한 인재 발굴 시
+              - generic [ref=e217]:
+                - generic [ref=e218]: 채용 마감일
+                - textbox [ref=e219]
+          - generic [ref=e220]:
+            - link "취소" [ref=e221] [cursor=pointer]:
+              - /url: /positions
+            - button "포지션 생성" [ref=e222]:
+              - img [ref=e223]
+              - text: 포지션 생성
+  - generic [ref=e224]:
+    - img [ref=e226]
+    - button "Open Tanstack query devtools" [ref=e274] [cursor=pointer]:
+      - img [ref=e275]
+  - generic [ref=e327] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e328]:
+      - img [ref=e329]
+    - generic [ref=e332]:
+      - button "Open issues overlay" [ref=e333]:
+        - generic [ref=e334]:
+          - generic [ref=e335]: "0"
+          - generic [ref=e336]: "1"
+        - generic [ref=e337]: Issue
+      - button "Collapse issues badge" [ref=e338]:
+        - img [ref=e339]
+  - alert [ref=e341]
+```

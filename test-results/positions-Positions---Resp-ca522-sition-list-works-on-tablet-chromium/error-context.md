@@ -1,0 +1,118 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - link "서치드" [ref=e5] [cursor=pointer]:
+        - /url: /candidates
+        - heading "서치드" [level=1] [ref=e6]
+      - navigation [ref=e7]:
+        - link "Candidates" [ref=e8] [cursor=pointer]:
+          - /url: /candidates
+          - img [ref=e9]
+          - text: Candidates
+        - link "Positions" [ref=e14] [cursor=pointer]:
+          - /url: /positions
+          - img [ref=e15]
+          - text: Positions
+        - link "Analytics" [ref=e19] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e20]
+          - text: Analytics
+        - link "Settings" [ref=e22] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e23]
+          - text: Settings
+      - generic [ref=e26]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: Credits
+          - generic [ref=e30]:
+            - img [ref=e31]
+            - generic [ref=e33]: Error
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - img [ref=e37]
+            - generic [ref=e42]:
+              - paragraph [ref=e43]: Loading...
+              - paragraph [ref=e44]: Starter Plan
+          - button "로그아웃" [ref=e45]:
+            - img [ref=e46]
+    - main [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e52]:
+            - heading "Positions" [level=1] [ref=e53]
+            - paragraph [ref=e54]: 채용 포지션을 관리하고 후보자를 매칭하세요
+          - link "새 포지션" [ref=e55] [cursor=pointer]:
+            - /url: /positions/new
+            - img [ref=e56]
+            - text: 새 포지션
+        - generic [ref=e57]:
+          - generic [ref=e59]:
+            - img [ref=e61]
+            - generic [ref=e64]:
+              - paragraph [ref=e65]: "0"
+              - paragraph [ref=e66]: 전체 포지션
+          - generic [ref=e68]:
+            - img [ref=e70]
+            - generic [ref=e74]:
+              - paragraph [ref=e75]: "0"
+              - paragraph [ref=e76]: 진행중
+          - generic [ref=e78]:
+            - img [ref=e80]
+            - generic [ref=e82]:
+              - paragraph [ref=e83]: "0"
+              - paragraph [ref=e84]: 긴급
+          - generic [ref=e86]:
+            - img [ref=e88]
+            - generic [ref=e91]:
+              - paragraph [ref=e92]: "0"
+              - paragraph [ref=e93]: 7일 내 마감
+          - generic [ref=e95]:
+            - img [ref=e97]
+            - generic [ref=e101]:
+              - paragraph [ref=e102]: "0"
+              - paragraph [ref=e103]: 마감
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - img [ref=e106]
+            - textbox "포지션명, 회사명, 스킬로 검색..." [ref=e109]
+          - generic [ref=e110]:
+            - combobox [ref=e111] [cursor=pointer]:
+              - option "전체 상태" [selected]
+              - option "진행중"
+              - option "일시중지"
+              - option "마감"
+              - option "채용완료"
+            - generic [ref=e112]:
+              - img [ref=e113]
+              - combobox [ref=e115] [cursor=pointer]:
+                - option "최근 등록순" [selected]
+                - option "마감일순"
+                - option "우선순위순"
+        - generic [ref=e116]:
+          - img [ref=e118]
+          - heading "포지션이 없습니다" [level=3] [ref=e125]
+          - paragraph [ref=e126]: 새 포지션을 등록하여 후보자 매칭을 시작해보세요.
+          - link "첫 포지션 등록하기" [ref=e127] [cursor=pointer]:
+            - /url: /positions/new
+            - img [ref=e128]
+            - text: 첫 포지션 등록하기
+  - generic [ref=e129]:
+    - img [ref=e131]
+    - button "Open Tanstack query devtools" [ref=e179] [cursor=pointer]:
+      - img [ref=e180]
+  - generic [ref=e232] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e233]:
+      - img [ref=e234]
+    - generic [ref=e237]:
+      - button "Open issues overlay" [ref=e238]:
+        - generic [ref=e239]:
+          - generic [ref=e240]: "0"
+          - generic [ref=e241]: "1"
+        - generic [ref=e242]: Issue
+      - button "Collapse issues badge" [ref=e243]:
+        - img [ref=e244]
+  - alert [ref=e246]
+```

@@ -1,0 +1,30 @@
+﻿node.exe : open supabase\.tem
+p\profile: The system cannot 
+find the file specified.
+위치 C:\Program Files\nodejs\np
+x.ps1:29 문자:3
++   & $NODE_EXE $NPX_CLI_JS $
+args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~
+    + CategoryInfo           
+   : NotSpecified    : (open 
+supabase\..    ..file specifi
+ed.:S    tring) [], RemoteEx 
+   ception
+    + FullyQualifiedErr    or
+Id : NativeComman    dError
+ 
+Supabase CLI 2.72.8
+Using profile: supabase (supa
+base.co)
+Connecting to remote database
+...
+failed to connect to postgres
+: failed to connect to `host=
+db.vrlraledlhiklsbncwaf.supab
+ase.co user=postgres database
+=postgres`: hostname resolvin
+g error (lookup db.vrlraledlh
+iklsbncwaf.supabase.co: no su
+ch host)

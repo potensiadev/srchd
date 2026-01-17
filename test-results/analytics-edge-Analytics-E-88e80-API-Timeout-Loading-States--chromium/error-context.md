@@ -2,59 +2,50 @@
 
 ```yaml
 - generic [active] [ref=e1]:
-  - generic [ref=e6] [cursor=pointer]:
-    - button "Open Next.js Dev Tools" [ref=e7]:
-      - img [ref=e8]
-    - generic [ref=e11]:
-      - button "Open issues overlay" [ref=e12]:
-        - generic [ref=e13]:
-          - generic [ref=e14]: "0"
-          - generic [ref=e15]: "1"
-        - generic [ref=e16]: Issue
-      - button "Collapse issues badge" [ref=e17]:
-        - img [ref=e18]
-  - generic [ref=e20]:
-    - navigation [ref=e21]:
-      - generic [ref=e22]:
-        - link "서치드" [ref=e23] [cursor=pointer]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link "서치드" [ref=e5] [cursor=pointer]:
           - /url: /
-          - generic [ref=e24]: 서치드
-        - generic [ref=e25]:
-          - link "기능" [ref=e26] [cursor=pointer]:
+          - generic [ref=e6]: 서치드
+        - generic [ref=e7]:
+          - link "기능" [ref=e8] [cursor=pointer]:
             - /url: "#features"
-          - link "가격" [ref=e27] [cursor=pointer]:
+          - link "가격" [ref=e9] [cursor=pointer]:
             - /url: "#pricing"
-          - link "서비스 소개" [ref=e28] [cursor=pointer]:
+          - link "서비스 소개" [ref=e10] [cursor=pointer]:
             - /url: "#about"
-        - generic [ref=e29]:
-          - link "로그인" [ref=e30] [cursor=pointer]:
+        - generic [ref=e11]:
+          - link "로그인" [ref=e12] [cursor=pointer]:
             - /url: /login
-          - link "무료로 시작하기" [ref=e31] [cursor=pointer]:
+          - link "무료로 시작하기" [ref=e13] [cursor=pointer]:
             - /url: /signup
-    - generic [ref=e37]:
-      - generic [ref=e38]:
-        - generic [ref=e39]:
-          - heading "Login" [level=1] [ref=e40]
-          - paragraph [ref=e41]: 오늘도 헤드헌터님을 돕겠습니다
-        - button "Google 계정으로 로그인" [ref=e42]:
-          - img [ref=e43]
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - heading "Login" [level=1] [ref=e22]
+          - paragraph [ref=e23]: 오늘도 헤드헌터님을 돕겠습니다
+        - button "Google 계정으로 로그인" [ref=e24]:
+          - img [ref=e25]
           - text: Google 계정으로 로그인
-        - generic [ref=e52]: 안전한 로그인
-        - paragraph [ref=e53]:
+        - generic [ref=e34]: 안전한 로그인
+        - paragraph [ref=e35]:
           - text: 로그인 시
-          - link "서비스 이용약관" [ref=e54] [cursor=pointer]:
+          - link "서비스 이용약관" [ref=e36] [cursor=pointer]:
             - /url: /terms
           - text: 및
-          - link "개인정보처리방침" [ref=e55] [cursor=pointer]:
+          - link "개인정보처리방침" [ref=e37] [cursor=pointer]:
             - /url: /privacy
           - text: 에 동의합니다.
-      - paragraph [ref=e56]:
+      - paragraph [ref=e38]:
         - text: 처음이신가요?
-        - link "무료로 시작하기" [ref=e57] [cursor=pointer]:
+        - link "무료로 시작하기" [ref=e39] [cursor=pointer]:
           - /url: /signup
-  - generic [ref=e58]:
-    - img [ref=e60]
-    - button "Open Tanstack query devtools" [ref=e108] [cursor=pointer]:
-      - img [ref=e109]
-  - alert [ref=e157]
+  - generic [ref=e40]:
+    - img [ref=e42]
+    - button "Open Tanstack query devtools" [ref=e90] [cursor=pointer]:
+      - img [ref=e91]
+  - button "Open Next.js Dev Tools" [ref=e144] [cursor=pointer]:
+    - img [ref=e145]
+  - alert [ref=e148]
 ```
