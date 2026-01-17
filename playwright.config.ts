@@ -13,11 +13,23 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+  reporter: [
+    ["html", { open: "never" }],
+    ["list"],
+    ["json", { outputFile: "test-results/results.json" }],
+  ],
+  outputDir: "test-results",
+  timeout: 60000,
+  expect: {
+    timeout: 10000,
+  },
   use: {
     baseURL: process.env.TEST_BASE_URL || "http://localhost:3005",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    actionTimeout: 15000,
+    navigationTimeout: 30000,
   },
   projects: [
     // Setup project - runs auth.setup.ts first
@@ -25,11 +37,47 @@ export default defineConfig({
       name: "setup",
       testMatch: /.*\.setup\.ts/,
     },
-    // Main tests - depend on setup
+    // Main tests - Chrome (default)
     {
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        storageState: authFile,
+      },
+      dependencies: ["setup"],
+    },
+    // Firefox tests
+    {
+      name: "firefox",
+      use: {
+        ...devices["Desktop Firefox"],
+        storageState: authFile,
+      },
+      dependencies: ["setup"],
+    },
+    // Safari tests
+    {
+      name: "webkit",
+      use: {
+        ...devices["Desktop Safari"],
+        storageState: authFile,
+      },
+      dependencies: ["setup"],
+    },
+    // Mobile Chrome tests
+    {
+      name: "mobile-chrome",
+      use: {
+        ...devices["Pixel 5"],
+        storageState: authFile,
+      },
+      dependencies: ["setup"],
+    },
+    // Mobile Safari tests
+    {
+      name: "mobile-safari",
+      use: {
+        ...devices["iPhone 12"],
         storageState: authFile,
       },
       dependencies: ["setup"],

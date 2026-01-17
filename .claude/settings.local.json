@@ -91,7 +91,17 @@
       "Bash(start \"\" \"D:\\\\RAI\\\\recruiter-pain-v2.html\")",
       "Bash(start \"\" \"D:\\\\RAI\\\\recruiter-pain-v3.html\")",
       "Skill(webapp-testing)",
-      "Bash(railway status:*)"
+      "Bash(railway status:*)",
+      "Bash(npm list:*)",
+      "Bash(for f in csrf error-codes config/plans config/upload hooks/useNetworkStatus hooks/useSearchHistory observability/alerts physics search/synonyms)",
+      "Bash(do if grep -r \"$f\" \"D:\\\\RAI\\\\app\" \"D:\\\\RAI\\\\components\" --include=\"*.tsx\" --include=\"*.ts\")",
+      "Bash(then echo \"$f: USED\")",
+      "Bash(else echo \"$f: UNUSED\")",
+      "Bash(fi)",
+      "Bash(for file in csrf error-codes physics rate-limit)",
+      "Bash(do if grep -r \"@/lib/$file\\\\|from.*lib/$file\" \"D:\\\\RAI\\\\app\" \"D:\\\\RAI\\\\components\" \"D:\\\\RAI\\\\lib\" --include=\"*.ts\" --include=\"*.tsx\")",
+      "Bash(then echo \"$file: USED\")",
+      "Bash(else echo \"$file: UNUSED\")"
     ]
   }
 }

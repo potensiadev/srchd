@@ -116,9 +116,11 @@ ON candidates(deleted_at)
 WHERE deleted_at IS NOT NULL;
 
 -- 환불 상태 후보자 인덱스 (90일 후 정리용)
-CREATE INDEX IF NOT EXISTS idx_candidates_status_deleted
-ON candidates(status, deleted_at)
-WHERE status IN ('refunded', 'deleted');
+-- NOTE: enum 값 추가 후 별도 트랜잭션에서 실행 필요
+-- 029b 마이그레이션에서 생성
+-- CREATE INDEX IF NOT EXISTS idx_candidates_status_deleted
+-- ON candidates(status, deleted_at)
+-- WHERE status IN ('refunded', 'deleted');
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- 6. 품질 환불 처리 RPC 함수 (Atomic + Idempotent + Advisory Lock)

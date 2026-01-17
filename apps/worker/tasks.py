@@ -502,14 +502,17 @@ def process_resume(
             careers = analyzed_data.get("careers", [])
             if careers:
                 career_summary = calculate_total_experience(careers)
+                # 계산된 경력 연수로 GPT 추출값 덮어쓰기
+                analyzed_data["exp_years"] = career_summary.years
                 analyzed_data["exp_total_months"] = career_summary.total_months
                 analyzed_data["exp_display"] = career_summary.format_korean()
                 analyzed_data["has_current_job"] = career_summary.has_current_job
+                original_data["exp_years"] = career_summary.years
                 original_data["exp_total_months"] = career_summary.total_months
                 original_data["exp_display"] = career_summary.format_korean()
                 logger.info(
-                    f"[Task] Career calculated: {career_summary.total_months} months "
-                    f"({career_summary.format_korean()})"
+                    f"[Task] Career calculated: {career_summary.years} years, "
+                    f"{career_summary.total_months} months ({career_summary.format_korean()})"
                 )
 
             # 학력 졸업 상태 판별
@@ -824,38 +827,6 @@ def full_pipeline(
 
         if not parse_result.get("success"):
             return parse_result
-
-        # ─────────────────────────────────────────────────
-        # Progressive Loading Phase 1: 빠른 기본 정보 추출
-        # 파싱 완료 직후, AI 분석 전에 기본 정보를 먼저 저장
-        # ─────────────────────────────────────────────────
-        if candidate_id:
-            try:
-                from utils.quick_extractor import extract_quick_info
-
-                parsed_text = parse_result.get("text", "")
-                quick_data = extract_quick_info(parsed_text)
-
-                # DB에 parsed 상태로 저장 + quick_extracted 데이터
-                db_service.update_candidate_quick_extracted(candidate_id, quick_data)
-
-                # Job 상태를 'analyzing'으로 업데이트
-                db_service.update_job_status(job_id, status="analyzing")
-
-                # Webhook: parsed 단계 알림 (UI 실시간 업데이트)
-                notify_webhook(job_id, "parsed", result={
-                    "candidate_id": candidate_id,
-                    "phase": "parsed",
-                    "quick_data": quick_data,
-                })
-
-                logger.info(
-                    f"[Progressive] Phase 1 completed: candidate={candidate_id}, "
-                    f"name={quick_data.get('name')}, company={quick_data.get('last_company')}"
-                )
-            except Exception as quick_error:
-                # 빠른 추출 실패해도 전체 파이프라인은 계속 진행
-                logger.warning(f"[Progressive] Quick extraction failed: {quick_error}")
 
         # Step 2: 이력서 처리
         process_result = process_resume(

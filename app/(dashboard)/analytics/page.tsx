@@ -5,23 +5,14 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Users,
   FileText,
-  Loader2,
   ArrowUp,
   ArrowDown,
   Briefcase,
-  Calendar,
   Target,
-  Clock,
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
-  Phone,
   UserCheck,
-  Building2,
-  MapPin,
-  Sparkles,
-  ChevronRight,
   Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,24 +42,6 @@ interface PositionHealth {
   stuckCount: number; // candidates not progressing
   daysOpen: number;
   healthStatus: "critical" | "warning" | "good";
-}
-
-interface SkillStat {
-  skill: string;
-  count: number;
-  percentage: number;
-}
-
-interface CompanyStat {
-  company: string;
-  count: number;
-  percentage: number;
-}
-
-interface LocationStat {
-  location: string;
-  count: number;
-  percentage: number;
 }
 
 interface RecentActivity {
@@ -104,12 +77,6 @@ interface AnalyticsData {
   // Position health
   positionHealth: PositionHealth[];
 
-  // Talent pool analytics
-  expDistribution: { range: string; count: number; min: number; max: number }[];
-  topSkills: SkillStat[];
-  topCompanies: CompanyStat[];
-  locationDistribution: LocationStat[];
-
   // Activity
   recentActivities: RecentActivity[];
 
@@ -142,7 +109,6 @@ const PIPELINE_STAGES: MatchStage[] = ["matched", "reviewed", "contacted", "inte
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedExpRange, setSelectedExpRange] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -161,12 +127,7 @@ export default function AnalyticsPage() {
       // Type definitions for Supabase results
       type CandidateRow = {
         id: string;
-        exp_years: number | null;
         created_at: string;
-        skills: string[] | null;
-        careers: { company: string }[] | null;
-        address: string | null;
-        last_company: string | null;
       };
 
       type PositionRow = {
@@ -202,10 +163,10 @@ export default function AnalyticsPage() {
         pipelineResult,
         activitiesResult,
       ] = await Promise.all([
-        // Candidates with skills and careers
+        // Candidates count
         supabase
           .from("candidates")
-          .select("id, exp_years, created_at, skills, careers, address, last_company")
+          .select("id, created_at")
           .eq("status", "completed")
           .eq("is_latest", true),
 
@@ -250,24 +211,6 @@ export default function AnalyticsPage() {
         const date = new Date(c.created_at);
         return date.getMonth() === lastMonth && date.getFullYear() === lastMonthYear;
       }).length;
-
-      // Experience distribution
-      const expRanges = [
-        { range: "신입 (0-2년)", min: 0, max: 2 },
-        { range: "주니어 (3-5년)", min: 3, max: 5 },
-        { range: "미들 (6-9년)", min: 6, max: 9 },
-        { range: "시니어 (10-14년)", min: 10, max: 14 },
-        { range: "리드급 (15년+)", min: 15, max: 100 },
-      ];
-      const expDistribution = expRanges.map(({ range, min, max }) => ({
-        range,
-        min,
-        max,
-        count: candidates.filter((c) => {
-          const exp = c.exp_years || 0;
-          return exp >= min && (max === 100 ? true : exp <= max);
-        }).length,
-      }));
 
       // Pipeline stages aggregation
       const stageCounts: Record<string, number> = {};
@@ -334,61 +277,6 @@ export default function AnalyticsPage() {
         })
         .slice(0, 5);
 
-      // Top skills aggregation
-      const skillCounts: Record<string, number> = {};
-      for (const c of candidates) {
-        const skills = (c.skills as string[]) || [];
-        for (const skill of skills) {
-          skillCounts[skill] = (skillCounts[skill] || 0) + 1;
-        }
-      }
-      const topSkills: SkillStat[] = Object.entries(skillCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([skill, count]) => ({
-          skill,
-          count,
-          percentage: totalCandidates > 0 ? (count / totalCandidates) * 100 : 0,
-        }));
-
-      // Top companies aggregation
-      const companyCounts: Record<string, number> = {};
-      for (const c of candidates) {
-        const careers = (c.careers as { company: string }[]) || [];
-        for (const career of careers) {
-          if (career.company) {
-            companyCounts[career.company] = (companyCounts[career.company] || 0) + 1;
-          }
-        }
-      }
-      const topCompanies: CompanyStat[] = Object.entries(companyCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8)
-        .map(([company, count]) => ({
-          company,
-          count,
-          percentage: totalCandidates > 0 ? (count / totalCandidates) * 100 : 0,
-        }));
-
-      // Location distribution
-      const locationCounts: Record<string, number> = {};
-      for (const c of candidates) {
-        const address = c.address as string | undefined;
-        if (address) {
-          // Extract city from address (first part before space or comma)
-          const city = address.split(/[\s,]/)[0] || "기타";
-          locationCounts[city] = (locationCounts[city] || 0) + 1;
-        }
-      }
-      const locationDistribution: LocationStat[] = Object.entries(locationCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6)
-        .map(([location, count]) => ({
-          location,
-          count,
-          percentage: totalCandidates > 0 ? (count / totalCandidates) * 100 : 0,
-        }));
-
       // Recent activities
       const recentActivities: RecentActivity[] = activities.map((a) => {
         let type: RecentActivity["type"] = "stage_change";
@@ -444,10 +332,6 @@ export default function AnalyticsPage() {
         activePositions,
         urgentPositions,
         positionHealth,
-        expDistribution,
-        topSkills,
-        topCompanies,
-        locationDistribution,
         recentActivities,
         monthlyPlacements,
         monthlyCandidates,
@@ -499,11 +383,6 @@ export default function AnalyticsPage() {
       </div>
     );
   }
-
-  const maxExpCount = Math.max(...data.expDistribution.map((e) => e.count), 1);
-  const totalInDistribution = data.expDistribution.reduce((sum, e) => sum + e.count, 0);
-  const maxSkillCount = Math.max(...data.topSkills.map((s) => s.count), 1);
-  const maxCompanyCount = Math.max(...data.topCompanies.map((c) => c.count), 1);
 
   return (
     <div className="space-y-8 pb-8">
@@ -790,231 +669,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* Section 4: Talent Pool Analytics */}
-      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Skills */}
-        <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">보유 스킬 TOP 10</h3>
-              <p className="text-sm text-gray-500 mt-0.5">인재풀 내 스킬 분포</p>
-            </div>
-            <Sparkles className="w-5 h-5 text-gray-400" />
-          </div>
-
-          {data.topSkills.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-gray-400">
-              <Sparkles className="w-10 h-10 mb-2" />
-              <p className="text-sm">스킬 데이터가 없습니다</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {data.topSkills.map((skill, index) => (
-                <div key={skill.skill} className="group">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-gray-100 text-xs font-medium text-gray-600 flex items-center justify-center">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm font-medium text-gray-700">{skill.skill}</span>
-                    </div>
-                    <span className="text-sm text-gray-500">{skill.count}명</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-7">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary to-blue-400 rounded-full transition-all duration-500 group-hover:from-primary group-hover:to-primary"
-                      style={{ width: `${(skill.count / maxSkillCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Top Companies */}
-        <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">출신 회사 TOP 8</h3>
-              <p className="text-sm text-gray-500 mt-0.5">후보자 경력 출처</p>
-            </div>
-            <Building2 className="w-5 h-5 text-gray-400" />
-          </div>
-
-          {data.topCompanies.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-gray-400">
-              <Building2 className="w-10 h-10 mb-2" />
-              <p className="text-sm">회사 데이터가 없습니다</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {data.topCompanies.map((company, index) => (
-                <div key={company.company} className="group">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-gray-100 text-xs font-medium text-gray-600 flex items-center justify-center">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm font-medium text-gray-700 truncate max-w-[200px]">
-                        {company.company}
-                      </span>
-                    </div>
-                    <span className="text-sm text-gray-500">{company.count}명</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-7">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-400 rounded-full transition-all duration-500 group-hover:from-indigo-500 group-hover:to-indigo-500"
-                      style={{ width: `${(company.count / maxCompanyCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* Section 5: Experience & Location Distribution */}
-      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Experience Distribution */}
-        <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">경력 분포</h3>
-              <p className="text-sm text-gray-500 mt-0.5">등록된 후보자의 총 경력 기준</p>
-            </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50">
-              <Briefcase className="w-4 h-4 text-gray-400" />
-              <span className="text-sm text-gray-600">총 {totalInDistribution}명</span>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {data.expDistribution.map((item, index) => {
-              const percentage = totalInDistribution > 0
-                ? Math.round((item.count / totalInDistribution) * 100)
-                : 0;
-              const isSelected = selectedExpRange === item.range;
-
-              return (
-                <div
-                  key={index}
-                  className={cn(
-                    "group cursor-pointer rounded-lg p-2 -mx-2 transition-colors",
-                    isSelected ? "bg-primary/5" : "hover:bg-gray-50"
-                  )}
-                  onClick={() => setSelectedExpRange(isSelected ? null : item.range)}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={cn(
-                      "text-sm font-medium",
-                      isSelected ? "text-primary" : "text-gray-700"
-                    )}>
-                      {item.range}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-500">{percentage}%</span>
-                      <span className={cn(
-                        "text-sm font-semibold",
-                        isSelected ? "text-primary" : "text-gray-900"
-                      )}>
-                        {item.count}명
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-500",
-                        isSelected
-                          ? "bg-primary"
-                          : "bg-gradient-to-r from-primary to-blue-400 group-hover:from-primary group-hover:to-primary"
-                      )}
-                      style={{ width: `${(item.count / maxExpCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Location Distribution */}
-        <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">지역 분포</h3>
-              <p className="text-sm text-gray-500 mt-0.5">후보자 거주 지역</p>
-            </div>
-            <MapPin className="w-5 h-5 text-gray-400" />
-          </div>
-
-          {data.locationDistribution.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-gray-400">
-              <MapPin className="w-10 h-10 mb-2" />
-              <p className="text-sm">지역 데이터가 없습니다</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              {data.locationDistribution.map((loc, index) => {
-                const colors = [
-                  "bg-blue-500",
-                  "bg-emerald-500",
-                  "bg-purple-500",
-                  "bg-amber-500",
-                  "bg-pink-500",
-                  "bg-cyan-500",
-                ];
-                const bgColors = [
-                  "bg-blue-50",
-                  "bg-emerald-50",
-                  "bg-purple-50",
-                  "bg-amber-50",
-                  "bg-pink-50",
-                  "bg-cyan-50",
-                ];
-                const textColors = [
-                  "text-blue-700",
-                  "text-emerald-700",
-                  "text-purple-700",
-                  "text-amber-700",
-                  "text-pink-700",
-                  "text-cyan-700",
-                ];
-
-                return (
-                  <div
-                    key={loc.location}
-                    className={cn(
-                      "p-4 rounded-xl",
-                      bgColors[index % bgColors.length]
-                    )}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className={cn("w-2 h-2 rounded-full", colors[index % colors.length])} />
-                      <span className={cn("font-medium", textColors[index % textColors.length])}>
-                        {loc.location}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold text-gray-900">{loc.count}</span>
-                      <span className="text-sm text-gray-500">명</span>
-                    </div>
-                    <span className="text-xs text-gray-500">{loc.percentage.toFixed(1)}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* Section 6: Monthly Trends */}
+      {/* Section 4: Monthly Trends */}
       {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm">
         <div className="flex items-center justify-between mb-6">

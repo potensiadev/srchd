@@ -1,9 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { FileText, Cpu, ChevronLeft, ChevronRight, Maximize2, Minimize2, Loader2 } from "lucide-react";
-import PDFViewer from "@/components/ui/PDFViewer";
+
+// Dynamic import to avoid SSR issues with pdfjs-dist
+const PDFViewer = dynamic(() => import("@/components/ui/PDFViewer"), {
+    ssr: false,
+    loading: () => (
+        <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+    ),
+});
 
 interface SplitViewerProps {
     pdfUrl?: string;

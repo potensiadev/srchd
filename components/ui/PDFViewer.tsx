@@ -6,9 +6,9 @@ import { Loader2, AlertCircle, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// Configure PDF worker
-// Using CDN to avoid Next.js build issues with server components
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Configure PDF worker - use CDN with matching version from react-pdf
+// pdfjs.version comes from react-pdf's bundled pdfjs-dist
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
     url: string;
