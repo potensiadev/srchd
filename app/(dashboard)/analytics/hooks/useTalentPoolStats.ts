@@ -1,68 +1,112 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import useSWR, { useSWRConfig } from "swr";
 import { createClient } from "@/lib/supabase/client";
+import { useCallback } from "react";
 
 export interface ExpDistribution {
-    entry: number;
-    junior: number;
-    middle: number;
-    senior: number;
-    lead: number;
+  entry: number;
+  junior: number;
+  middle: number;
+  senior: number;
+  lead: number;
 }
 
-export interface SkillData {
-    name: string;
-    skill_count: number;
+export interface SkillStat {
+  name: string;
+  skill_count: number;
 }
 
-export interface CompanyData {
-    name: string;
-    company_count: number;
+export interface CompanyStat {
+  name: string;
+  company_count: number;
 }
 
 export interface MonthlyData {
-    month_key: string;
-    month_label: string;
-    count: number;
+  month_key: string;
+  month_label: string;
+  count: number;
 }
 
 export interface TalentPoolStats {
-    exp_distribution: ExpDistribution;
-    top_skills: SkillData[] | null;
-    top_companies: CompanyData[] | null;
-    monthly_candidates: MonthlyData[] | null;
-    monthly_placements: MonthlyData[] | null;
+  exp_distribution: ExpDistribution;
+  top_skills: SkillStat[] | null;
+  top_companies: CompanyStat[] | null;
+  monthly_candidates: MonthlyData[] | null;
+  monthly_placements: MonthlyData[] | null;
 }
 
-const ANALYTICS_STALE_TIME = 5 * 60 * 1000; // 5 minutes
+export interface FormattedExpRange {
+  range: string;
+  label: string;
+  count: number;
+  min: number;
+  max: number;
+}
+
+const fetcher = async (): Promise<TalentPoolStats> => {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_talent_pool_stats");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as TalentPoolStats;
+};
+
+function formatExpDistribution(dist: ExpDistribution | undefined): FormattedExpRange[] {
+  if (!dist) {
+    return [
+      { range: "entry", label: "신입 (0-2년)", count: 0, min: 0, max: 2 },
+      { range: "junior", label: "주니어 (2-5년)", count: 0, min: 2, max: 5 },
+      { range: "middle", label: "미들 (5-8년)", count: 0, min: 5, max: 8 },
+      { range: "senior", label: "시니어 (8-12년)", count: 0, min: 8, max: 12 },
+      { range: "lead", label: "리드급 (12년+)", count: 0, min: 12, max: 100 },
+    ];
+  }
+
+  return [
+    { range: "entry", label: "신입 (0-2년)", count: dist.entry || 0, min: 0, max: 2 },
+    { range: "junior", label: "주니어 (2-5년)", count: dist.junior || 0, min: 2, max: 5 },
+    { range: "middle", label: "미들 (5-8년)", count: dist.middle || 0, min: 5, max: 8 },
+    { range: "senior", label: "시니어 (8-12년)", count: dist.senior || 0, min: 8, max: 12 },
+    { range: "lead", label: "리드급 (12년+)", count: dist.lead || 0, min: 12, max: 100 },
+  ];
+}
+
+const TALENT_POOL_STATS_KEY = "analytics-talent-pool";
 
 export function useTalentPoolStats() {
-    const supabase = createClient();
+  const { data, error, isLoading, isValidating } = useSWR<TalentPoolStats>(
+    TALENT_POOL_STATS_KEY,
+    fetcher,
+    {
+      refreshInterval: 5 * 60 * 1000,
+      revalidateOnFocus: false,
+      dedupingInterval: 30 * 1000,
+    }
+  );
 
-    return useQuery<TalentPoolStats>({
-        queryKey: ["analytics", "talent-pool"],
-        queryFn: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase.rpc as any)("get_talent_pool_stats");
+  const expDistribution = formatExpDistribution(data?.exp_distribution);
+  const totalCandidatesInDist = expDistribution.reduce((sum, e) => sum + e.count, 0);
 
-            if (error) {
-                throw new Error(error.message);
-            }
-
-            return data as TalentPoolStats;
-        },
-        staleTime: ANALYTICS_STALE_TIME,
-        gcTime: 10 * 60 * 1000,
-        refetchInterval: ANALYTICS_STALE_TIME,
-        refetchOnWindowFocus: false,
-    });
+  return {
+    data,
+    stats: data,
+    expDistribution,
+    totalCandidatesInDist,
+    topSkills: data?.top_skills || [],
+    topCompanies: data?.top_companies || [],
+    monthlyCandidates: data?.monthly_candidates || [],
+    monthlyPlacements: data?.monthly_placements || [],
+    isLoading,
+    error,
+    isFetching: isValidating,
+  };
 }
 
 export function useRefreshTalentPoolStats() {
-    const queryClient = useQueryClient();
-
-    return () => {
-        queryClient.invalidateQueries({ queryKey: ["analytics", "talent-pool"] });
-    };
+  const { mutate } = useSWRConfig();
+  return useCallback(() => mutate(TALENT_POOL_STATS_KEY), [mutate]);
 }

@@ -1,117 +1,170 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import useSWR, { useSWRConfig } from "swr";
 import { createClient } from "@/lib/supabase/client";
-import type { MatchStage } from "@/types";
+import { useCallback } from "react";
+import { type MatchStage } from "@/types";
 
 export interface PipelineStage {
-    stage: MatchStage;
-    count: number;
-    total_entered: number;
-    total_exited_forward: number;
+  stage: MatchStage;
+  count: number;
+  total_entered: number;
+  total_exited_forward: number;
 }
 
 export interface StageConversion {
-    from_stage: MatchStage;
-    to_stage: MatchStage;
-    count: number;
+  from_stage: MatchStage;
+  to_stage: MatchStage;
+  count: number;
 }
 
 export interface PipelineStats {
-    stages: PipelineStage[];
-    total_in_pipeline: number;
-    placed_count: number;
-    conversions: StageConversion[] | null;
+  stages: PipelineStage[];
+  total_in_pipeline: number;
+  placed_count: number;
+  conversions: StageConversion[] | null;
 }
 
-// Calculate true conversion rates from historical data
-export interface ConversionRate {
-    from: MatchStage;
-    to: MatchStage;
-    rate: number;
-    movedCount: number;
-    totalFromStage: number;
+export interface ComputedConversionRate {
+  from: MatchStage;
+  to: MatchStage;
+  rate: number;
+  count: number;
+  total: number;
+  // Aliases for component compatibility
+  movedCount: number;
+  totalFromStage: number;
 }
-
-const ANALYTICS_STALE_TIME = 5 * 60 * 1000; // 5 minutes
 
 const STAGE_ORDER: MatchStage[] = [
-    "matched",
-    "reviewed",
-    "contacted",
-    "interviewing",
-    "offered",
-    "placed",
+  "matched",
+  "reviewed",
+  "contacted",
+  "interviewing",
+  "offered",
+  "placed",
 ];
 
-export function usePipelineStats() {
-    const supabase = createClient();
+const fetcher = async (): Promise<PipelineStats> => {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_pipeline_stats");
 
-    return useQuery<PipelineStats & { conversionRates: ConversionRate[] }>({
-        queryKey: ["analytics", "pipeline"],
-        queryFn: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase.rpc as any)("get_pipeline_stats");
+  if (error) {
+    throw new Error(error.message);
+  }
 
-            if (error) {
-                throw new Error(error.message);
-            }
+  return data as PipelineStats;
+};
 
-            const rawData = data as PipelineStats;
+function computeConversionRates(stats: PipelineStats): ComputedConversionRate[] {
+  if (!stats.conversions || stats.conversions.length === 0) {
+    return computeFallbackConversionRates(stats);
+  }
 
-            // Calculate true conversion rates from historical transitions
-            const conversionRates: ConversionRate[] = [];
+  const rates: ComputedConversionRate[] = [];
 
-            if (rawData.conversions && rawData.conversions.length > 0) {
-                // Build a map of transitions
-                const transitionMap = new Map<string, number>();
-                for (const conv of rawData.conversions) {
-                    const key = `${conv.from_stage}->${conv.to_stage}`;
-                    transitionMap.set(key, conv.count);
-                }
+  for (let i = 0; i < STAGE_ORDER.length - 1; i++) {
+    const fromStage = STAGE_ORDER[i];
+    const toStage = STAGE_ORDER[i + 1];
 
-                // Calculate entries into each stage
-                const entriesMap = new Map<MatchStage, number>();
-                for (const conv of rawData.conversions) {
-                    const current = entriesMap.get(conv.to_stage) || 0;
-                    entriesMap.set(conv.to_stage, current + conv.count);
-                }
+    const transition = stats.conversions.find(
+      (c) => c.from_stage === fromStage && c.to_stage === toStage
+    );
 
-                // For each consecutive stage pair, calculate conversion rate
-                for (let i = 0; i < STAGE_ORDER.length - 1; i++) {
-                    const fromStage = STAGE_ORDER[i];
-                    const toStage = STAGE_ORDER[i + 1];
-                    const key = `${fromStage}->${toStage}`;
-                    const movedCount = transitionMap.get(key) || 0;
-                    const totalFromStage = entriesMap.get(fromStage) ||
-                        (i === 0 ? rawData.total_in_pipeline : 0);
+    const fromStageData = stats.stages?.find((s) => s.stage === fromStage);
+    const totalEntered = fromStageData?.total_entered || 0;
+    const currentInStage = fromStageData?.count || 0;
+    const transitionCount = transition?.count || 0;
 
-                    conversionRates.push({
-                        from: fromStage,
-                        to: toStage,
-                        rate: totalFromStage > 0 ? (movedCount / totalFromStage) * 100 : 0,
-                        movedCount,
-                        totalFromStage,
-                    });
-                }
-            }
+    const denominator = totalEntered > 0 ? totalEntered : currentInStage + transitionCount;
+    const rate = denominator > 0 ? (transitionCount / denominator) * 100 : 0;
 
-            return {
-                ...rawData,
-                conversionRates,
-            };
-        },
-        staleTime: ANALYTICS_STALE_TIME,
-        gcTime: 10 * 60 * 1000,
-        refetchInterval: ANALYTICS_STALE_TIME,
-        refetchOnWindowFocus: false,
+    rates.push({
+      from: fromStage,
+      to: toStage,
+      rate,
+      count: transitionCount,
+      total: denominator,
+      movedCount: transitionCount,
+      totalFromStage: denominator,
     });
+  }
+
+  return rates;
+}
+
+function computeFallbackConversionRates(stats: PipelineStats): ComputedConversionRate[] {
+  const rates: ComputedConversionRate[] = [];
+
+  if (!stats.stages) return rates;
+
+  for (let i = 0; i < STAGE_ORDER.length - 1; i++) {
+    const fromStage = STAGE_ORDER[i];
+    const toStage = STAGE_ORDER[i + 1];
+
+    const cumulativeFrom = stats.stages
+      .filter((s) => STAGE_ORDER.indexOf(s.stage as MatchStage) >= i)
+      .reduce((sum, s) => sum + s.count, 0);
+
+    const cumulativeTo = stats.stages
+      .filter((s) => STAGE_ORDER.indexOf(s.stage as MatchStage) >= i + 1)
+      .reduce((sum, s) => sum + s.count, 0);
+
+    const rate = cumulativeFrom > 0 ? (cumulativeTo / cumulativeFrom) * 100 : 0;
+
+    rates.push({
+      from: fromStage,
+      to: toStage,
+      rate,
+      count: cumulativeTo,
+      total: cumulativeFrom,
+      movedCount: cumulativeTo,
+      totalFromStage: cumulativeFrom,
+    });
+  }
+
+  return rates;
+}
+
+const PIPELINE_STATS_KEY = "analytics-pipeline";
+
+export function usePipelineStats() {
+  const { data: rawData, error, isLoading, isValidating } = useSWR<PipelineStats>(
+    PIPELINE_STATS_KEY,
+    fetcher,
+    {
+      refreshInterval: 5 * 60 * 1000,
+      revalidateOnFocus: false,
+      dedupingInterval: 30 * 1000,
+    }
+  );
+
+  const conversionRates = rawData ? computeConversionRates(rawData) : [];
+
+  const placementRate =
+    rawData && rawData.total_in_pipeline > 0
+      ? (rawData.placed_count / rawData.total_in_pipeline) * 100
+      : 0;
+
+  // Combine raw data with computed values for convenience
+  const data = rawData ? {
+    ...rawData,
+    conversionRates,
+    placementRate,
+  } : null;
+
+  return {
+    data,
+    stats: rawData,
+    conversionRates,
+    placementRate,
+    isLoading,
+    error,
+    isFetching: isValidating,
+  };
 }
 
 export function useRefreshPipelineStats() {
-    const queryClient = useQueryClient();
-
-    return () => {
-        queryClient.invalidateQueries({ queryKey: ["analytics", "pipeline"] });
-    };
+  const { mutate } = useSWRConfig();
+  return useCallback(() => mutate(PIPELINE_STATS_KEY), [mutate]);
 }

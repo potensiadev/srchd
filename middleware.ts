@@ -164,8 +164,8 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL("/consent", request.url));
       }
     } catch {
-      // DB 조회 실패(유저 정보 없음) 시 강제 로그아웃 유도
-      return NextResponse.redirect(new URL("/api/auth/signout", request.url));
+      // DB 조회 실패(미등록 유저 등) 시 로그인 페이지 유지 (로그아웃 메시지 없이)
+      return response;
     }
   }
 

@@ -70,6 +70,7 @@
     "react-dom": "19.2.3",
     "react-hook-form": "^7.69.0",
     "react-pdf": "^10.3.0",
+    "swr": "^2.3.8",
     "tailwind-merge": "^3.4.0",
     "three": "^0.182.0",
     "zod": "^4.3.2",

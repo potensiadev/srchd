@@ -28,7 +28,6 @@ else:
 env_mappings = {
     'SUPABASE_URL': 'NEXT_PUBLIC_SUPABASE_URL',
     'SUPABASE_ANON_KEY': 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-    'GEMINI_API_KEY': 'GOOGLE_AI_API_KEY',  # Next.js uses GOOGLE_AI_API_KEY
     'WORKER_URL': 'WORKER_API_URL',
 }
 
@@ -42,7 +41,7 @@ required_vars = [
     ('SUPABASE_URL', True),
     ('SUPABASE_SERVICE_ROLE_KEY', True),
     ('OPENAI_API_KEY', True),
-    ('GEMINI_API_KEY', False),  # Optional for Phase 1
+    ('GOOGLE_AI_API_KEY', False),  # Optional - Gemini
     ('ANTHROPIC_API_KEY', False),  # Optional
     ('ENCRYPTION_KEY', True),
 ]

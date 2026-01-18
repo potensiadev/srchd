@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -287,6 +288,10 @@ const getAnimationProps = (prefersReducedMotion: boolean) => ({
 // MAIN COMPONENT
 // ============================================
 
+// Exit popup localStorage key and cooldown duration
+const EXIT_POPUP_STORAGE_KEY = "exitPopupDismissedAt";
+const EXIT_POPUP_COOLDOWN_DAYS = 7;
+
 function LandingPageContent() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -294,6 +299,7 @@ function LandingPageContent() {
   const [showExitPopup, setShowExitPopup] = useState(false);
   const [exitPopupShown, setExitPopupShown] = useState(false);
   const [showLogoutMessage, setShowLogoutMessage] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -326,6 +332,25 @@ function LandingPageContent() {
 
   useEffect(() => {
     setMounted(true);
+
+    // Check if user is logged in
+    const checkAuth = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsLoggedIn(!!user);
+    };
+    checkAuth();
+
+    // Check localStorage for exit popup cooldown
+    const dismissedAt = localStorage.getItem(EXIT_POPUP_STORAGE_KEY);
+    if (dismissedAt) {
+      const dismissedDate = new Date(parseInt(dismissedAt));
+      const now = new Date();
+      const daysSinceDismissed = (now.getTime() - dismissedDate.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceDismissed < EXIT_POPUP_COOLDOWN_DAYS) {
+        setExitPopupShown(true); // Prevent showing during cooldown
+      }
+    }
   }, []);
 
   // Detect logout param and show message
@@ -365,13 +390,14 @@ function LandingPageContent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Exit intent detection (desktop only)
+  // Exit intent detection (desktop only, non-logged-in users only)
   useEffect(() => {
-    if (!mounted || exitPopupShown) return;
+    // Don't show popup if: not mounted, already shown, or user is logged in
+    if (!mounted || exitPopupShown || isLoggedIn) return;
 
     const handleMouseLeave = (e: MouseEvent) => {
       // Only trigger when mouse leaves from the top of the viewport
-      if (e.clientY <= 0 && !exitPopupShown) {
+      if (e.clientY <= 0 && !exitPopupShown && !isLoggedIn) {
         // Check if on desktop (not mobile)
         if (window.innerWidth >= 768) {
           setShowExitPopup(true);
@@ -382,32 +408,7 @@ function LandingPageContent() {
 
     document.addEventListener("mouseleave", handleMouseLeave);
     return () => document.removeEventListener("mouseleave", handleMouseLeave);
-  }, [mounted, exitPopupShown]);
-
-  // Back button detection - show exit popup when user tries to leave
-  useEffect(() => {
-    if (!mounted) return;
-
-    // Push two states to history so back button is always available
-    window.history.pushState({ page: "landing", step: 1 }, "");
-    window.history.pushState({ page: "landing", step: 2 }, "");
-
-    const handlePopState = () => {
-      // Always show popup on back button if not already shown
-      setExitPopupShown((prev) => {
-        if (!prev) {
-          setShowExitPopup(true);
-          // Push state again to prevent actual navigation
-          window.history.pushState({ page: "landing", step: 2 }, "");
-          return true;
-        }
-        return prev;
-      });
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [mounted]);
+  }, [mounted, exitPopupShown, isLoggedIn]);
 
   // Demo 3 typing animation text
   const demo3TypingText = "경력 10년 이상의 컨설팅펌 출신 전략기획 후보자 찾아줘";
@@ -2062,7 +2063,7 @@ function LandingPageContent() {
       </footer>
 
       {/* ============================================
-          EXIT INTENT POPUP (Desktop only)
+          EXIT INTENT POPUP (Desktop only, non-logged-in users only)
       ============================================ */}
       <AnimatePresence>
         {showExitPopup && (
@@ -2071,7 +2072,10 @@ function LandingPageContent() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
-            onClick={() => setShowExitPopup(false)}
+            onClick={() => {
+              setShowExitPopup(false);
+              localStorage.setItem(EXIT_POPUP_STORAGE_KEY, Date.now().toString());
+            }}
             role="dialog"
             aria-modal="true"
             aria-labelledby="exit-popup-title"
@@ -2086,7 +2090,10 @@ function LandingPageContent() {
             >
               {/* Close button */}
               <button
-                onClick={() => setShowExitPopup(false)}
+                onClick={() => {
+                  setShowExitPopup(false);
+                  localStorage.setItem(EXIT_POPUP_STORAGE_KEY, Date.now().toString());
+                }}
                 className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 transition-colors"
                 aria-label="팝업 닫기"
               >
@@ -2100,12 +2107,12 @@ function LandingPageContent() {
                 </div>
 
                 <h2 id="exit-popup-title" className="text-2xl font-bold text-gray-900 mb-3">
-                  그 이력서, 계속 썩히실 건가요?
+                  소싱 시간, 절반으로 줄여보세요
                 </h2>
                 <p className="text-gray-600 mb-6">
-                  내일 또 폴더 뒤지고, 또 못 찾고, 또 처음부터 소싱.
+                  이미 500+ 리크루터가 서치드로
                   <br />
-                  <strong className="text-primary">그 악순환, 오늘 끊으세요.</strong>
+                  <strong className="text-primary">더 빠르게 인재를 찾고 있습니다.</strong>
                 </p>
 
                 {/* Benefits */}
@@ -2113,7 +2120,7 @@ function LandingPageContent() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-gray-700">
                       <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                      <span>내일부터 경쟁사보다 하루 빠르게</span>
+                      <span>평균 소싱 시간 70% 단축</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-700">
                       <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
@@ -2121,7 +2128,7 @@ function LandingPageContent() {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-700">
                       <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                      <span>안 맞으면 그냥 안 쓰면 됩니다</span>
+                      <span>언제든 부담 없이 해지 가능</span>
                     </div>
                   </div>
                 </div>
@@ -2139,10 +2146,13 @@ function LandingPageContent() {
                 </button>
 
                 <button
-                  onClick={() => setShowExitPopup(false)}
+                  onClick={() => {
+                    setShowExitPopup(false);
+                    localStorage.setItem(EXIT_POPUP_STORAGE_KEY, Date.now().toString());
+                  }}
                   className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  아니요, 내일도 폴더 뒤질게요
+                  나중에 볼게요
                 </button>
               </div>
             </motion.div>

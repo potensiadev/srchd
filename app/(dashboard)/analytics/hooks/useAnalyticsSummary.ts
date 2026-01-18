@@ -1,46 +1,51 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import useSWR, { useSWRConfig } from "swr";
 import { createClient } from "@/lib/supabase/client";
+import { useCallback } from "react";
 
 export interface AnalyticsSummary {
-    total_candidates: number;
-    this_month_count: number;
-    last_month_count: number;
-    total_exports: number;
-    active_positions: number;
-    urgent_positions: number;
+  total_candidates: number;
+  this_month_count: number;
+  last_month_count: number;
+  total_exports: number;
+  active_positions: number;
+  urgent_positions: number;
 }
 
-const ANALYTICS_STALE_TIME = 5 * 60 * 1000; // 5 minutes
+const ANALYTICS_SUMMARY_KEY = "analytics-summary";
+
+const fetcher = async (): Promise<AnalyticsSummary> => {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_analytics_summary");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as AnalyticsSummary;
+};
 
 export function useAnalyticsSummary() {
-    const supabase = createClient();
+  const { data, error, isLoading, isValidating } = useSWR<AnalyticsSummary>(
+    ANALYTICS_SUMMARY_KEY,
+    fetcher,
+    {
+      refreshInterval: 5 * 60 * 1000, // 5 minutes
+      revalidateOnFocus: false,
+      dedupingInterval: 30 * 1000, // 30 seconds
+    }
+  );
 
-    return useQuery<AnalyticsSummary>({
-        queryKey: ["analytics", "summary"],
-        queryFn: async () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase.rpc as any)("get_analytics_summary");
-
-            if (error) {
-                throw new Error(error.message);
-            }
-
-            return data as AnalyticsSummary;
-        },
-        staleTime: ANALYTICS_STALE_TIME,
-        gcTime: 10 * 60 * 1000, // 10 minutes garbage collection
-        refetchInterval: ANALYTICS_STALE_TIME,
-        refetchOnWindowFocus: false,
-    });
+  return {
+    data,
+    isLoading,
+    error,
+    isFetching: isValidating,
+  };
 }
 
-// Hook to invalidate and refetch analytics summary
 export function useRefreshAnalyticsSummary() {
-    const queryClient = useQueryClient();
-
-    return () => {
-        queryClient.invalidateQueries({ queryKey: ["analytics", "summary"] });
-    };
+  const { mutate } = useSWRConfig();
+  return useCallback(() => mutate(ANALYTICS_SUMMARY_KEY), [mutate]);
 }

@@ -89,7 +89,7 @@ class LLMManager:
 
         # Gemini 클라이언트 (새 google-genai 패키지)
         self.gemini_client: Optional[genai.Client] = None
-        gemini_key = settings.GEMINI_API_KEY
+        gemini_key = settings.GOOGLE_AI_API_KEY
         if gemini_key:
             try:
                 self.gemini_client = genai.Client(api_key=gemini_key)
@@ -98,7 +98,7 @@ class LLMManager:
                 logger.error(f"[LLMManager] ❌ Gemini 클라이언트 초기화 실패: {e}")
                 logger.error(traceback.format_exc())
         else:
-            logger.warning("[LLMManager] ⚠️ GEMINI_API_KEY 없음")
+            logger.warning("[LLMManager] ⚠️ GOOGLE_AI_API_KEY 없음")
 
         # Claude 클라이언트 (타임아웃 설정 포함)
         self.anthropic_client: Optional[AsyncAnthropic] = None

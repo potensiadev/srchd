@@ -1,13 +1,34 @@
-// Analytics hooks
-export { useAnalyticsSummary, useRefreshAnalyticsSummary } from "./useAnalyticsSummary";
-export { usePipelineStats, useRefreshPipelineStats } from "./usePipelineStats";
-export { useTalentPoolStats, useRefreshTalentPoolStats } from "./useTalentPoolStats";
-export { usePositionHealth, useRefreshPositionHealth } from "./usePositionHealth";
-export { useRecentActivities, useRefreshRecentActivities } from "./useRecentActivities";
-
-// Re-export types
-export type { AnalyticsSummary } from "./useAnalyticsSummary";
-export type { PipelineStats, PipelineStage, ConversionRate, StageConversion } from "./usePipelineStats";
-export type { TalentPoolStats, ExpDistribution, SkillData, CompanyData, MonthlyData } from "./useTalentPoolStats";
-export type { PositionHealth } from "./usePositionHealth";
-export type { RecentActivity } from "./useRecentActivities";
+export {
+  useAnalyticsSummary,
+  useRefreshAnalyticsSummary,
+  type AnalyticsSummary,
+} from "./useAnalyticsSummary";
+export {
+  usePipelineStats,
+  useRefreshPipelineStats,
+  type PipelineStats,
+  type PipelineStage,
+  type ComputedConversionRate,
+} from "./usePipelineStats";
+export {
+  useTalentPoolStats,
+  useRefreshTalentPoolStats,
+  type TalentPoolStats,
+  type FormattedExpRange,
+  type SkillStat,
+  type CompanyStat,
+  type MonthlyData,
+} from "./useTalentPoolStats";
+export {
+  usePositionHealth,
+  useRefreshPositionHealth,
+  type PositionHealth,
+} from "./usePositionHealth";
+export {
+  useRecentActivities,
+  useRefreshActivityFeed,
+  useRefreshRecentActivities,
+  formatTimeAgo,
+  type RecentActivity,
+  type ActivityDisplayType,
+} from "./useRecentActivities";

@@ -317,7 +317,7 @@ async def health_check(detailed: bool = False):
 
         # Gemini
         gemini_status = DependencyStatus(name="gemini", status="unconfigured")
-        if settings.GEMINI_API_KEY:
+        if settings.GOOGLE_AI_API_KEY:
             if llm_manager.gemini_client:
                 gemini_status = DependencyStatus(name="gemini", status="healthy")
             else:
@@ -412,7 +412,7 @@ async def debug_status():
                 "model": settings.OPENAI_MODEL,
             },
             "gemini": {
-                "configured": bool(settings.GEMINI_API_KEY),
+                "configured": bool(settings.GOOGLE_AI_API_KEY),
                 "client_ready": llm_manager.gemini_client is not None,
                 "model": settings.GEMINI_MODEL,
             },

@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     OPENAI_MINI_MODEL: str = "gpt-4o-mini"
 
     # Google Gemini
-    GEMINI_API_KEY: str = ""
+    GOOGLE_AI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
     # Anthropic Claude (Phase 2)
