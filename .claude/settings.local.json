@@ -1,26 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*)",
-      "Read(*)",
-      "Write(*)",
-      "Edit(*)",
-      "WebFetch(*)",
-      "Bash(supabase db reset:*)",
-      "Bash(for f in *.sql)",
-      "Bash(do sed -i 's/--------//g' \"$f\")",
-      "Bash(echo:*)",
-      "Bash(while read f)",
-      "Bash(do sed -i \"/COMMENT ON.*IS ''.*[?].*''/d\" \"$f\")",
-      "Bash(do sed -i 's/UUID,$/UUID/' \"$f\")",
-      "Bash(git checkout:*)",
-      "Bash(do sed -i \"/^COMMENT ON/d\" \"$f\")",
-      "Bash(do sed -i \"/^''/d\" \"$f\")",
-      "Bash(xargs basename:*)",
-      "Bash(supabase projects list:*)",
-      "Bash(ls:*)",
-      "Bash(dir:*)",
-      "Bash(npm run build:*)"
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "WebFetch(domain:*)",
+      "Skill"
     ]
   }
 }
