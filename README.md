@@ -13,7 +13,7 @@ AI 기반 이력서 분석 및 인재 검색 플랫폼
 ## 기술 스택
 
 ### Frontend
-- Next.js 15 (App Router)
+- Next.js 16 (App Router)
 - React 19 + TypeScript
 - Tailwind CSS + Shadcn/ui
 

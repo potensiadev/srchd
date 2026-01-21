@@ -30,9 +30,37 @@ from utils.career_calculator import calculate_total_experience, format_experienc
 from utils.education_parser import determine_graduation_status, determine_degree_level
 from services.embedding_service import get_embedding_service, EmbeddingResult
 from services.database_service import get_database_service, SaveResult
+from services.storage_service import get_supabase_client, reset_supabase_client
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# ─────────────────────────────────────────────────
+# PRD Epic 1: 싱글톤 클라이언트 (연결 재사용)
+# ─────────────────────────────────────────────────
+_http_client: Optional[httpx.Client] = None
+
+
+def get_http_client() -> httpx.Client:
+    """
+    httpx.Client 싱글톤 반환 (커넥션 풀 재사용)
+    
+    PRD: Epic 1 (FR-1.1)
+    - 매 재시도마다 새 Client 생성 → 싱글톤으로 재사용
+    - max_keepalive_connections=5로 커넥션 풀 관리
+    """
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.Client(
+            timeout=10,
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10
+            )
+        )
+        logger.info("[Tasks] httpx.Client singleton initialized")
+    return _http_client
+
 
 # 에이전트 및 파서 초기화 (Worker 프로세스 시작 시 1회)
 router_agent = RouterAgent()
@@ -77,34 +105,34 @@ def notify_webhook(
 
     for attempt in range(max_retries + 1):
         try:
-            with httpx.Client() as client:
-                response = client.post(
-                    webhook_url,
-                    json=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Webhook-Secret": settings.WEBHOOK_SECRET,
-                    },
-                    timeout=10,
+            # PRD Epic 1: 싱글톤 클라이언트 사용
+            client = get_http_client()
+            response = client.post(
+                webhook_url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Webhook-Secret": settings.WEBHOOK_SECRET,
+                },
+            )
+
+            if response.status_code == 200:
+                logger.info(f"[Webhook] Successfully notified job {job_id} (status: {status})")
+                return
+
+            # 4xx 클라이언트 에러는 재시도해도 의미 없음
+            if response.status_code in NON_RETRYABLE_STATUS_CODES:
+                logger.error(
+                    f"[Webhook] Non-retryable error {response.status_code} for job {job_id}. "
+                    f"Response: {response.text[:200]}"
                 )
+                return  # 재시도 없이 종료
 
-                if response.status_code == 200:
-                    logger.info(f"[Webhook] Successfully notified job {job_id} (status: {status})")
-                    return
-
-                # 4xx 클라이언트 에러는 재시도해도 의미 없음
-                if response.status_code in NON_RETRYABLE_STATUS_CODES:
-                    logger.error(
-                        f"[Webhook] Non-retryable error {response.status_code} for job {job_id}. "
-                        f"Response: {response.text[:200]}"
-                    )
-                    return  # 재시도 없이 종료
-
-                # 5xx 서버 에러는 재시도
-                logger.warning(
-                    f"[Webhook] Server error {response.status_code} "
-                    f"(attempt {attempt + 1}/{max_retries + 1})"
-                )
+            # 5xx 서버 에러는 재시도
+            logger.warning(
+                f"[Webhook] Server error {response.status_code} "
+                f"(attempt {attempt + 1}/{max_retries + 1})"
+            )
 
         except httpx.TimeoutException as e:
             logger.warning(
@@ -158,9 +186,8 @@ def download_file_from_storage(
     Raises:
         DownloadError: 모든 재시도 실패 시
     """
-    from supabase import create_client
-
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+    # PRD Epic 1: Supabase 싱글톤 클라이언트 사용
+    supabase = get_supabase_client()
     bucket_name = "resumes"
 
     last_error = None
@@ -858,6 +885,118 @@ def full_pipeline(
             )
         notify_webhook(job_id, "failed", error=str(e))
         return {"success": False, "error": str(e)}
+
+
+def get_file_type_from_name(file_name: str) -> str:
+    """
+    파일명에서 파일 타입 추출
+    
+    Args:
+        file_name: 파일명 (예: "이력서.hwp", "resume.pdf")
+        
+    Returns:
+        파일 타입 문자열 (hwp, hwpx, pdf, docx, doc)
+    """
+    if not file_name:
+        return "unknown"
+    
+    extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    
+    # 지원하는 확장자 매핑
+    type_map = {
+        "hwp": "hwp",
+        "hwpx": "hwpx",
+        "pdf": "pdf",
+        "docx": "docx",
+        "doc": "doc",
+    }
+    
+    return type_map.get(extension, "unknown")
+
+
+def enqueue_typed_pipeline(
+    job_id: str,
+    user_id: str,
+    file_path: str,
+    file_name: str,
+    mode: str = "phase_1",
+    candidate_id: Optional[str] = None,
+) -> dict:
+    """
+    파일 타입에 따라 적절한 Queue로 파이프라인 작업을 라우팅
+    
+    USE_SPLIT_QUEUES 설정에 따라:
+    - True: HWP/HWPX → slow_queue, PDF/DOCX → fast_queue
+    - False: 기존 process_queue 사용
+    
+    Args:
+        job_id: processing_jobs ID
+        user_id: 사용자 ID
+        file_path: Supabase Storage 경로
+        file_name: 원본 파일명
+        mode: phase_1 또는 phase_2
+        candidate_id: 후보자 ID (선택)
+        
+    Returns:
+        dict: 큐 등록 결과 {"success": bool, "rq_job_id": str or None}
+    """
+    queue_service = get_queue_service()
+    
+    if not queue_service.is_available:
+        logger.warning("[Task] Queue not available, running full_pipeline synchronously")
+        return full_pipeline(
+            job_id=job_id,
+            user_id=user_id,
+            file_path=file_path,
+            file_name=file_name,
+            mode=mode,
+            candidate_id=candidate_id,
+        )
+    
+    # Feature Flag 체크
+    use_split_queues = settings.USE_SPLIT_QUEUES if hasattr(settings, 'USE_SPLIT_QUEUES') else True
+    
+    if use_split_queues:
+        # 파일 타입 기반 라우팅
+        file_type = get_file_type_from_name(file_name)
+        
+        queued_job = queue_service.enqueue_by_file_type(
+            job_id=job_id,
+            user_id=user_id,
+            file_path=file_path,
+            file_name=file_name,
+            file_type=file_type,
+            mode=mode,
+            candidate_id=candidate_id,
+        )
+        
+        queue_type = "slow" if file_type in ("hwp", "hwpx") else "fast"
+        logger.info(
+            f"[Task] Enqueued to {queue_type}_queue: job={job_id}, file_type={file_type}"
+        )
+    else:
+        # 기존 방식 (단일 queue)
+        queued_job = queue_service.enqueue_full_pipeline(
+            job_id=job_id,
+            user_id=user_id,
+            file_path=file_path,
+            file_name=file_name,
+            mode=mode,
+            candidate_id=candidate_id,
+        )
+        logger.info(f"[Task] Enqueued to process_queue (legacy): job={job_id}")
+    
+    if queued_job:
+        return {
+            "success": True,
+            "rq_job_id": queued_job.rq_job_id,
+            "job_type": queued_job.type.value,
+        }
+    else:
+        return {
+            "success": False,
+            "error": "Failed to enqueue job",
+        }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

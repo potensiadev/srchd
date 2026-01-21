@@ -34,6 +34,8 @@ class JobType(str, Enum):
     PARSE = "parse"
     PROCESS = "process"
     FULL_PIPELINE = "full_pipeline"
+    FAST_PIPELINE = "fast_pipeline"  # PDF/DOCX - fast processing
+    SLOW_PIPELINE = "slow_pipeline"  # HWP/HWPX - slow processing (LibreOffice)
 
 
 @dataclass
@@ -81,6 +83,8 @@ class QueueService:
         self.redis: Optional[Redis] = None
         self.parse_queue: Optional[Queue] = None
         self.process_queue: Optional[Queue] = None
+        self.fast_queue: Optional[Queue] = None  # PDF/DOCX - fast processing
+        self.slow_queue: Optional[Queue] = None  # HWP/HWPX - slow processing
         self._init_redis()
 
     def _init_redis(self):
@@ -98,8 +102,11 @@ class QueueService:
             # Queue 생성
             self.parse_queue = Queue("parse", connection=self.redis)
             self.process_queue = Queue("process", connection=self.redis)
+            # Fast/Slow Queue for file-type based routing
+            self.fast_queue = Queue("fast", connection=self.redis, default_timeout="5m")
+            self.slow_queue = Queue("slow", connection=self.redis, default_timeout="20m")
 
-            logger.info("Redis Queue initialized successfully")
+            logger.info("Redis Queue initialized successfully (with fast/slow queues)")
         except Exception as e:
             logger.error(f"Failed to initialize Redis: {e}")
             self.redis = None
@@ -108,6 +115,75 @@ class QueueService:
     def is_available(self) -> bool:
         """Queue 사용 가능 여부"""
         return self.redis is not None
+
+    # ─────────────────────────────────────────────────
+    # PRD Epic 4: 백프레셔 모니터링
+    # ─────────────────────────────────────────────────
+    
+    def get_queue_depth(self, queue_name: str = "slow") -> int:
+        """
+        큐 깊이(대기 중인 작업 수) 조회
+        
+        Args:
+            queue_name: 큐 이름 (fast, slow, parse, process)
+            
+        Returns:
+            대기 중인 작업 수 (Redis 미연결 시 0)
+        """
+        if not self.is_available:
+            return 0
+        
+        queue_map = {
+            "fast": self.fast_queue,
+            "slow": self.slow_queue,
+            "parse": self.parse_queue,
+            "process": self.process_queue,
+        }
+        
+        queue = queue_map.get(queue_name)
+        if queue is None:
+            return 0
+        
+        try:
+            return len(queue)
+        except Exception as e:
+            logger.warning(f"[QueueService] Failed to get queue depth: {e}")
+            return 0
+
+    def should_throttle(self, threshold: int = 50) -> bool:
+        """
+        백프레셔 판단 - slow_queue가 임계값 초과 시 True
+        
+        Args:
+            threshold: 임계값 (기본: 50건)
+            
+        Returns:
+            True면 신규 HWP 업로드 제한 권장
+        """
+        slow_depth = self.get_queue_depth("slow")
+        should_throttle = slow_depth > threshold
+        
+        if should_throttle:
+            logger.warning(
+                f"[QueueService] BACKPRESSURE: slow_queue depth ({slow_depth}) > {threshold}. "
+                f"Consider throttling new HWP uploads."
+            )
+        
+        return should_throttle
+
+    def get_queue_stats(self) -> Dict[str, int]:
+        """
+        모든 큐의 통계 조회
+        
+        Returns:
+            {"fast": N, "slow": N, "parse": N, "process": N}
+        """
+        return {
+            "fast": self.get_queue_depth("fast"),
+            "slow": self.get_queue_depth("slow"),
+            "parse": self.get_queue_depth("parse"),
+            "process": self.get_queue_depth("process"),
+        }
 
     def enqueue_parse(
         self,
@@ -260,6 +336,81 @@ class QueueService:
             )
         except Exception as e:
             logger.error(f"Failed to enqueue full pipeline: {e}")
+            return None
+
+    def enqueue_by_file_type(
+        self,
+        job_id: str,
+        user_id: str,
+        file_path: str,
+        file_name: str,
+        file_type: str,
+        mode: str = "phase_1",
+        candidate_id: Optional[str] = None,
+    ) -> Optional[QueuedJob]:
+        """
+        파일 타입에 따라 적절한 Queue로 라우팅
+        
+        - HWP/HWPX → slow_queue (LibreOffice 변환 필요, 20분 타임아웃)
+        - PDF/DOCX → fast_queue (직접 파싱, 5분 타임아웃)
+        
+        Args:
+            job_id: processing_jobs ID
+            user_id: 사용자 ID
+            file_path: Supabase Storage 경로
+            file_name: 원본 파일명
+            file_type: 파일 타입 (hwp, hwpx, pdf, docx)
+            mode: phase_1 or phase_2
+            candidate_id: 후보자 ID (선택)
+            
+        Returns:
+            QueuedJob or None
+        """
+        if not self.is_available:
+            return None
+        
+        # 파일 타입에 따른 Queue 선택
+        file_type_lower = file_type.lower().strip()
+        is_slow = file_type_lower in ("hwp", "hwpx")
+        
+        target_queue = self.slow_queue if is_slow else self.fast_queue
+        job_type = JobType.SLOW_PIPELINE if is_slow else JobType.FAST_PIPELINE
+        timeout = "20m" if is_slow else "5m"
+        retry_intervals = [60, 120] if is_slow else [30, 60]
+        
+        try:
+            from tasks import on_job_failure
+            
+            queue_name = "slow" if is_slow else "fast"
+            logger.info(
+                f"[Queue] Routing {file_name} ({file_type}) to {queue_name}_queue "
+                f"(timeout: {timeout})"
+            )
+            
+            rq_job = target_queue.enqueue(
+                "tasks.full_pipeline",
+                kwargs={
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "file_path": file_path,
+                    "file_name": file_name,
+                    "mode": mode,
+                    "candidate_id": candidate_id,
+                },
+                job_id=f"{queue_name}-{job_id}",
+                retry=Retry(max=2, interval=retry_intervals),
+                job_timeout=timeout,
+                on_failure=on_job_failure,
+            )
+            
+            return QueuedJob(
+                job_id=job_id,
+                rq_job_id=rq_job.id,
+                status="queued",
+                type=job_type,
+            )
+        except Exception as e:
+            logger.error(f"Failed to enqueue to {queue_name}_queue: {e}")
             return None
 
     def get_job_status(self, rq_job_id: str) -> Optional[Dict[str, Any]]:
@@ -562,6 +713,19 @@ class QueueService:
                     user_id=kwargs.get("user_id", entry.user_id),
                     file_path=kwargs.get("file_path", ""),
                     file_name=kwargs.get("file_name", ""),
+                    mode=kwargs.get("mode", "phase_1"),
+                    candidate_id=kwargs.get("candidate_id"),
+                )
+            elif entry.job_type in (JobType.FAST_PIPELINE.value, JobType.SLOW_PIPELINE.value):
+                # Fast/Slow pipeline - route by file type
+                file_name = kwargs.get("file_name", "")
+                file_type = file_name.rsplit(".", 1)[-1] if "." in file_name else "pdf"
+                queued_job = self.enqueue_by_file_type(
+                    job_id=kwargs.get("job_id", entry.job_id),
+                    user_id=kwargs.get("user_id", entry.user_id),
+                    file_path=kwargs.get("file_path", ""),
+                    file_name=file_name,
+                    file_type=file_type,
                     mode=kwargs.get("mode", "phase_1"),
                     candidate_id=kwargs.get("candidate_id"),
                 )

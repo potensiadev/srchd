@@ -32,10 +32,11 @@ try:
 except ImportError:
     TIKTOKEN_AVAILABLE = False
 
-# 로깅 설정 - 상세 출력
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+# 로깅 설정 - 환경변수 기반 (PRD: Epic 2)
 settings = get_settings()
+_log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+logging.basicConfig(level=_log_level)
+logger = logging.getLogger(__name__)
 
 
 class ChunkType(str, Enum):

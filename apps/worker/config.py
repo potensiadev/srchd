@@ -135,6 +135,35 @@ class Settings(BaseSettings):
     # 예: "https://rai.vercel.app,https://rai-staging.vercel.app"
     ALLOWED_ORIGINS: str = ""
 
+    # ─────────────────────────────────────────────────
+    # P0 최적화 Feature Flags
+    # ─────────────────────────────────────────────────
+    # HWP 전담 Queue 분리 (fast/slow queue)
+    USE_SPLIT_QUEUES: bool = Field(
+        default=True,
+        description="HWP를 slow_queue로 분리 처리"
+    )
+    
+    # LLM 조건부 호출 (Confidence 기반)
+    USE_CONDITIONAL_LLM: bool = Field(
+        default=True,
+        description="고신뢰도 결과 시 추가 LLM 호출 스킵"
+    )
+
+    # ─────────────────────────────────────────────────
+    # 로깅 설정
+    # ─────────────────────────────────────────────────
+    LOG_LEVEL: str = Field(
+        default="INFO",
+        description="로그 레벨 (DEBUG, INFO, WARNING, ERROR)"
+    )
+    
+    # LLM 신뢰도 임계값
+    LLM_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.85,
+        description="단일 모델 결과 채택 임계값"
+    )
+
     class Config:
         env_file = ".env"
         extra = "ignore"
