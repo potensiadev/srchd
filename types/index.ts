@@ -30,6 +30,14 @@ export type {
   // Progressive Loading types
   QuickExtractedData,
   CandidatePartial,
+  // P0: Lifecycle Types (헤드헌터 인터뷰 기반)
+  InterestLevel,
+  ContactType,
+  ContactOutcome,
+  ContactHistory,
+  CreateContactRequest,
+  UpdateLifecycleRequest,
+  CandidateLifecycleStats,
 } from './candidate';
 
 export {

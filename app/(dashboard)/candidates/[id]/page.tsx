@@ -116,6 +116,16 @@ function transformCandidate(data: Record<string, unknown>): CandidateDetail {
     // Issue #2: Get source file for split view
     sourceFile: (data.source_file as string) || (data.sourceFile as string) || undefined,
     fileType: (data.file_type as string) || (data.fileType as string) || undefined,
+
+    // P0: Lifecycle Fields (헤드헌터 인터뷰 기반)
+    lastContactAt: (data.last_contact_at as string) || (data.lastContactAt as string) || undefined,
+    interestLevel: (data.interest_level as "hot" | "warm" | "cold" | "unknown") || (data.interestLevel as "hot" | "warm" | "cold" | "unknown") || "unknown",
+    salaryExpectationMin: (data.salary_expectation_min as number) ?? (data.salaryExpectationMin as number) ?? undefined,
+    salaryExpectationMax: (data.salary_expectation_max as number) ?? (data.salaryExpectationMax as number) ?? undefined,
+    locationPreferences: (data.location_preferences as string[]) || (data.locationPreferences as string[]) || [],
+    earliestStartDate: (data.earliest_start_date as string) || (data.earliestStartDate as string) || undefined,
+    availabilityNotes: (data.availability_notes as string) || (data.availabilityNotes as string) || undefined,
+    contactCount: (data.contact_count as number) ?? (data.contactCount as number) ?? 0,
   };
 }
 

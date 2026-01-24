@@ -20,6 +20,7 @@ import {
   type Project,
   type Education,
   type RiskLevel,
+  type InterestLevel,
 } from "@/types";
 import {
   apiSuccess,
@@ -98,6 +99,16 @@ function toCandidateDetail(row: Record<string, unknown>): CandidateDetail {
     // 파일 정보
     sourceFile: row.source_file as string | undefined,
     fileType: row.file_type as string | undefined,
+
+    // P0: Lifecycle Fields (헤드헌터 인터뷰 기반)
+    lastContactAt: row.last_contact_at as string | undefined,
+    interestLevel: (row.interest_level as InterestLevel) ?? "unknown",
+    salaryExpectationMin: row.salary_expectation_min as number | undefined,
+    salaryExpectationMax: row.salary_expectation_max as number | undefined,
+    locationPreferences: (row.location_preferences as string[]) ?? [],
+    earliestStartDate: row.earliest_start_date as string | undefined,
+    availabilityNotes: row.availability_notes as string | undefined,
+    contactCount: (row.contact_count as number) ?? 0,
   };
 }
 
@@ -111,7 +122,9 @@ const CANDIDATE_DETAIL_COLUMNS = `
   careers, projects, education, strengths,
   portfolio_thumbnail_url, portfolio_url, github_url, linkedin_url,
   version, parent_id, is_latest, analysis_mode, warnings, field_confidence,
-  source_file, file_type
+  source_file, file_type,
+  last_contact_at, interest_level, salary_expectation_min, salary_expectation_max,
+  location_preferences, earliest_start_date, availability_notes, contact_count
 `;
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -234,6 +247,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       "portfolio_url",
       "github_url",
       "linkedin_url",
+      // P0: Lifecycle Fields (헤드헌터 인터뷰 기반)
+      "interest_level",
+      "salary_expectation_min",
+      "salary_expectation_max",
+      "location_preferences",
+      "earliest_start_date",
+      "availability_notes",
     ];
 
     // camelCase → snake_case 변환 맵
@@ -250,6 +270,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       portfolioUrl: "portfolio_url",
       githubUrl: "github_url",
       linkedinUrl: "linkedin_url",
+      // P0: Lifecycle Fields
+      interestLevel: "interest_level",
+      salaryExpectationMin: "salary_expectation_min",
+      salaryExpectationMax: "salary_expectation_max",
+      locationPreferences: "location_preferences",
+      earliestStartDate: "earliest_start_date",
+      availabilityNotes: "availability_notes",
     };
 
     const updateData: Record<string, unknown> = {};

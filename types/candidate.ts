@@ -13,6 +13,19 @@ export type RiskLevel = 'low' | 'medium' | 'high';
 // Progressive Loading: parsed, analyzed 상태 추가
 export type CandidateStatus = 'processing' | 'parsed' | 'analyzed' | 'completed' | 'failed' | 'rejected';
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P0: Candidate Lifecycle Types (헤드헌터 인터뷰 기반)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 이직 의향 레벨 */
+export type InterestLevel = 'hot' | 'warm' | 'cold' | 'unknown';
+
+/** 연락 타입 */
+export type ContactType = 'email' | 'phone' | 'linkedin' | 'meeting' | 'note';
+
+/** 연락 결과 */
+export type ContactOutcome = 'interested' | 'not_interested' | 'no_response' | 'callback' | 'rejected' | 'pending';
+
 /**
  * PRD v6.0 신뢰도 레벨 상수
  */
@@ -127,6 +140,84 @@ export interface CandidateDetail extends CandidateListItem {
   // 파일 정보
   sourceFile?: string;
   fileType?: string;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // P0: Lifecycle Fields (헤드헌터 인터뷰 기반)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /** 마지막 연락 일시 */
+  lastContactAt?: string;
+
+  /** 이직 의향 (Hot/Warm/Cold/Unknown) */
+  interestLevel: InterestLevel;
+
+  /** 희망 연봉 범위 (만원 단위) */
+  salaryExpectationMin?: number;
+  salaryExpectationMax?: number;
+
+  /** 희망 근무 지역 */
+  locationPreferences?: string[];
+
+  /** 최소 입사 가능일 */
+  earliestStartDate?: string;
+
+  /** 제약조건/메모 (이직 동기, 제약사항 등) */
+  availabilityNotes?: string;
+
+  /** 연락 횟수 */
+  contactCount: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P0: Contact History (연락 이력)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface ContactHistory {
+  id: string;
+  userId: string;
+  candidateId: string;
+  contactType: ContactType;
+  subject?: string;
+  content?: string;
+  outcome: ContactOutcome;
+  nextContactDate?: string;
+  nextContactNote?: string;
+  positionId?: string;
+  contactedAt: string;
+  createdAt: string;
+}
+
+/** 연락 기록 생성 요청 */
+export interface CreateContactRequest {
+  contactType: ContactType;
+  subject?: string;
+  content?: string;
+  outcome?: ContactOutcome;
+  nextContactDate?: string;
+  nextContactNote?: string;
+  positionId?: string;
+}
+
+/** 후보자 라이프사이클 업데이트 요청 */
+export interface UpdateLifecycleRequest {
+  interestLevel?: InterestLevel;
+  salaryExpectationMin?: number;
+  salaryExpectationMax?: number;
+  locationPreferences?: string[];
+  earliestStartDate?: string;
+  availabilityNotes?: string;
+}
+
+/** 라이프사이클 통계 */
+export interface CandidateLifecycleStats {
+  totalCandidates: number;
+  hotCount: number;
+  warmCount: number;
+  coldCount: number;
+  unknownCount: number;
+  noContact30Days: number;
+  noContact90Days: number;
+  upcomingFollowups: number;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -153,6 +244,31 @@ export interface SearchFilters {
   excludeCompanies?: string[];   // 제외할 회사
   // 동의어 확장 옵션
   expandSynonyms?: boolean;      // 스킬 동의어 확장 여부 (기본: true)
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // P1-B: 재활성 검색 필터 (헤드헌터 인터뷰 기반)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /** 마지막 연락 이전 (ISO date) - "이 날짜 이전에 연락한 사람" */
+  lastContactBefore?: string;
+
+  /** 마지막 연락 이후 (ISO date) - "이 날짜 이후에 연락한 사람" */
+  lastContactAfter?: string;
+
+  /** 이직 의향 레벨 (복수 선택 가능) */
+  interestLevel?: InterestLevel[];
+
+  /** 탈락 이력 있는 후보자 제외 */
+  excludeRejected?: boolean;
+
+  /** 특정 포지션 지원자 제외 */
+  notInPosition?: string;
+
+  /** 연락 이력 없는 후보자만 */
+  noContactHistory?: boolean;
+
+  /** 희망 연봉 범위 (만원) */
+  salaryExpectationMax?: number;
 }
 
 export interface SearchRequest {
