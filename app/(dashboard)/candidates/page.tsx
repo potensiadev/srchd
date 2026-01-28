@@ -233,7 +233,7 @@ export default function CandidatesPage() {
           .from("users")
           .select("id")
           .eq("email", user.email)
-          .single();
+          .single<{ id: string }>();
 
         if (userError || !userData) {
           console.error("[Candidates] Failed to get public user:", userError);

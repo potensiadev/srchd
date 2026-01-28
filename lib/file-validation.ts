@@ -193,6 +193,66 @@ export function validateMagicBytes(
 // ─────────────────────────────────────────────────
 
 /**
+ * ZIP 구조 검증 (DOCX, HWPX)
+ * ZIP 기반 파일의 내부 구조를 검증하여 위조된 파일 탐지
+ */
+export async function validateZipStructure(
+  buffer: ArrayBuffer,
+  expectedExtension: string
+): Promise<FileValidationResult> {
+  const ext = expectedExtension.toLowerCase();
+
+  // ZIP 기반 파일만 검증
+  if (![".docx", ".hwpx"].includes(ext)) {
+    return { valid: true, extension: ext };
+  }
+
+  try {
+    // JSZip을 동적으로 로드 (서버 사이드 전용)
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(buffer);
+
+    // DOCX 파일 구조 검증
+    if (ext === ".docx") {
+      const requiredFiles = ["[Content_Types].xml", "word/document.xml"];
+      for (const file of requiredFiles) {
+        if (!zip.file(file)) {
+          return {
+            valid: false,
+            error: "DOCX 파일 구조가 올바르지 않습니다. 파일이 손상되었거나 위조된 파일일 수 있습니다.",
+          };
+        }
+      }
+    }
+
+    // HWPX 파일 구조 검증
+    if (ext === ".hwpx") {
+      // HWPX는 OWPML 형식 - Contents/content.hpf 또는 mimetype 파일 확인
+      const hasContentHpf = zip.file("Contents/content.hpf") !== null;
+      const hasMimetype = zip.file("mimetype") !== null;
+      const hasSection = Object.keys(zip.files).some((name) =>
+        name.startsWith("Contents/section")
+      );
+
+      if (!hasContentHpf && !hasMimetype && !hasSection) {
+        return {
+          valid: false,
+          error: "HWPX 파일 구조가 올바르지 않습니다. 파일이 손상되었거나 위조된 파일일 수 있습니다.",
+        };
+      }
+    }
+
+    return { valid: true, extension: ext };
+  } catch (error) {
+    console.error("ZIP structure validation error:", error);
+    return {
+      valid: false,
+      error: "파일을 읽을 수 없습니다. 파일이 손상되었을 수 있습니다.",
+    };
+  }
+}
+
+/**
  * 파일 크기 검증
  */
 export function validateFileSize(
