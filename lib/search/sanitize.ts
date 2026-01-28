@@ -5,21 +5,15 @@
  * - 쿼리 파싱
  */
 
-// ─────────────────────────────────────────────────
-// 상수 정의
-// ─────────────────────────────────────────────────
+import {
+  MAX_SKILLS_ARRAY_SIZE,
+  MAX_SKILL_LENGTH,
+  MAX_KEYWORD_LENGTH,
+  MAX_QUERY_LENGTH,
+} from "./constants";
 
-/** 스킬 배열 최대 처리 개수 (DoS 방지, 필터 검증용 MAX_SKILLS_COUNT와 구분) */
-export const MAX_SKILLS_ARRAY_SIZE = 100;
-
-/** 개별 스킬명 최대 길이 */
-export const MAX_SKILL_LENGTH = 100;
-
-/** 검색 키워드 최대 길이 */
-export const MAX_KEYWORD_LENGTH = 50;
-
-/** 검색 쿼리 최대 길이 */
-export const MAX_QUERY_LENGTH = 500;
+// Re-export constants for backward compatibility
+export { MAX_SKILLS_ARRAY_SIZE, MAX_SKILL_LENGTH, MAX_KEYWORD_LENGTH, MAX_QUERY_LENGTH };
 
 // ─────────────────────────────────────────────────
 // 위험 문자 패턴

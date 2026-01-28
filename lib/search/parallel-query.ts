@@ -9,11 +9,12 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { expandSkillsFromDB } from "./synonym-service";
-
-// 병렬 쿼리 설정
-const MAX_PARALLEL_QUERIES = 5;
-const MAX_SKILLS_PER_GROUP = 15;  // BUG-004: 그룹당 최대 스킬 수 제한 (성능 보장)
-const MAX_TOTAL_SKILLS = MAX_PARALLEL_QUERIES * MAX_SKILLS_PER_GROUP;  // 75개
+import { escapeILikePattern } from "./utils";
+import {
+  MAX_PARALLEL_QUERIES,
+  MAX_SKILLS_PER_GROUP,
+  MAX_TOTAL_SKILLS,
+} from "./constants";
 
 export interface ParallelQueryOptions {
   userId: string;
@@ -41,16 +42,6 @@ export interface ParallelQueryResult {
   risk_level: string;
   created_at: string;
   updated_at: string;
-}
-
-/**
- * ILIKE 패턴 이스케이프
- */
-function escapeILikePattern(value: string): string {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_");
 }
 
 /**

@@ -10,19 +10,15 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
+import {
+  SYNONYM_CACHE_TTL_MS,
+  MAX_SYNONYM_CACHE_SIZE,
+  MAX_SYNONYMS_PER_SKILL,
+} from "./constants";
 
-// ─────────────────────────────────────────────────
-// 캐시 설정
-// ─────────────────────────────────────────────────
-
-/** 캐시 TTL (5분) */
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-/** P1: 캐시 최대 크기 (메모리 누수 방지) */
-const MAX_CACHE_SIZE = 10000;
-
-/** P1: 스킬당 최대 동의어 수 (쿼리 폭발 방지) */
-const MAX_SYNONYMS_PER_SKILL = 10;
+// Alias for internal use (backward compatibility)
+const CACHE_TTL_MS = SYNONYM_CACHE_TTL_MS;
+const MAX_CACHE_SIZE = MAX_SYNONYM_CACHE_SIZE;
 
 /** 동의어 캐시: canonical_skill -> variants[] */
 let synonymCache: Map<string, string[]> | null = null;

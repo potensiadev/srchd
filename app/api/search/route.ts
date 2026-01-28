@@ -51,10 +51,18 @@ import {
   sanitizeSkill,
   parseSearchQuery,
   sanitizeString,
+} from "@/lib/search/sanitize";
+import {
   MAX_SKILLS_ARRAY_SIZE,
   MAX_KEYWORD_LENGTH,
   MAX_QUERY_LENGTH,
-} from "@/lib/search/sanitize";
+  MAX_LIMIT,
+  MIN_LIMIT,
+  MIN_OFFSET,
+  MAX_EXP_YEARS,
+  MAX_SKILLS_COUNT,
+  MAX_LOCATION_LENGTH,
+} from "@/lib/search/constants";
 import { recordSearchMetrics } from "@/lib/observability/metrics";
 import { engToKor, korToEng } from "@/lib/search/typo";
 import { calculateFacets, toSearchResult, escapeILikePattern, sanitizeArrayValue } from "@/lib/search/utils";
@@ -81,23 +89,12 @@ export async function POST(request: NextRequest) {
     const { query, filters } = body;
 
     // 페이지네이션 파라미터 검증 (정수 오버플로우 및 DoS 방지)
-    const MAX_LIMIT = 100;
-    const MIN_LIMIT = 1;
-    const MIN_OFFSET = 0;
-
     let limit = typeof body.limit === "number" ? body.limit : 20;
     let offset = typeof body.offset === "number" ? body.offset : 0;
 
     if (limit < MIN_LIMIT) limit = MIN_LIMIT;
     if (limit > MAX_LIMIT) limit = MAX_LIMIT;
     if (offset < MIN_OFFSET) offset = MIN_OFFSET;
-
-    // ─────────────────────────────────────────────────
-    // 필터 파라미터 검증 (DoS 및 데이터 무결성 방지)
-    // ─────────────────────────────────────────────────
-    const MAX_EXP_YEARS = 100;
-    const MAX_SKILLS_COUNT = 20;
-    const MAX_LOCATION_LENGTH = 100;
 
     if (filters) {
       // 경력 연수 검증
