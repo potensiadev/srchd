@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   const requestedNext = searchParams.get("next");
 
   // 안전한 경로만 허용, 그 외는 기본값 사용
-  const next = isValidRedirectPath(requestedNext) ? requestedNext : "/consent";
+  const next = isValidRedirectPath(requestedNext) ? requestedNext : "/candidates";
 
   if (code) {
     const cookieStore = await cookies();
@@ -77,7 +77,43 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      // 세션에서 사용자 정보 가져오기
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        // public.users 레코드 확인
+        const { data: existingUser } = await supabase
+          .from("users")
+          .select("id, consents_completed")
+          .eq("id", user.id)
+          .single();
+
+        if (!existingUser) {
+          // public.users 레코드가 없으면 생성 (트리거 실패 대비 안전망)
+          const provider = user.app_metadata?.provider || "email";
+          await supabase.from("users").insert({
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.user_metadata?.name,
+            avatar_url: user.user_metadata?.avatar_url,
+            signup_provider: provider,
+          });
+
+          // 신규 생성 → consent 페이지로
+          return NextResponse.redirect(`${origin}/consent`);
+        }
+
+        // 동의 완료 여부에 따라 리다이렉트
+        if (!existingUser.consents_completed) {
+          return NextResponse.redirect(`${origin}/consent`);
+        }
+
+        // 동의 완료된 기존 회원 → 요청된 경로로
+        return NextResponse.redirect(`${origin}${next}`);
+      }
+
+      // user가 없으면 consent로 (비정상 케이스)
+      return NextResponse.redirect(`${origin}/consent`);
     }
   }
 
