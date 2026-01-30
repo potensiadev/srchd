@@ -74,6 +74,8 @@ from services.embedding_service import EmbeddingService, get_embedding_service, 
 from services.database_service import DatabaseService, get_database_service, SaveResult
 from services.queue_service import get_queue_service, QueuedJob, DLQEntry
 from services.pdf_converter import get_pdf_converter, PDFConversionResult
+from orchestrator.feature_flags import get_feature_flags
+from orchestrator.pipeline_orchestrator import get_pipeline_orchestrator
 
 # 로깅 설정
 logging.basicConfig(
@@ -400,6 +402,9 @@ async def debug_status():
     llm_manager = get_llm_manager()
     available_providers = llm_manager.get_available_providers()
 
+    # Feature Flags 정보
+    feature_flags = get_feature_flags()
+
     # 민감한 정보 제거 - API 키 prefix 노출하지 않음
     return {
         "status": "healthy",
@@ -422,6 +427,16 @@ async def debug_status():
                 "client_ready": llm_manager.anthropic_client is not None,
                 "model": settings.ANTHROPIC_MODEL,
             },
+        },
+        "feature_flags": {
+            "use_new_pipeline": feature_flags.use_new_pipeline,
+            "use_llm_validation": feature_flags.use_llm_validation,
+            "use_agent_messaging": feature_flags.use_agent_messaging,
+            "use_hallucination_detection": feature_flags.use_hallucination_detection,
+            "use_evidence_tracking": feature_flags.use_evidence_tracking,
+            "new_pipeline_rollout_percentage": feature_flags.new_pipeline_rollout_percentage,
+            "new_pipeline_user_count": len(feature_flags.new_pipeline_user_ids),
+            "debug_pipeline": feature_flags.debug_pipeline,
         },
         "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY),
         "redis_configured": bool(settings.REDIS_URL),
@@ -998,6 +1013,8 @@ class PipelineRequest(BaseModel):
     job_id: str
     candidate_id: Optional[str] = None
     mode: Optional[str] = "phase_1"
+    is_retry: bool = False  # 재시도 여부
+    skip_credit_deduction: bool = False  # 크레딧 차감 스킵 (이미 차감된 경우)
 
 
 class PipelineResponse(BaseModel):
@@ -1014,6 +1031,7 @@ async def run_pipeline(
     job_id: str,
     mode: str,
     candidate_id: Optional[str] = None,
+    skip_credit_deduction: bool = False,
 ):
     """
     전체 처리 파이프라인 (백그라운드 실행)
@@ -1285,18 +1303,23 @@ async def run_pipeline(
             pii_count=pii_count,
         )
 
-        # Step 7.5: 중복 업데이트인 경우 크레딧 복구
-        # 이미 등록된 후보자를 업데이트하는 것이므로 추가 크레딧 차감 불필요
-        if save_result.is_update:
-            logger.info(f"[Pipeline] Duplicate update detected, releasing credit...")
-            credit_released = db_service.release_credit(
+        # Step 7.5: 크레딧 차감 (분석 성공 시에만)
+        # - 중복 업데이트의 경우 크레딧 차감하지 않음
+        # - skip_credit_deduction=True인 경우 (재시도 + 이미 차감됨) 차감하지 않음
+        if skip_credit_deduction:
+            logger.info(f"[Pipeline] Skipping credit deduction (already charged or retry)")
+        elif save_result.is_update:
+            logger.info(f"[Pipeline] Duplicate update detected, skipping credit deduction")
+        else:
+            logger.info(f"[Pipeline] Deducting credit for user {user_id}...")
+            credit_deducted = db_service.deduct_credit(
                 user_id=user_id,
-                job_id=job_id,
+                candidate_id=candidate_id,
             )
-            if credit_released:
-                logger.info(f"[Pipeline] Credit released for duplicate update")
+            if credit_deducted:
+                logger.info(f"[Pipeline] Credit deducted successfully")
             else:
-                logger.warning(f"[Pipeline] Failed to release credit for duplicate update")
+                logger.warning(f"[Pipeline] Failed to deduct credit (may already be insufficient)")
 
         # Step 8: 기존 JD와 자동 매칭 (임베딩이 생성된 경우에만)
         if chunks_saved > 0:
@@ -1313,11 +1336,6 @@ async def run_pipeline(
                 )
             else:
                 logger.warning(f"[Pipeline] Auto-match failed: {match_result.get('error')}")
-
-        # Step 9: 크레딧 차감 - REMOVED
-        # 크레딧은 presign 단계에서 reserve_credit()으로 이미 차감됨
-        # Worker에서 다시 차감하면 중복 차감 발생
-        # db_service.deduct_credit(user_id, candidate_id)
 
         processing_time = int((time.time() - start_time) * 1000)
         logger.info(
@@ -1343,17 +1361,9 @@ async def run_pipeline(
                 status="failed",
             )
 
-        # 실패 시 크레딧 복구
-        # presign 단계에서 예약된 크레딧을 돌려줌
-        logger.info(f"[Pipeline] Releasing credit for user {user_id}, job {job_id}")
-        credit_released = db_service.release_credit(
-            user_id=user_id,
-            job_id=job_id,
-        )
-        if credit_released:
-            logger.info(f"[Pipeline] Credit released successfully")
-        else:
-            logger.warning(f"[Pipeline] Failed to release credit")
+        # 크레딧은 presign에서 차감하지 않으므로 복구 불필요
+        # 분석 성공 시에만 차감하는 구조로 변경됨
+        logger.info(f"[Pipeline] Failed - no credit deducted (deduct on success only)")
 
 
 @app.post("/pipeline", response_model=PipelineResponse)
@@ -1366,24 +1376,356 @@ async def pipeline_endpoint(
 
     파이프라인 완료 후 응답 반환:
     파일 다운로드 → 파싱 → 분석 → PII → 임베딩 → DB 저장 → 크레딧 차감
+
+    Feature Flag에 따라 새 파이프라인 또는 기존 파이프라인 사용
     """
     logger.info(f"[Pipeline] Received request for job {request.job_id}")
 
-    # 동기로 파이프라인 실행 (완료 보장)
-    await run_pipeline(
-        file_url=request.file_url,
-        file_name=request.file_name,
+    # Feature Flag 확인
+    feature_flags = get_feature_flags()
+    use_new_pipeline = feature_flags.should_use_new_pipeline(
         user_id=request.user_id,
-        job_id=request.job_id,
-        candidate_id=request.candidate_id,
-        mode=request.mode or "phase_1",
+        job_id=request.job_id
     )
+
+    if use_new_pipeline:
+        # 새로운 PipelineOrchestrator 사용
+        logger.info(f"[Pipeline] Using NEW pipeline (PipelineOrchestrator) for job {request.job_id}")
+        await run_new_pipeline(
+            file_url=request.file_url,
+            file_name=request.file_name,
+            user_id=request.user_id,
+            job_id=request.job_id,
+            candidate_id=request.candidate_id,
+            mode=request.mode or "phase_1",
+        )
+    else:
+        # 기존 파이프라인 사용
+        logger.info(f"[Pipeline] Using LEGACY pipeline for job {request.job_id}")
+        await run_pipeline(
+            file_url=request.file_url,
+            file_name=request.file_name,
+            user_id=request.user_id,
+            job_id=request.job_id,
+            candidate_id=request.candidate_id,
+            mode=request.mode or "phase_1",
+            skip_credit_deduction=request.skip_credit_deduction,
+        )
 
     return PipelineResponse(
         success=True,
         message="Pipeline completed",
         job_id=request.job_id,
     )
+
+
+async def run_new_pipeline(
+    file_url: str,
+    file_name: str,
+    user_id: str,
+    job_id: str,
+    mode: str,
+    candidate_id: Optional[str] = None,
+):
+    """
+    새로운 PipelineOrchestrator 기반 파이프라인
+
+    PipelineContext를 사용하여 전체 파이프라인을 관리합니다.
+    """
+    import time
+    start_time = time.time()
+
+    db_service = get_database_service()
+
+    logger.info(f"[NewPipeline] Starting for job {job_id}, file: {file_name}")
+
+    try:
+        # Job 상태 업데이트
+        db_service.update_job_status(job_id, "processing")
+
+        # Supabase Storage에서 파일 다운로드
+        logger.info(f"[NewPipeline] Downloading file from storage: {file_url}")
+
+        if not db_service.client:
+            raise Exception("Supabase client not initialized")
+
+        file_response = db_service.client.storage.from_("resumes").download(file_url)
+
+        if not file_response:
+            raise Exception(f"Failed to download file: {file_url}")
+
+        file_bytes = file_response
+        logger.info(f"[NewPipeline] Downloaded {len(file_bytes)} bytes")
+
+        # PipelineOrchestrator 실행
+        orchestrator = get_pipeline_orchestrator()
+        result = await orchestrator.run(
+            file_bytes=file_bytes,
+            filename=file_name,
+            user_id=user_id,
+            job_id=job_id,
+            mode=mode,
+            candidate_id=candidate_id,
+        )
+
+        if result.success:
+            logger.info(
+                f"[NewPipeline] Complete! candidate={result.candidate_id}, "
+                f"confidence={result.confidence_score:.2f}, "
+                f"chunks={result.chunks_saved}, time={result.processing_time_ms}ms"
+            )
+
+            # PDF 변환 (원본이 PDF가 아닌 경우) - 기존 파이프라인과 동일
+            # 이 부분은 PipelineOrchestrator 내부에서 처리하거나 여기서 별도로 처리
+            # 현재는 기존 방식 유지
+
+            # 크레딧 차감 (중복이 아닌 경우에만)
+            if not result.is_update:
+                logger.info(f"[NewPipeline] Deducting credit for user {user_id}...")
+                credit_deducted = db_service.deduct_credit(
+                    user_id=user_id,
+                    candidate_id=result.candidate_id,
+                )
+                if credit_deducted:
+                    logger.info(f"[NewPipeline] Credit deducted successfully")
+                else:
+                    logger.warning(f"[NewPipeline] Failed to deduct credit")
+
+            # 기존 JD와 자동 매칭
+            if result.chunks_saved > 0:
+                logger.info(f"[NewPipeline] Running auto-match with existing positions...")
+                match_result = db_service.match_candidate_to_existing_positions(
+                    candidate_id=result.candidate_id,
+                    user_id=user_id,
+                    min_score=0.3
+                )
+                if match_result["success"]:
+                    logger.info(
+                        f"[NewPipeline] Auto-match complete: "
+                        f"{match_result['matched_positions']}/{match_result['total_positions']} positions"
+                    )
+        else:
+            raise Exception(result.error or "Pipeline failed")
+
+    except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
+        logger.error(f"[NewPipeline] Failed after {processing_time}ms: {e}", exc_info=True)
+
+        # 실패 시 job 상태 업데이트
+        db_service.update_job_status(
+            job_id=job_id,
+            status="failed",
+            error_message=str(e)[:500],
+        )
+
+        # 실패 시 candidate 상태도 업데이트
+        if candidate_id:
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="failed",
+            )
+
+
+# ─────────────────────────────────────────────────
+# Feature Flags Endpoints
+# ─────────────────────────────────────────────────
+
+class FeatureFlagsResponse(BaseModel):
+    """Feature Flags 응답 모델"""
+    use_new_pipeline: bool
+    use_llm_validation: bool
+    use_agent_messaging: bool
+    use_hallucination_detection: bool
+    use_evidence_tracking: bool
+    new_pipeline_rollout_percentage: float
+    new_pipeline_user_count: int
+    debug_pipeline: bool
+
+
+@app.get("/feature-flags", response_model=FeatureFlagsResponse)
+async def get_feature_flags_endpoint(_: bool = Depends(verify_api_key)):
+    """
+    현재 Feature Flags 상태 조회
+
+    새 파이프라인 활성화 상태 및 세부 기능 플래그를 반환합니다.
+    """
+    flags = get_feature_flags()
+
+    return FeatureFlagsResponse(
+        use_new_pipeline=flags.use_new_pipeline,
+        use_llm_validation=flags.use_llm_validation,
+        use_agent_messaging=flags.use_agent_messaging,
+        use_hallucination_detection=flags.use_hallucination_detection,
+        use_evidence_tracking=flags.use_evidence_tracking,
+        new_pipeline_rollout_percentage=flags.new_pipeline_rollout_percentage,
+        new_pipeline_user_count=len(flags.new_pipeline_user_ids),
+        debug_pipeline=flags.debug_pipeline,
+    )
+
+
+@app.post("/feature-flags/reload")
+async def reload_feature_flags_endpoint(_: bool = Depends(verify_api_key)):
+    """
+    Feature Flags 재로드
+
+    환경 변수에서 Feature Flags를 다시 로드합니다.
+    런타임에서 플래그를 변경한 후 적용할 때 사용합니다.
+    """
+    from orchestrator.feature_flags import reload_feature_flags
+
+    flags = reload_feature_flags()
+
+    return {
+        "success": True,
+        "message": "Feature flags reloaded",
+        "flags": {
+            "use_new_pipeline": flags.use_new_pipeline,
+            "use_llm_validation": flags.use_llm_validation,
+            "new_pipeline_rollout_percentage": flags.new_pipeline_rollout_percentage,
+        }
+    }
+
+
+@app.get("/feature-flags/check")
+async def check_pipeline_routing(
+    user_id: Optional[str] = None,
+    job_id: Optional[str] = None,
+    _: bool = Depends(verify_api_key),
+):
+    """
+    파이프라인 라우팅 확인
+
+    특정 user_id/job_id에 대해 어떤 파이프라인이 사용될지 확인합니다.
+    테스트 및 디버깅 용도입니다.
+    """
+    flags = get_feature_flags()
+
+    will_use_new = flags.should_use_new_pipeline(
+        user_id=user_id,
+        job_id=job_id
+    )
+
+    return {
+        "user_id": user_id,
+        "job_id": job_id,
+        "will_use_new_pipeline": will_use_new,
+        "reason": _get_routing_reason(flags, user_id, job_id, will_use_new),
+    }
+
+
+def _get_routing_reason(flags, user_id, job_id, will_use_new) -> str:
+    """라우팅 이유 설명"""
+    if not flags.use_new_pipeline:
+        return "Main flag (USE_NEW_PIPELINE) is disabled"
+
+    if user_id and user_id in flags.new_pipeline_user_ids:
+        return f"User {user_id} is in whitelist"
+
+    if flags.new_pipeline_rollout_percentage >= 1.0:
+        return "100% rollout enabled"
+
+    if flags.new_pipeline_rollout_percentage > 0 and job_id:
+        if will_use_new:
+            return f"Job selected by {flags.new_pipeline_rollout_percentage*100:.0f}% rollout"
+        else:
+            return f"Job not selected by {flags.new_pipeline_rollout_percentage*100:.0f}% rollout"
+
+    return "Following main flag setting"
+
+
+# ─────────────────────────────────────────────────
+# New Pipeline Endpoint (Direct access for testing)
+# ─────────────────────────────────────────────────
+
+class NewPipelineResponse(BaseModel):
+    """새 파이프라인 응답 모델"""
+    success: bool
+    candidate_id: Optional[str] = None
+    confidence_score: float = 0.0
+    field_confidence: dict = {}
+    chunk_count: int = 0
+    chunks_saved: int = 0
+    pii_count: int = 0
+    warnings: list = []
+    processing_time_ms: int = 0
+    pipeline_id: Optional[str] = None
+    is_update: bool = False
+    error: Optional[str] = None
+
+
+@app.post("/pipeline/new", response_model=NewPipelineResponse)
+async def new_pipeline_endpoint(
+    request: PipelineRequest,
+    _: bool = Depends(verify_api_key),
+):
+    """
+    새 PipelineOrchestrator 직접 호출 (테스트용)
+
+    Feature Flag와 상관없이 새 파이프라인을 직접 사용합니다.
+    테스트 및 디버깅 목적으로 사용하세요.
+    """
+    import time
+    start_time = time.time()
+
+    logger.info(f"[NewPipeline] Direct call for job {request.job_id}")
+
+    db_service = get_database_service()
+
+    try:
+        # Job 상태 업데이트
+        db_service.update_job_status(request.job_id, "processing")
+
+        # 파일 다운로드
+        if not db_service.client:
+            raise Exception("Supabase client not initialized")
+
+        file_response = db_service.client.storage.from_("resumes").download(request.file_url)
+        if not file_response:
+            raise Exception(f"Failed to download file: {request.file_url}")
+
+        file_bytes = file_response
+
+        # PipelineOrchestrator 실행
+        orchestrator = get_pipeline_orchestrator()
+        result = await orchestrator.run(
+            file_bytes=file_bytes,
+            filename=request.file_name,
+            user_id=request.user_id,
+            job_id=request.job_id,
+            mode=request.mode or "phase_1",
+            candidate_id=request.candidate_id,
+        )
+
+        return NewPipelineResponse(
+            success=result.success,
+            candidate_id=result.candidate_id,
+            confidence_score=result.confidence_score,
+            field_confidence=result.field_confidence,
+            chunk_count=result.chunk_count,
+            chunks_saved=result.chunks_saved,
+            pii_count=result.pii_count,
+            warnings=result.warnings,
+            processing_time_ms=result.processing_time_ms,
+            pipeline_id=result.pipeline_id,
+            is_update=result.is_update,
+            error=result.error,
+        )
+
+    except Exception as e:
+        processing_time = int((time.time() - start_time) * 1000)
+        logger.error(f"[NewPipeline] Direct call failed: {e}", exc_info=True)
+
+        db_service.update_job_status(
+            job_id=request.job_id,
+            status="failed",
+            error_message=str(e)[:500],
+        )
+
+        return NewPipelineResponse(
+            success=False,
+            processing_time_ms=processing_time,
+            error=str(e),
+        )
 
 
 # ─────────────────────────────────────────────────
