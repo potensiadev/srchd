@@ -103,32 +103,3 @@ USER rai
 
 # 실행
 CMD ["python", "main.py"]
-
-
-# ─────────────────────────────────────────────────────
-# Stage 3: Development (선택적)
-# ─────────────────────────────────────────────────────
-FROM production AS development
-
-# root로 전환 (개발 도구 설치용)
-USER root
-
-# 개발 도구 설치
-RUN pip install --no-cache-dir \
-    pytest \
-    pytest-asyncio \
-    pytest-cov \
-    httpx
-
-# Note: For local development, mount source directory using docker run -v
-# Railway uses Railway Volumes for persistent storage
-
-# 개발 모드 환경 변수
-ENV DEBUG=true
-ENV ENV=development
-
-# non-root 사용자로 전환
-USER rai
-
-# uvicorn reload 모드
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
