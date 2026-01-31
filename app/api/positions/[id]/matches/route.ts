@@ -140,6 +140,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         semanticScore: Math.round(((row.semantic_score as number) || 0) * 100),
         matchedSkills: (row.matched_skills as string[]) || [],
         missingSkills: (row.missing_skills as string[]) || [],
+        synonymMatches: (row.synonym_matches as PositionCandidate["synonymMatches"]) || [],
         matchExplanation: row.match_explanation as PositionCandidate["matchExplanation"],
         stage: (row.stage as PositionCandidate["stage"]) || "matched",
         rejectionReason: row.rejection_reason as string | undefined,
