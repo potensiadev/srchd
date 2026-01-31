@@ -18,6 +18,16 @@ from .feature_flags import get_feature_flags
 logger = logging.getLogger(__name__)
 
 
+def _get_metrics_collector():
+    """Lazy import to avoid circular dependencies"""
+    try:
+        from services.metrics_service import get_metrics_collector
+        return get_metrics_collector()
+    except ImportError:
+        logger.warning("MetricsCollector not available")
+        return None
+
+
 @dataclass
 class OrchestratorResult:
     """오케스트레이터 실행 결과"""
@@ -110,6 +120,7 @@ class PipelineOrchestrator:
         job_id: str,
         mode: str = "phase_1",
         candidate_id: Optional[str] = None,
+        is_retry: bool = False,
     ) -> OrchestratorResult:
         """
         전체 파이프라인 실행
@@ -121,6 +132,7 @@ class PipelineOrchestrator:
             job_id: 작업 ID
             mode: 분석 모드 (phase_1 or phase_2)
             candidate_id: 기존 후보자 ID (업데이트용)
+            is_retry: 재시도 여부
 
         Returns:
             OrchestratorResult with processing results
@@ -135,6 +147,17 @@ class PipelineOrchestrator:
         ctx.metadata.config["mode"] = mode
 
         logger.info(f"[Orchestrator] Starting pipeline: {ctx.metadata.pipeline_id}")
+
+        # 메트릭 수집 시작
+        metrics_collector = _get_metrics_collector()
+        if metrics_collector:
+            metrics_collector.start_pipeline(
+                pipeline_id=ctx.metadata.pipeline_id,
+                job_id=job_id,
+                user_id=user_id,
+                pipeline_type="new",
+                is_retry=is_retry,
+            )
 
         try:
             # Stage 1: 원본 입력 설정
@@ -184,6 +207,17 @@ class PipelineOrchestrator:
             final_result = ctx.finalize()
             processing_time = int((time.time() - start_time) * 1000)
 
+            # 메트릭 완료 기록
+            if metrics_collector:
+                metrics_collector.complete_pipeline(
+                    pipeline_id=ctx.metadata.pipeline_id,
+                    success=True,
+                    text_length=len(ctx.parsed_data.raw_text) if ctx.parsed_data.raw_text else 0,
+                    chunk_count=embedding_result.get("chunk_count", 0),
+                    pii_count=privacy_result.get("pii_count", 0),
+                    confidence_score=final_result["confidence"],
+                )
+
             logger.info(
                 f"[Orchestrator] Pipeline completed: {ctx.metadata.pipeline_id}, "
                 f"candidate={save_result['candidate_id']}, time={processing_time}ms"
@@ -207,6 +241,14 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.error(f"[Orchestrator] Pipeline error: {e}", exc_info=True)
+            # 메트릭 에러 기록
+            if metrics_collector:
+                metrics_collector.complete_pipeline(
+                    pipeline_id=ctx.metadata.pipeline_id,
+                    success=False,
+                    error_code="INTERNAL_ERROR",
+                    error_message=str(e)[:200],
+                )
             return self._create_error_result(ctx, str(e), "INTERNAL_ERROR", start_time)
 
     async def _stage_parsing(self, ctx: PipelineContext) -> Dict[str, Any]:
@@ -214,6 +256,7 @@ class PipelineOrchestrator:
         from agents.router_agent import FileType
         from utils.hwp_parser import ParseMethod
 
+        stage_start = time.time()
         ctx.start_stage("parsing", "router_agent")
 
         try:
@@ -288,6 +331,12 @@ class PipelineOrchestrator:
                 "parse_method": parse_method,
                 "file_type": router_result.file_type.value,
             })
+
+            # 스테이지 메트릭 기록
+            stage_duration = int((time.time() - stage_start) * 1000)
+            metrics_collector = _get_metrics_collector()
+            if metrics_collector:
+                metrics_collector.record_stage(ctx.metadata.pipeline_id, "parsing", stage_duration)
 
             logger.info(f"[Orchestrator] Parsing complete: {len(text)} chars, {page_count} pages")
             return {"success": True, "text": text}
@@ -383,6 +432,7 @@ class PipelineOrchestrator:
 
     async def _stage_analysis(self, ctx: PipelineContext, mode: str) -> Dict[str, Any]:
         """Stage 5: AI 분석"""
+        stage_start = time.time()
         ctx.start_stage("analysis", "analyst_agent")
 
         try:
@@ -418,6 +468,23 @@ class PipelineOrchestrator:
                 "warning_count": len(result.warnings),
                 "mode": analysis_mode.value,
             })
+
+            # 스테이지 메트릭 기록
+            stage_duration = int((time.time() - stage_start) * 1000)
+            metrics_collector = _get_metrics_collector()
+            if metrics_collector:
+                metrics_collector.record_stage(ctx.metadata.pipeline_id, "analysis", stage_duration)
+
+                # LLM 호출 메트릭 (추정치 - 실제 토큰 수는 AnalystAgent에서 가져와야 함)
+                # TODO: AnalystAgent에서 실제 토큰 수 반환하도록 수정
+                estimated_tokens = len(text) // 4  # 대략적인 추정
+                metrics_collector.record_llm_call(
+                    ctx.metadata.pipeline_id,
+                    "openai",  # 기본 프로바이더
+                    "gpt-4o",
+                    tokens_input=estimated_tokens,
+                    tokens_output=500,  # 추정치
+                )
 
             logger.info(f"[Orchestrator] Analysis complete: confidence={result.confidence_score:.2f}")
             return {"success": True, "result": result}

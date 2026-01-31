@@ -1729,6 +1729,150 @@ async def new_pipeline_endpoint(
 
 
 # ─────────────────────────────────────────────────
+# Metrics Endpoints
+# ─────────────────────────────────────────────────
+
+class MetricsResponse(BaseModel):
+    """메트릭 응답 모델"""
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+    success_rate: float
+    avg_duration_ms: float
+    min_duration_ms: int
+    max_duration_ms: int
+    errors_by_code: dict
+    stage_avg_durations: dict
+    llm_total_calls: int
+    llm_total_tokens_input: int
+    llm_total_tokens_output: int
+    llm_total_cost_usd: float
+    llm_calls_by_provider: dict
+    requests_by_pipeline_type: dict
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+
+
+class MetricsHealthResponse(BaseModel):
+    """메트릭 헬스 응답 모델"""
+    status: str
+    error_rate: float
+    avg_duration_ms: float
+    active_pipelines: int
+    total_requests_5min: int
+
+
+@app.get("/metrics", response_model=MetricsResponse)
+async def get_metrics(
+    minutes: int = 60,
+    pipeline_type: Optional[str] = None,
+    _: bool = Depends(verify_api_key),
+):
+    """
+    파이프라인 메트릭 조회
+
+    집계된 파이프라인 성능 및 비용 메트릭을 반환합니다.
+
+    Args:
+        minutes: 조회 기간 (분, 기본: 60분)
+        pipeline_type: 파이프라인 타입 필터 ("legacy" or "new")
+
+    Returns:
+        MetricsResponse with aggregated metrics
+    """
+    from services.metrics_service import get_metrics_collector
+
+    collector = get_metrics_collector()
+    aggregated = collector.get_aggregated(minutes=minutes, pipeline_type=pipeline_type)
+
+    return MetricsResponse(**aggregated.to_dict())
+
+
+@app.get("/metrics/health", response_model=MetricsHealthResponse)
+async def get_metrics_health(_: bool = Depends(verify_api_key)):
+    """
+    메트릭 기반 헬스 상태
+
+    최근 5분간 메트릭을 기반으로 시스템 상태를 반환합니다.
+    - healthy: 에러율 10% 미만
+    - degraded: 에러율 10-50%
+    - unhealthy: 에러율 50% 이상
+    """
+    from services.metrics_service import get_metrics_collector
+
+    collector = get_metrics_collector()
+    health = collector.get_health_status()
+
+    return MetricsHealthResponse(**health)
+
+
+@app.get("/metrics/recent")
+async def get_recent_metrics(count: int = 10, _: bool = Depends(verify_api_key)):
+    """
+    최근 파이프라인 실행 메트릭
+
+    Args:
+        count: 조회할 최근 실행 수 (기본: 10)
+
+    Returns:
+        List of recent pipeline execution metrics
+    """
+    from services.metrics_service import get_metrics_collector
+
+    collector = get_metrics_collector()
+    recent = collector.get_recent(count=count)
+
+    return {
+        "success": True,
+        "count": len(recent),
+        "metrics": recent,
+    }
+
+
+@app.get("/metrics/llm-cost")
+async def get_llm_cost_metrics(
+    minutes: int = 1440,  # 기본 24시간
+    _: bool = Depends(verify_api_key),
+):
+    """
+    LLM 비용 메트릭
+
+    LLM 호출 비용 관련 상세 메트릭을 반환합니다.
+
+    Args:
+        minutes: 조회 기간 (분, 기본: 1440분 = 24시간)
+
+    Returns:
+        LLM cost breakdown by provider and model
+    """
+    from services.metrics_service import get_metrics_collector
+
+    collector = get_metrics_collector()
+    aggregated = collector.get_aggregated(minutes=minutes)
+
+    # 시간당 비용 추정
+    hours = minutes / 60
+    hourly_cost = aggregated.llm_total_cost_usd / hours if hours > 0 else 0
+    daily_cost_estimate = hourly_cost * 24
+    monthly_cost_estimate = daily_cost_estimate * 30
+
+    return {
+        "success": True,
+        "period_minutes": minutes,
+        "total_cost_usd": round(aggregated.llm_total_cost_usd, 4),
+        "total_calls": aggregated.llm_total_calls,
+        "total_tokens_input": aggregated.llm_total_tokens_input,
+        "total_tokens_output": aggregated.llm_total_tokens_output,
+        "calls_by_provider": dict(aggregated.llm_calls_by_provider),
+        "estimates": {
+            "hourly_cost_usd": round(hourly_cost, 4),
+            "daily_cost_usd": round(daily_cost_estimate, 2),
+            "monthly_cost_usd": round(monthly_cost_estimate, 2),
+        },
+    }
+
+
+# ─────────────────────────────────────────────────
 # Dead Letter Queue (DLQ) Endpoints
 # ─────────────────────────────────────────────────
 
