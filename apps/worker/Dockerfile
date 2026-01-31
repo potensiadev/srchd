@@ -120,8 +120,8 @@ RUN pip install --no-cache-dir \
     pytest-cov \
     httpx
 
-# 소스 디렉토리 마운트용
-VOLUME ["/app"]
+# Note: For local development, mount source directory using docker run -v
+# Railway uses Railway Volumes for persistent storage
 
 # 개발 모드 환경 변수
 ENV DEBUG=true
