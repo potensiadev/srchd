@@ -36,10 +36,12 @@ export default function EditableField({
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
   // value prop이 변경되면 editValue 동기화 (편집 중이 아닐 때만)
+  // 외부 상태(value prop)와 로컬 상태(editValue) 동기화를 위한 의도적 패턴
   useEffect(() => {
     if (!isEditing) {
       setEditValue(value?.toString() ?? "");
     }
+     
   }, [value, isEditing]);
 
   useEffect(() => {

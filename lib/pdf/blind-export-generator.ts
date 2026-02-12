@@ -10,7 +10,7 @@ export interface BlindExportOptions {
  */
 export function generateBlindResumeHTML(
     candidate: Record<string, unknown>,
-    options: BlindExportOptions
+    _options: BlindExportOptions
 ): string {
     const careers = (candidate.careers as Array<{
         company: string;
@@ -37,7 +37,7 @@ export function generateBlindResumeHTML(
     }>) || [];
 
     const skills = (candidate.skills as string[]) || [];
-    const strengths = (candidate.strengths as string[]) || [];
+    // strengths is extracted but not displayed in blind resume (future feature)
 
     // Helper to escape HTML to prevent XSS in generated report
     const safe = (str: string | undefined | null) => str ? escape(String(str)) : "";

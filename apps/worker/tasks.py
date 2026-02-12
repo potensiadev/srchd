@@ -810,11 +810,15 @@ def full_pipeline(
     file_name: str,
     mode: str = "phase_1",
     candidate_id: Optional[str] = None,
+    skip_credit_deduction: bool = False,
 ) -> dict:
     """
     전체 파이프라인 작업 (RQ Task)
 
-    파일 다운로드 → 파싱 → 분석 → PII 마스킹 → 임베딩 → DB 저장 → 크레딧 차감
+    PipelineOrchestrator를 통해 통합된 파이프라인 실행:
+    파일 다운로드 → 파싱 → 신원 확인 → 분석 → 검증 → URL 추출 →
+    경력 계산 → 학력 판별 → PII 마스킹 → 임베딩 → DB 저장 →
+    크레딧 차감 → JD 자동 매칭
 
     Next.js API에서 호출하는 주요 작업
 
@@ -824,10 +828,15 @@ def full_pipeline(
         file_path: Supabase Storage 경로
         file_name: 원본 파일명
         mode: phase_1 또는 phase_2
+        candidate_id: 기존 후보자 ID (업데이트/재시도용)
+        skip_credit_deduction: 크레딧 차감 스킵 여부 (재시도 시)
 
     Returns:
         dict: 전체 처리 결과
     """
+    import asyncio
+    from orchestrator.pipeline_orchestrator import get_pipeline_orchestrator
+
     logger.info(f"[Task] full_pipeline started: job={job_id}, file={file_name}")
 
     db_service = get_database_service()
@@ -845,30 +854,78 @@ def full_pipeline(
             notify_webhook(job_id, "failed", error=error_msg)
             return {"success": False, "error": error_msg}
 
-        # Step 1: 파일 파싱
-        parse_result = parse_file(
-            job_id=job_id,
-            user_id=user_id,
-            file_path=file_path,
-            file_name=file_name,
+        # PipelineOrchestrator를 통해 통합된 파이프라인 실행
+        orchestrator = get_pipeline_orchestrator()
+        result = asyncio.run(
+            orchestrator.run_from_storage(
+                storage_path=file_path,
+                filename=file_name,
+                user_id=user_id,
+                job_id=job_id,
+                mode=mode,
+                candidate_id=candidate_id,
+                is_retry=skip_credit_deduction,
+                skip_credit_deduction=skip_credit_deduction,
+            )
         )
 
-        if not parse_result.get("success"):
-            return parse_result
+        if not result.success:
+            # 실패 시 상태 업데이트
+            db_service.update_job_status(
+                job_id,
+                status="failed",
+                error_code=result.error_code or "PIPELINE_FAILED",
+                error_message=result.error or "파이프라인 실패"
+            )
+            if candidate_id:
+                db_service.update_candidate_status(
+                    candidate_id=candidate_id,
+                    status="failed",
+                )
+            notify_webhook(job_id, "failed", error=result.error)
+            return {
+                "success": False,
+                "error": result.error,
+                "error_code": result.error_code,
+            }
 
-        # Step 2: 이력서 처리
-        process_result = process_resume(
+        # 성공 시 상태 업데이트
+        db_service.update_job_status(
             job_id=job_id,
-            user_id=user_id,
-            text=parse_result["text"],
-            mode=mode,
-            source_file=file_path,
-            file_type=parse_result.get("file_type", ""),
-            file_name=file_name,
-            candidate_id=candidate_id,
+            status="completed",
+            candidate_id=result.candidate_id,
+            confidence_score=result.confidence_score,
+            chunk_count=result.chunks_saved,
+            pii_count=result.pii_count,
         )
 
-        return process_result
+        # Webhook 알림
+        notify_webhook(job_id, "completed", result={
+            "candidate_id": result.candidate_id,
+            "confidence_score": result.confidence_score,
+            "chunk_count": result.chunks_saved,
+            "pii_count": result.pii_count,
+            "processing_time_ms": result.processing_time_ms,
+            "is_update": result.is_update,
+            "parent_id": result.parent_id,
+        })
+
+        logger.info(
+            f"[Task] full_pipeline completed: candidate={result.candidate_id}, "
+            f"confidence={result.confidence_score:.2f}, time={result.processing_time_ms}ms"
+        )
+
+        return {
+            "success": True,
+            "candidate_id": result.candidate_id,
+            "confidence_score": result.confidence_score,
+            "chunks_saved": result.chunks_saved,
+            "pii_count": result.pii_count,
+            "processing_time_ms": result.processing_time_ms,
+            "is_update": result.is_update,
+            "parent_id": result.parent_id,
+            "warnings": result.warnings,
+        }
 
     except Exception as e:
         logger.error(f"[Task] full_pipeline error: {e}", exc_info=True)

@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { validateCSRFForAPI } from "@/lib/csrf";
+import { sanitizeRedirectPath } from "@/lib/security/redirect";
 
 interface UserRow {
   consents_completed: boolean | null;
@@ -136,7 +137,8 @@ export async function middleware(request: NextRequest) {
 
       if (consentProfile?.consents_completed) {
         // 원래 요청한 경로가 있으면 그곳으로, 없으면 candidates로
-        const nextUrl = request.nextUrl.searchParams.get("next") || "/candidates";
+        const rawNext = request.nextUrl.searchParams.get("next");
+        const nextUrl = sanitizeRedirectPath(rawNext);
         return NextResponse.redirect(new URL(nextUrl, request.url));
       }
     } catch {
@@ -158,7 +160,8 @@ export async function middleware(request: NextRequest) {
 
       if (authProfile?.consents_completed) {
         // next 파라미터가 있으면 해당 경로로, 없으면 candidates로
-        const nextUrl = request.nextUrl.searchParams.get("next") || "/candidates";
+        const rawNext = request.nextUrl.searchParams.get("next");
+        const nextUrl = sanitizeRedirectPath(rawNext);
         return NextResponse.redirect(new URL(nextUrl, request.url));
       } else {
         return NextResponse.redirect(new URL("/consent", request.url));

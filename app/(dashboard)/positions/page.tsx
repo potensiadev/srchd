@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -75,7 +75,7 @@ export default function PositionsPage() {
   const toast = useToast();
 
   // positions 조회 함수 (RLS가 user_id 필터 자동 적용)
-  const fetchPositions = async (_userId: string) => {
+  const fetchPositions = useCallback(async () => {
     const { data, error } = await supabase
       .from("positions")
       .select("id, title, client_company, department, required_skills, min_exp_years, max_exp_years, status, priority, deadline, created_at, position_candidates(count)")
@@ -91,7 +91,7 @@ export default function PositionsPage() {
       ...p,
       match_count: ((p.position_candidates as { count: number }[])?.[0]?.count) || 0,
     })) as Position[];
-  };
+  }, [supabase]);
 
   // 페이지 로드 시 positions 조회 (RLS가 자동으로 현재 사용자 필터 적용)
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function PositionsPage() {
           return;
         }
 
-        const data = await fetchPositions(user.id);
+        const data = await fetchPositions();
         setPositions(data);
       } catch (error) {
         console.error("[Positions] Failed to load:", error);
@@ -113,7 +113,7 @@ export default function PositionsPage() {
     };
 
     loadData();
-  }, []);
+  }, [supabase, fetchPositions]);
 
   // 필터링 및 정렬
   useEffect(() => {

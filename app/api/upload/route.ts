@@ -2,20 +2,17 @@
  * POST /api/upload
  * 이력서 파일 업로드 API
  *
- * 개선사항 (v2):
+ * 개선사항 (v3):
  * - Rate Limiting (버스트 + 사용자별 + 글로벌)
- * - Atomic 크레딧 예약 (Race Condition 방지)
  * - 동시 업로드 제한 (DB 레벨)
  * - 메모리 최적화 (파일 크기 검증 강화)
- * - 실패 시 크레딧 환불
+ * - 크레딧은 분석 성공 후 Worker에서 차감 (실패 시 차감 없음)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   getAdminClient,
-  reserveCredit,
-  releaseCreditReservation,
   checkConcurrentUploadLimit,
 } from "@/lib/supabase/admin";
 import { withRateLimit } from "@/lib/rate-limit";
@@ -48,8 +45,7 @@ interface UploadResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<UploadResponse>> {
-  // 롤백에 필요한 상태 추적
-  let creditReserved = false;
+  // 상태 추적
   let publicUserId = "";
   let jobId = "";
   let candidateId: string | undefined = undefined;
@@ -170,23 +166,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     const ext = validation.extension || "." + file.name.split(".").pop()?.toLowerCase();
 
     // ─────────────────────────────────────────────────
-    // 7. Atomic 크레딧 예약 (Race Condition 방지)
-    // ─────────────────────────────────────────────────
-    const reserveResult = await reserveCredit(publicUserId, undefined, `이력서 업로드: ${file.name}`);
-    if (!reserveResult.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: reserveResult.error || "크레딧 예약에 실패했습니다.",
-          code: "CREDIT_RESERVE_FAILED",
-        },
-        { status: 402 }
-      );
-    }
-    creditReserved = true;
-
-    // ─────────────────────────────────────────────────
-    // 9. processing_jobs 레코드 생성
+    // 7. processing_jobs 레코드 생성
+    // 크레딧은 분석 성공 후 Worker에서 차감
     // ─────────────────────────────────────────────────
     const jobInsert = {
       user_id: publicUserId,
@@ -216,10 +197,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     if (jobError) {
       // Unique constraint 위반 (중복 업로드)
       if (jobError.code === "23505") {
-        // 크레딧 환불
-        await releaseCreditReservation(publicUserId);
-        creditReserved = false;
-
         return NextResponse.json(
           {
             success: false,
@@ -372,9 +349,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
               .eq("id", candidateId);
           }
 
-          // 크레딧 환불
-          await releaseCreditReservation(publicUserId, jobId);
-          creditReserved = false;
+          // 크레딧은 presign에서 차감하지 않으므로 환불 불필요
 
           return NextResponse.json(
             {
@@ -410,9 +385,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
           .eq("id", candidateId);
       }
 
-      // 크레딧 환불
-      await releaseCreditReservation(publicUserId, jobId);
-      creditReserved = false;
+      // 크레딧은 presign에서 차감하지 않으므로 환불 불필요
 
       return NextResponse.json(
         {
@@ -438,20 +411,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
   } catch (error) {
     console.error("[Upload] Unexpected error:", error);
 
-    // 크레딧 환불 (예약되었다면)
-    if (creditReserved && publicUserId) {
-      try {
-        await releaseCreditReservation(publicUserId, jobId || undefined);
-      } catch (refundError) {
-        console.error("[Upload] Failed to refund credit:", refundError);
-      }
-    }
+    // 크레딧은 presign에서 차감하지 않으므로 환불 불필요
 
     // job 상태 업데이트 (생성되었다면)
     if (jobId) {
       try {
         const adminClientForCleanup = getAdminClient();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         // 내부 에러 메시지는 로깅에만 사용하고, DB에는 일반적인 메시지 저장
         // (프로덕션에서 민감한 정보 노출 방지)
         const sanitizedErrorMessage = "처리 중 오류가 발생했습니다.";

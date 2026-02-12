@@ -92,13 +92,13 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_MINI_MODEL: str = "gpt-4o-mini"
 
-    # Google Gemini
-    GOOGLE_AI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # Google Gemini (2026년 1월 업데이트)
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3-pro-preview"
 
-    # Anthropic Claude (Phase 2)
+    # Anthropic Claude (Phase 2) (2026년 1월 업데이트)
     ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
 
     # Embedding
     EMBEDDING_MODEL: str = "text-embedding-3-small"

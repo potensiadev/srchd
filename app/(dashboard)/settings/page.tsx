@@ -63,11 +63,7 @@ function SettingsContent() {
     }
   }, [searchParams, toast, invalidateCredits, router]);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -112,7 +108,11 @@ function SettingsContent() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [supabase, router]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   const handleSaveProfile = async () => {
     if (!profile) return;

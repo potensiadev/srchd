@@ -285,7 +285,6 @@ export async function checkRateLimitDistributed(
   }
 
   const now = Date.now();
-  const windowStart = new Date(now - config.windowMs).toISOString();
 
   try {
     // 현재 윈도우의 요청 수 조회 및 새 요청 기록 (단일 트랜잭션)

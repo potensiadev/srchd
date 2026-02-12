@@ -90,7 +90,7 @@ export function recordEmbeddingMetrics(
 export function recordSearchMetrics(
     duration: number,
     mode: 'ai_semantic' | 'keyword' | 'fallback_text',
-    resultCount: number
+    _resultCount: number
 ): void {
     recordMetric('search_duration', duration, { mode });
     recordMetric('search_mode', 1, { mode });

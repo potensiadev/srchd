@@ -12,11 +12,7 @@
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  getAdminClient,
-  reserveCredit,
-  releaseCreditReservation,
-} from "@/lib/supabase/admin";
+import { getAdminClient } from "@/lib/supabase/admin";
 import {
   validateFile,
   calculateRemainingCredits,
@@ -34,8 +30,7 @@ import {
 } from "@/lib/api-response";
 
 export async function POST(request: NextRequest) {
-    // 롤백에 필요한 상태 추적
-    let creditReserved = false;
+    // 상태 추적
     let publicUserId = "";
     let jobId = "";
     let candidateId: string | undefined = undefined;
@@ -116,29 +111,90 @@ export async function POST(request: NextRequest) {
         }
 
         // ─────────────────────────────────────────────────
-        // 보안: Atomic 크레딧 예약 (Race Condition 방지)
-        // 크레딧을 먼저 예약하고, 이후 작업이 실패하면 롤백
+        // 크레딧 체크만 수행 (차감은 분석 성공 후 Worker에서)
         // ─────────────────────────────────────────────────
         console.log(`[Presign] User data:`, JSON.stringify(userData));
-        console.log(`[Presign] Attempting credit reservation for user: ${publicUserId}, remaining: ${remaining}`);
+        console.log(`[Presign] Credit check passed for user: ${publicUserId}, remaining: ${remaining}`);
 
-        const reserveResult = await reserveCredit(
-            publicUserId,
-            undefined,  // jobId는 아직 없음
-            `이력서 업로드 예약: ${fileName}`
-        );
+        // ─────────────────────────────────────────────────
+        // 중복 체크: 같은 사용자의 동일 파일명이 있으면 기존 데이터 삭제 후 교체
+        // ─────────────────────────────────────────────────
 
-        console.log(`[Presign] Credit reservation result:`, reserveResult);
+        // 1. candidates 테이블에서 같은 파일명 찾기
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: existingCandidates } = await (adminClient as any)
+            .from("candidates")
+            .select("id, source_file")
+            .eq("user_id", publicUserId)
+            .eq("name", fileName);
 
-        if (!reserveResult.success) {
-            console.warn(`[Presign] Credit reservation failed: ${reserveResult.error}`);
-            // 에러 메시지가 있으면 상세 정보 반환
-            if (reserveResult.error) {
-                return apiInternalError(`크레딧 예약 실패: ${reserveResult.error}`);
+        if (existingCandidates && existingCandidates.length > 0) {
+            console.log(`[Presign] Found ${existingCandidates.length} existing candidate(s) with same name, deleting...`);
+
+            const existingIds = existingCandidates.map((c: { id: string }) => c.id);
+
+            // processing_jobs 삭제 (candidate_id 기준)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+                .from("processing_jobs")
+                .delete()
+                .in("candidate_id", existingIds);
+
+            // candidates 삭제
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+                .from("candidates")
+                .delete()
+                .in("id", existingIds);
+
+            // Storage 파일 삭제 (best effort)
+            for (const existing of existingCandidates) {
+                if (existing.source_file) {
+                    try {
+                        await supabase.storage.from("resumes").remove([existing.source_file]);
+                    } catch (storageErr) {
+                        console.warn(`[Presign] Failed to delete old file: ${existing.source_file}`, storageErr);
+                    }
+                }
             }
-            return apiInsufficientCredits();
+
+            console.log(`[Presign] Deleted ${existingIds.length} existing candidate(s)`);
         }
-        creditReserved = true;
+
+        // 2. processing_jobs 테이블에서 같은 파일명의 고아 레코드 찾기 (candidate 없이 남은 jobs)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: orphanJobs } = await (adminClient as any)
+            .from("processing_jobs")
+            .select("id, file_path")
+            .eq("user_id", publicUserId)
+            .eq("file_name", fileName)
+            .is("candidate_id", null);
+
+        if (orphanJobs && orphanJobs.length > 0) {
+            console.log(`[Presign] Found ${orphanJobs.length} orphan processing_jobs with same file name, deleting...`);
+
+            const orphanIds = orphanJobs.map((j: { id: string }) => j.id);
+
+            // orphan jobs 삭제
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+                .from("processing_jobs")
+                .delete()
+                .in("id", orphanIds);
+
+            // Storage 파일 삭제 (best effort)
+            for (const job of orphanJobs) {
+                if (job.file_path) {
+                    try {
+                        await supabase.storage.from("resumes").remove([job.file_path]);
+                    } catch (storageErr) {
+                        console.warn(`[Presign] Failed to delete orphan file: ${job.file_path}`, storageErr);
+                    }
+                }
+            }
+
+            console.log(`[Presign] Deleted ${orphanIds.length} orphan processing_jobs`);
+        }
 
         // processing_jobs 레코드 생성 (Admin Client 사용)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,6 +218,7 @@ export async function POST(request: NextRequest) {
         jobId = (job as { id: string }).id;
 
         // Storage 경로 생성
+        // RLS 정책: uploads/{auth.uid}/* 패턴 필요
         const safeFileName = `${jobId}${ext}`;
         const storagePath = `uploads/${user.id}/${safeFileName}`;
 
@@ -188,14 +245,15 @@ export async function POST(request: NextRequest) {
 
         candidateId = candidate?.id;
 
-        // processing_jobs에 candidate_id 업데이트
-        if (candidateId) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (adminClient as any)
-                .from("processing_jobs")
-                .update({ candidate_id: candidateId })
-                .eq("id", jobId);
-        }
+        // processing_jobs에 candidate_id와 file_path 업데이트
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (adminClient as any)
+            .from("processing_jobs")
+            .update({
+                candidate_id: candidateId,
+                file_path: storagePath,
+            })
+            .eq("id", jobId);
 
         // 클라이언트가 직접 업로드할 정보 반환
         // 클라이언트에서 supabase.storage.from('resumes').upload() 사용
@@ -210,18 +268,6 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error("[Presign] Error:", error);
         console.error("[Presign] Error stack:", error instanceof Error ? error.stack : "no stack");
-
-        // ─────────────────────────────────────────────────
-        // 롤백: 크레딧 예약 해제
-        // ─────────────────────────────────────────────────
-        if (creditReserved && publicUserId) {
-            try {
-                await releaseCreditReservation(publicUserId, jobId || undefined);
-                console.log(`[Presign] Credit reservation released for user: ${publicUserId}`);
-            } catch (rollbackError) {
-                console.error("[Presign] Failed to release credit reservation:", rollbackError);
-            }
-        }
 
         // 생성된 job/candidate 정리 (best effort)
         if (jobId) {

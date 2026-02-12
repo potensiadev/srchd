@@ -3,7 +3,6 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Check, ArrowRight, X, ShieldCheck } from "lucide-react";
-import { useState, useEffect } from "react";
 import { PRICING_PLANS } from "@/lib/marketing-data";
 
 const faqs = [
@@ -30,14 +29,6 @@ const faqs = [
 ];
 
 export default function PricingPage() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-
-
   return (
     <main className="pt-32 pb-20 px-6">
       {/* Hero */}

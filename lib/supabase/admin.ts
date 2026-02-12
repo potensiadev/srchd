@@ -11,9 +11,8 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types";
 
-// 싱글톤 캐시 무효화 - 설정 변경 후 재생성 필요
-let adminClient: SupabaseClient<Database> | null = null;
-let adminClientVersion = 2; // 버전 변경 시 재생성
+// 싱글톤 캐시 - 현재 미사용 (캐싱 이슈 디버깅 중)
+// let adminClient: SupabaseClient<Database> | null = null;
 
 /**
  * Admin Supabase Client 가져오기 (싱글톤)

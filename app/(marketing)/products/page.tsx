@@ -1,11 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Link from "next/link";
 import {
   Sparkles,
   BarChart3,
-  ArrowRight,
 } from "lucide-react";
 import { CORE_FEATURES } from "@/lib/marketing-data";
 import { BentoGrid, BentoGridItem } from "@/components/ui/bento-grid";

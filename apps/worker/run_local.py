@@ -41,7 +41,7 @@ required_vars = [
     ('SUPABASE_URL', True),
     ('SUPABASE_SERVICE_ROLE_KEY', True),
     ('OPENAI_API_KEY', True),
-    ('GOOGLE_AI_API_KEY', False),  # Optional - Gemini
+    ('GEMINI_API_KEY', False),  # Optional - Gemini
     ('ANTHROPIC_API_KEY', False),  # Optional
     ('ENCRYPTION_KEY', True),
 ]

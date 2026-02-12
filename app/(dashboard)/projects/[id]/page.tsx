@@ -1,23 +1,58 @@
 
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Clock, MoreHorizontal, Download, Share2 } from "lucide-react";
+import { ArrowLeft, Clock, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CandidateGrid from "@/components/dashboard/CandidateGrid";
 import { Badge } from "@/components/ui/badge";
 
+interface Project {
+    id: string;
+    name: string;
+    description: string | null;
+    status: string;
+    created_at: string;
+}
+
+interface ProjectCandidate {
+    id: string;
+    name: string;
+    last_position: string | null;
+    last_company: string | null;
+    skills: string[];
+    exp_years: number;
+    confidence_score: number;
+}
+
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const router = useRouter();
-    const [project, setProject] = useState<any>(null);
-    const [candidates, setCandidates] = useState<any[]>([]);
+    const [project, setProject] = useState<Project | null>(null);
+    const [candidates, setCandidates] = useState<ProjectCandidate[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    const fetchProjectDetails = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/projects/${id}`);
+            if (res.ok) {
+                const data = await res.json();
+                setProject(data.data.project);
+                setCandidates(data.data.candidates);
+            } else {
+                console.error("Failed to load project");
+            }
+        } catch (error) {
+            console.error("Error loading project:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [id]);
 
     useEffect(() => {
         fetchProjectDetails();
-    }, [id]);
+    }, [fetchProjectDetails]);
 
     const fetchProjectDetails = async () => {
         try {

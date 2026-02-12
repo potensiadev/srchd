@@ -2,15 +2,16 @@
  * POST /api/candidates/[id]/retry
  * AI 분석 실패한 후보자 재시도
  *
- * 토큰 차감 로직:
+ * 크레딧 로직 (v3):
  * - 이전에 차감됨 → 재시도 시 차감 안 함 (skip_credit_deduction: true)
- * - 이전에 미차감 → 새로 예약 후 성공 시에만 확정
+ * - 이전에 미차감 → 성공 시에만 차감 (Worker에서 처리)
  */
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getAdminClient, reserveCredit } from "@/lib/supabase/admin";
+import { getAdminClient } from "@/lib/supabase/admin";
 import { callWorkerPipelineAsync } from "@/lib/fetch-retry";
+import { calculateRemainingCredits, type UserCreditsInfo } from "@/lib/file-validation";
 import {
   apiSuccess,
   apiUnauthorized,
@@ -82,39 +83,58 @@ export async function POST(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: latestJob, error: jobError } = await (supabase as any)
       .from("processing_jobs")
-      .select("id, file_name, file_type, file_size, storage_path, analysis_mode")
+      .select("id, file_name, file_type, file_size, file_path, analysis_mode")
       .eq("candidate_id", candidateId)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
 
     if (jobError || !latestJob) {
+      console.error("[Retry] Failed to fetch latest job:", jobError);
       return apiNotFound("이전 처리 작업을 찾을 수 없습니다.");
+    }
+
+    // file_path 검증 - 없으면 candidate.source_file 사용
+    const filePath = latestJob.file_path || candidate.source_file;
+    if (!filePath) {
+      console.error("[Retry] No file path found for candidate:", candidateId);
+      return apiBadRequest("이력서 파일 경로를 찾을 수 없습니다. 새로 업로드해주세요.");
     }
 
     // 6. 이전 크레딧 차감 여부 확인
     const adminClient = getAdminClient();
-    const { data: existingTransaction } = await adminClient
+    const { data: existingTransaction, error: txError } = await adminClient
       .from("credit_transactions")
       .select("id, type")
       .eq("candidate_id", candidateId)
-      .in("type", ["usage", "reserve"])
+      .in("type", ["usage"])
       .limit(1)
-      .single();
+      .maybeSingle();
+
+    // maybeSingle()은 결과가 없으면 data=null, 에러 없음
+    // 에러가 있으면 실제 DB 에러이므로 로깅
+    if (txError) {
+      console.error("[Retry] Failed to check credit transaction:", txError);
+    }
 
     const wasAlreadyCharged = !!existingTransaction;
-    let skipCreditDeduction = wasAlreadyCharged;
+    const skipCreditDeduction = wasAlreadyCharged;
 
-    // 7. 이전에 차감 안 됐으면 새로 예약
+    // 7. 이전에 차감 안 됐으면 크레딧 체크 (차감은 성공 후 Worker에서)
     if (!wasAlreadyCharged) {
-      const reserveResult = await reserveCredit(
-        publicUserId,
-        undefined, // jobId는 아래에서 생성 후 설정
-        `이력서 재분석: ${latestJob.file_name}`
-      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: userCredits, error: creditsError } = await (supabase as any)
+        .from("users")
+        .select("credits, credits_used_this_month, plan")
+        .eq("id", publicUserId)
+        .single();
 
-      if (!reserveResult.success) {
-        // 크레딧 부족
+      if (creditsError || !userCredits) {
+        return apiInternalError("크레딧 정보를 확인할 수 없습니다.");
+      }
+
+      const remaining = calculateRemainingCredits(userCredits as UserCreditsInfo);
+      if (remaining <= 0) {
         return apiInsufficientCredits(
           "크레딧이 부족합니다. 재시도하려면 크레딧을 충전해주세요."
         );
@@ -132,7 +152,7 @@ export async function POST(
         file_name: latestJob.file_name,
         file_type: latestJob.file_type,
         file_size: latestJob.file_size,
-        storage_path: latestJob.storage_path,
+        file_path: filePath,
         analysis_mode: latestJob.analysis_mode || "phase_1",
       })
       .select("id")
@@ -152,7 +172,7 @@ export async function POST(
 
     // 10. Worker 파이프라인 호출
     const workerPayload = {
-      file_url: latestJob.storage_path,
+      file_url: filePath,
       file_name: latestJob.file_name,
       user_id: publicUserId,
       job_id: newJob.id,
@@ -190,18 +210,8 @@ export async function POST(
         .update({ status: "failed" })
         .eq("id", candidateId);
 
-      // 새로 예약한 크레딧이 있으면 복구
-      if (!wasAlreadyCharged) {
-        try {
-          const { releaseCreditReservation } = await import(
-            "@/lib/supabase/admin"
-          );
-          await releaseCreditReservation(publicUserId, newJob.id);
-          console.log(`[Retry] Credit released for user ${publicUserId}`);
-        } catch (releaseError) {
-          console.error("[Retry] Failed to release credit:", releaseError);
-        }
-      }
+      // 크레딧은 성공 시에만 차감하므로 복구 불필요
+      console.log(`[Retry] Worker failed - no credit to release (deduct on success only)`);
     });
 
     return apiSuccess({

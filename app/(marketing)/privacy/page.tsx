@@ -1,9 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Link from "next/link";
 import { ChevronUp } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 
 // Table of Contents
 const tocItems = [
@@ -22,12 +21,16 @@ const tocItems = [
   { id: "changes", label: "제13조 (개정)" },
 ];
 
+// Hydration-safe subscription for SSR
+const subscribe = () => () => {};
+const getSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 export default function PrivacyPage() {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 500);
     };

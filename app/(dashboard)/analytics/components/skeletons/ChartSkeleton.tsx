@@ -1,5 +1,9 @@
 "use client";
 
+// 고정된 높이 배열 (렌더링 순수성 보장)
+const BAR_HEIGHTS_PRIMARY = [72, 45, 88, 55, 68, 80];
+const BAR_HEIGHTS_SECONDARY = [38, 52, 28, 45, 35, 48];
+
 export function ChartSkeleton() {
     return (
         <div className="p-6 rounded-2xl bg-white border border-gray-100 shadow-sm animate-pulse">
@@ -21,16 +25,16 @@ export function ChartSkeleton() {
             </div>
 
             <div className="flex items-end justify-between gap-4 h-40">
-                {[...Array(6)].map((_, i) => (
+                {BAR_HEIGHTS_PRIMARY.map((primaryHeight, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-2">
                         <div className="flex-1 w-full flex items-end justify-center gap-1">
                             <div
                                 className="w-5 bg-gray-100 rounded-t"
-                                style={{ height: `${30 + Math.random() * 70}%` }}
+                                style={{ height: `${primaryHeight}%` }}
                             />
                             <div
                                 className="w-5 bg-gray-100 rounded-t"
-                                style={{ height: `${20 + Math.random() * 40}%` }}
+                                style={{ height: `${BAR_HEIGHTS_SECONDARY[i]}%` }}
                             />
                         </div>
                         <div className="w-8 h-3 bg-gray-100 rounded" />

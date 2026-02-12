@@ -137,3 +137,10 @@ ENCRYPTION_KEY=  # 64자 hex
 ## 라이선스
 
 Private - All rights reserved
+
+## 문서 versioning
+architecture는 작성 후 docs/architecture 폴더에 저장한다. 
+예시: architecture_v0.1_20260130, architecture_v0.2_20260131
+
+PRD는 작성 후 docs/PRD 폴더에 저장한다.
+예시: PRD_v0.1_20260130, PRD_v0.2_20260131
