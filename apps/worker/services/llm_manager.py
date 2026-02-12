@@ -22,14 +22,13 @@ from anthropic import AsyncAnthropic
 
 from config import get_settings
 
-# 로깅 설정 - 상세 출력
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+# Phase 1: 로깅 설정을 config.py의 LOG_LEVEL에서 가져옴
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
-# LLM 호출 타임아웃 설정 (초)
-LLM_TIMEOUT_SECONDS = 120  # 2분 (이력서 분석은 시간이 걸릴 수 있음)
-LLM_CONNECT_TIMEOUT = 10   # 연결 타임아웃
+# Phase 1: 하드코딩 제거 - config.py의 timeout 설정 사용
+LLM_TIMEOUT_SECONDS = settings.timeout.llm  # 기본 120초
+LLM_CONNECT_TIMEOUT = settings.timeout.llm_connect  # 기본 10초
 
 
 class LLMProvider(str, Enum):

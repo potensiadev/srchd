@@ -1,16 +1,95 @@
 """
 RAI Worker Configuration
+
+Phase 1 리팩토링:
+- Nested Settings (RetrySettings, TimeoutSettings) 추가
+- 하드코딩된 값들을 중앙 집중 관리
+- ChunkingConfig 유지 (하위 호환성)
 """
 
 from enum import Enum
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 
 class AnalysisMode(str, Enum):
     PHASE_1 = "phase_1"  # GPT-4o + Gemini (2-Way)
     PHASE_2 = "phase_2"  # GPT-4o + Gemini + Claude (3-Way)
+
+
+# ─────────────────────────────────────────────────
+# Phase 1: Nested Settings Models
+# ─────────────────────────────────────────────────
+
+class RetrySettings(BaseModel):
+    """
+    재시도 관련 설정 그룹
+
+    환경변수 오버라이드:
+    - RETRY__WEBHOOK_MAX=5
+    - RETRY__LLM_MAX=3
+    """
+    # Webhook
+    webhook_max: int = Field(default=3, description="Webhook 최대 재시도 횟수")
+    webhook_delay: float = Field(default=1.0, description="Webhook 재시도 기본 대기(초)")
+
+    # Storage
+    storage_max: int = Field(default=3, description="Storage 다운로드 최대 재시도")
+    storage_delay: float = Field(default=1.0, description="Storage 재시도 기본 대기(초)")
+
+    # LLM
+    llm_max: int = Field(default=2, description="LLM API 최대 재시도")
+
+    # Embedding
+    embedding_max: int = Field(default=3, description="Embedding API 최대 재시도")
+    embedding_base_wait: float = Field(default=1.0, description="Embedding 재시도 기본 대기(초)")
+    embedding_max_wait: float = Field(default=10.0, description="Embedding 재시도 최대 대기(초)")
+
+
+class TimeoutSettings(BaseModel):
+    """
+    타임아웃 관련 설정 그룹
+
+    환경변수 오버라이드:
+    - TIMEOUT__LLM=180
+    - TIMEOUT__WEBHOOK=15
+    """
+    # Webhook
+    webhook: int = Field(default=10, description="Webhook 타임아웃(초)")
+
+    # Storage
+    storage: int = Field(default=30, description="Storage 다운로드 타임아웃(초)")
+
+    # LLM
+    llm: int = Field(default=120, description="LLM API 타임아웃(초)")
+    llm_connect: int = Field(default=10, description="LLM 연결 타임아웃(초)")
+
+    # Embedding
+    embedding: int = Field(default=60, description="Embedding API 타임아웃(초)")
+
+
+class ChunkSettings(BaseModel):
+    """
+    청킹 관련 설정 그룹
+
+    환경변수 오버라이드:
+    - CHUNK__MAX_STRUCTURED=3000
+    - CHUNK__KOREAN_SIZE=2500
+    """
+    # 구조화 데이터
+    max_structured: int = Field(default=2000, description="구조화 청크 최대 문자수")
+
+    # 원본 텍스트
+    max_raw_full: int = Field(default=8000, description="raw_full 최대 문자수")
+    section_size: int = Field(default=1500, description="섹션 청크 크기")
+    section_overlap: int = Field(default=300, description="섹션 오버랩")
+    section_min_length: int = Field(default=100, description="섹션 최소 길이")
+
+    # 한글 최적화
+    korean_threshold: float = Field(default=0.5, description="한글 판단 임계값")
+    korean_size: int = Field(default=2000, description="한글 문서 청크 크기")
+    korean_overlap: int = Field(default=500, description="한글 문서 오버랩")
 
 
 class ChunkingConfig:
@@ -165,27 +244,89 @@ class Settings(BaseSettings):
         default="INFO",
         description="로그 레벨 (DEBUG, INFO, WARNING, ERROR)"
     )
-    
+
     # LLM 신뢰도 임계값
     LLM_CONFIDENCE_THRESHOLD: float = Field(
         default=0.85,
         description="단일 모델 결과 채택 임계값"
     )
 
+    # ─────────────────────────────────────────────────
+    # Phase 0 리팩토링 Feature Flags
+    # ─────────────────────────────────────────────────
+    # 새 async 헬퍼 사용 (Context Manager 패턴)
+    USE_NEW_ASYNC_HELPER: bool = Field(
+        default=True,
+        description="새 async 헬퍼 사용 (False=기존 asyncio.run)"
+    )
+
+    # Shadow Mode: 기존/신규 동시 실행 후 결과 비교
+    ASYNC_SHADOW_MODE: bool = Field(
+        default=False,
+        description="Shadow Mode: 기존/신규 방식 모두 실행하고 결과 비교 (검증용)"
+    )
+
+    # ─────────────────────────────────────────────────
+    # Phase 1: Nested Settings (중앙 집중 설정 관리)
+    # ─────────────────────────────────────────────────
+    retry: RetrySettings = Field(default_factory=RetrySettings)
+    timeout: TimeoutSettings = Field(default_factory=TimeoutSettings)
+    chunk: ChunkSettings = Field(default_factory=ChunkSettings)
+
     class Config:
         env_file = ".env"
         extra = "ignore"
+        env_nested_delimiter = "__"  # RETRY__WEBHOOK_MAX=5 형식 지원
 
 
 settings = Settings()
 
-# 프로덕션 환경에서 필수 설정 검증
+
+def validate_encryption_key(key: str, env: str) -> None:
+    """
+    암호화 키 유효성 검증
+
+    Args:
+        key: ENCRYPTION_KEY 값
+        env: 현재 환경 (production, staging, development)
+
+    Raises:
+        ValueError: 키가 유효하지 않은 경우 (production/staging)
+    """
+    import re
+    import warnings
+
+    # 프로덕션/스테이징: 필수
+    if env in ("production", "staging"):
+        if not key:
+            raise ValueError(
+                f"ENCRYPTION_KEY is required in {env} environment. "
+                "Generate with: openssl rand -hex 32"
+            )
+        if len(key) != 64:
+            raise ValueError(
+                f"ENCRYPTION_KEY must be 64 hex characters (got {len(key)}). "
+                "Generate with: openssl rand -hex 32"
+            )
+        if not re.match(r'^[0-9a-fA-F]{64}$', key):
+            raise ValueError(
+                "ENCRYPTION_KEY must contain only hexadecimal characters [0-9a-fA-F]"
+            )
+
+    # development: 경고만 출력
+    elif env == "development":
+        if not key or len(key) != 64:
+            warnings.warn(
+                "ENCRYPTION_KEY is not set or invalid in development. "
+                "PII encryption will fail. Set for full testing.",
+                RuntimeWarning
+            )
+
+
+# 환경별 필수 설정 검증
+validate_encryption_key(settings.ENCRYPTION_KEY, settings.ENV)
+
 if settings.ENV == "production":
-    if not settings.ENCRYPTION_KEY or len(settings.ENCRYPTION_KEY) != 64:
-        raise ValueError(
-            "ENCRYPTION_KEY must be set in production (64-character hex string). "
-            "Generate with: openssl rand -hex 32"
-        )
     if not settings.WEBHOOK_SECRET:
         raise ValueError("WEBHOOK_SECRET must be set in production")
 
