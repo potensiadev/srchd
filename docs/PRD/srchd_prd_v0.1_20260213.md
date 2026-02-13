@@ -30,6 +30,7 @@
 18. [Phase Roadmap](#18-phase-roadmap)
 19. [Success Metrics](#19-success-metrics)
 20. [Appendix](#20-appendix)
+21. [Code Review Action Plan](#21-code-review-action-plan)
 
 ---
 
@@ -1124,6 +1125,223 @@ RESEND_API_KEY                  # 이메일 발송 (NEW)
 | 날짜 | 버전 | 내용 |
 |------|------|------|
 | 2026-02-13 | v0.1 | 초판 작성. 코드 검증 기반 기능 상태 업데이트. 가격 재산정. 신규 기획 6건 추가. |
+| 2026-02-13 | v0.1.1 | 코드 리뷰 보고서 기반 Action Plan 추가 (Section 21). 아키텍처 설명 보정, 메트릭 정확도, 프롬프트 개선 계획 반영. |
+
+---
+
+## 21. Code Review Action Plan
+
+> **배경**: 2026-02-13 외부 코드 리뷰를 통해 Multi-Agent Pipeline의 문서-코드 괴리, 메트릭 정확도, 프롬프트 견고성 등 주요 개선점이 식별되었습니다. 본 섹션은 리뷰 결과를 코드 검증 후 확정된 액션 아이템으로 정리합니다.
+
+### 21.1. 아키텍처 현실 보정
+
+#### 문서 대 실제 괴리 (P0)
+
+| 항목 | 문서 설명 | 실제 코드 |
+|------|----------|----------|
+| 파이프라인 구조 | "Collaborative Orchestrator + Feedback Loop + Base Extractor" | `PipelineOrchestrator.run()` — Stage 1~9 **순차 호출** (line 163~207) |
+| 에이전트 통신 | "MessageBus를 통한 에이전트 간 협업" | `send_message()` 호출은 `AnalystAgentContextAdapter.on_analysis_complete()` **1곳만** (line 349), 수신 처리 로직 없음 |
+| 의사결정 | "다중 에이전트 합의" | `decide_all()`은 최고 신뢰도 제안을 자동 선택하는 단순 로직 |
+
+#### 보정된 아키텍처 설명
+
+```
+현재 아키텍처: Multi-Stage Orchestrator Pipeline
+
+┌─────────────────────────────────────────────────────────────────┐
+│                   PipelineOrchestrator.run()                    │
+│                                                                 │
+│  Stage 1: Raw Input Setup                                       │
+│      ↓                                                          │
+│  Stage 2: File Parsing (RouterAgent → HWP/PDF/DOCX Parser)      │
+│      ↓                                                          │
+│  Stage 3: PII Extraction (Regex-only, pre-LLM masking)          │
+│      ↓                                                          │
+│  Stage 4: Identity Check (Multi-Identity Detection)             │
+│      ↓                                                          │
+│  Stage 5: AI Analysis (AnalystAgent - Progressive/Parallel LLM) │
+│      ↓                                                          │
+│  Stage 6: Validation + Hallucination Detection                  │
+│      ↓                                                          │
+│  Stage 7: PII Masking + Encryption (PrivacyAgent)               │
+│      ↓                                                          │
+│  Stage 8: Embedding Generation                                  │
+│      ↓                                                          │
+│  Stage 9: DB Save                                               │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              PipelineContext (Central Hub)               │    │
+│  │  - RawInput, ParsedData, PIIStore, StageResults         │    │
+│  │  - EvidenceStore, DecisionManager, CurrentData           │    │
+│  │  - HallucinationDetector, WarningCollector              │    │
+│  │  - AuditLog, Guardrails                                 │    │
+│  │  - MessageBus (구현됨, 핵심 경로에서 미사용)             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+
+설계 원칙:
+- 이력서 분석은 본질적으로 순차적 (파싱 → PII → 분석 → 검증)
+- PipelineContext가 모든 상태를 중앙 관리하여 컨텍스트 손실 방지
+- MessageBus는 특정 유스케이스(재분석, 비동기 검증)에서 활용 가능
+- Feature flags로 각 단계의 활성화/비활성화 제어
+```
+
+### 21.2. 확인된 갭 목록 (코드 검증 완료)
+
+#### P0 — 즉시 수정 (1주 내)
+
+| # | 갭 | 코드 위치 | 영향 | 수정 방향 |
+|---|-----|----------|------|----------|
+| 1 | **메트릭 추정치 사용** | `pipeline_orchestrator.py:478-487` | LLM 비용 추적 부정확 (토큰을 `len(text)//4`로 추정, output을 `500` 하드코딩) | `AnalysisResult`에 `llm_usage: Dict[provider, usage]` 필드 추가. `LLMResponse.usage`에서 실제 값 전달. |
+| 2 | **프로바이더 하드코딩** | `pipeline_orchestrator.py:482-484` | 메트릭에 항상 `openai/gpt-4o`로 기록. Gemini/Claude 사용 시 부정확. | `AnalysisResult`에 `providers_used` 목록 추가. 실제 사용 프로바이더 기록. |
+| 3 | **아키텍처 문서 보정** | PRD 전반 | "Multi-Agent 협업" 표현이 실제와 불일치 | 본 섹션(21.1)으로 보정 완료. 향후 README, claude.md 등 동기화 필요. |
+
+#### P1 — 2~4주 내
+
+| # | 갭 | 코드 위치 | 영향 | 수정 방향 |
+|---|-----|----------|------|----------|
+| 4 | **스키마 strict: False** | `resume_schema.py` 전체 (line 19, 42, 78, 131, 152) | LLM이 `additionalProperties`로 정의되지 않은 필드 반환 가능 → 출력 불일치 | PROFILE_SCHEMA부터 단계적으로 `strict: True` + `additionalProperties: False` 전환. 회귀 테스트 필수. |
+| 5 | **체크포인트 미사용** | `pipeline_context.py:441-496` | `create_checkpoint()` / `restore_from_checkpoint()` 구현은 있으나 `PipelineOrchestrator.run()`에서 미호출 | Stage 5 (AI 분석) 전후에 체크포인트 생성. LLM 호출 실패 시 체크포인트로부터 재시도 구현. |
+| 6 | **CoT/Few-shot 프롬프트 부재** | `analyst_agent.py:435-457` | 단순 지시형 프롬프트로, 복잡한 이력서(비표준 형식)에서 정확도 저하 가능 | 한국 이력서 Few-shot 예제 2~3건 추가. 경력 연수 계산에 CoT 추론 유도. |
+| 7 | **MessageBus 활용 범위 확정** | `message_bus.py`, `analyst_wrapper.py:349` | MessageBus 인프라는 있으나 핵심 경로에서 1곳만 사용 | 즉시: 비동기 품질 재검증 유스케이스에 활용. 장기: 별도 워커에서 백그라운드 품질 검증 시 MessageBus 활용. |
+
+#### P2 — 1~2개월 내
+
+| # | 갭 | 코드 위치 | 영향 | 수정 방향 |
+|---|-----|----------|------|----------|
+| 8 | **프롬프트 버전 관리** | `resume_schema.py`, `analyst_agent.py` | 프롬프트 변경 시 품질 회귀 추적 불가 | 스키마/프롬프트에 `version` 키 추가. 로그에 스키마 해시 기록. |
+| 9 | **Feature Flag 커버리지 테이블** | `feature_flags.py` | 어떤 플래그가 어떤 코드 경로에 영향을 끼치는지 문서화 미흡 | Feature Flag → 코드 경로 매핑 테이블 작성. |
+| 10 | **문서 자동 동기화** | PRD, README, claude.md | 수동 관리로 불일치 누적 위험 | CI에서 아키텍처 다이어그램 자동 생성 파이프라인 구축 검토. |
+
+### 21.3. 구현 액션 플랜
+
+#### Week 1: 메트릭 정확도 + 문서 보정 (P0)
+
+```python
+# Task 1-1: AnalysisResult에 실제 토큰 사용량 추가
+# 파일: apps/worker/agents/analyst_agent.py
+
+@dataclass
+class AnalysisResult:
+    # ... 기존 필드 ...
+    llm_usage: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    # {"openai": {"prompt_tokens": 1234, "completion_tokens": 567, ...},
+    #  "gemini": {"prompt_tokens": 1100, "completion_tokens": 432, ...}}
+    providers_used: List[str] = field(default_factory=list)
+```
+
+```python
+# Task 1-2: LLMResponse.usage를 AnalysisResult로 전달
+# 파일: apps/worker/agents/analyst_agent.py - _merge_responses()
+
+# 현재: usage 데이터 버려짐
+# 수정 후: valid_responses에서 usage 수집하여 AnalysisResult.llm_usage에 저장
+for provider, response in responses.items():
+    if response.success and response.usage:
+        result.llm_usage[provider.value] = response.usage
+        result.providers_used.append(provider.value)
+```
+
+```python
+# Task 1-3: Orchestrator에서 실제 토큰 사용 (추정치 제거)
+# 파일: apps/worker/orchestrator/pipeline_orchestrator.py - _stage_analysis()
+
+# 삭제할 코드 (line 478-487):
+# estimated_tokens = len(text) // 4  # 대략적인 추정
+# metrics_collector.record_llm_call(...tokens_input=estimated_tokens, tokens_output=500...)
+
+# 교체할 코드:
+if result.llm_usage:
+    for provider, usage in result.llm_usage.items():
+        metrics_collector.record_llm_call(
+            ctx.metadata.pipeline_id,
+            provider,
+            result.model_for_provider.get(provider, "unknown"),
+            tokens_input=usage.get("prompt_tokens", 0),
+            tokens_output=usage.get("completion_tokens", 0),
+        )
+```
+
+**예상 공수**: 4h (코드 수정 2h + 테스트 2h)
+
+#### Week 2-3: 프롬프트 + 스키마 개선 (P1)
+
+```
+Task 2-1: 경력 연수 CoT 프롬프트 추가
+├── RESUME_SCHEMA_PROMPT에 CoT 섹션 추가
+│   예: "경력 연수 계산 시, 각 경력 항목의 start_date와 end_date를 나열하고
+│        중복 기간을 제외한 순 경력 연수를 단계적으로 계산하세요."
+├── Few-shot 예제 2건 추가 (표준 형식 + 비표준 형식)
+└── A/B 테스트: 기존 프롬프트 vs CoT 프롬프트 (20건 샘플)
+
+Task 2-2: PROFILE_SCHEMA strict 모드 전환 (시범)
+├── strict: True, additionalProperties: False
+├── 필수 필드 nullable 처리 방식 결정
+├── 단위 테스트: 10개 샘플 이력서로 검증
+└── 롤백 기준: 파싱 실패율 5% 초과 시 revert
+```
+
+**예상 공수**: 12h (CoT 6h + strict 스키마 6h)
+
+#### Week 3-4: 체크포인트 활성화 + 운영 안정성 (P1)
+
+```
+Task 3-1: AI 분석 단계 체크포인트 구현
+├── _stage_analysis() 진입 전 ctx.create_checkpoint()
+├── LLM 호출 실패 시 ctx.restore_from_checkpoint()로 복원
+├── 재시도 로직: 최대 1회 재시도, 체크포인트 기반
+└── is_retry 플래그와 연동
+
+Task 3-2: Feature Flag 커버리지 매핑 문서
+├── USE_NEW_PIPELINE → pipeline_orchestrator.py 전체
+├── USE_LLM_VALIDATION → _stage_validation() 분기
+├── USE_AGENT_MESSAGING → analyst_wrapper.py:349
+├── USE_HALLUCINATION_DETECTION → _detect_hallucinations()
+├── USE_EVIDENCE_TRACKING → _process_analysis_result():512
+└── DEBUG_PIPELINE → context_summary 포함 여부
+```
+
+**예상 공수**: 8h (체크포인트 6h + 문서 2h)
+
+#### Week 5-6: 프롬프트 버전 관리 + 대시보드 (P2)
+
+```
+Task 4-1: 스키마/프롬프트 버전 키
+├── RESUME_JSON_SCHEMA에 "version": "1.0.0" 추가
+├── RESUME_SCHEMA_PROMPT에 version 주석 추가
+├── 로그에 schema_version 기록
+└── 메트릭에 schema_version 포함
+
+Task 4-2: Provider 품질/비용 대시보드 기초
+├── MetricsCollector에 provider별 집계 추가
+├── /metrics 엔드포인트에 provider 상세 정보 포함
+├── 평균 처리 시간, 성공률, 비용 per provider
+└── Grafana/DataDog 연동은 추후 결정
+```
+
+**예상 공수**: 10h (버전 관리 4h + 대시보드 6h)
+
+### 21.4. 리스크 매트릭스
+
+| 리스크 | 현재 상태 | 심각도 | 발생 가능성 | 완화 방안 |
+|--------|----------|--------|------------|----------|
+| LLM 비용 추적 부정확 | 🔴 추정치 사용 | High | 확실 (현재 발생 중) | Week 1에서 실제 usage 전파 구현 |
+| 프롬프트 변경으로 품질 회귀 | 🟡 버전 미관리 | Medium | 변경 시 발생 | Week 5에서 버전 키 도입 |
+| 스키마 strict 전환 시 파싱 실패 | 🟡 strict: False | Medium | 전환 시 발생 | Week 2에서 시범 적용 + 5% 실패 기준 롤백 |
+| 체크포인트 없이 LLM 실패 시 전체 재처리 | 🟡 미구현 | Medium | LLM 장애 시 | Week 3에서 분석 단계 체크포인트 활성화 |
+| 문서 불일치 누적 | 🟡 수동 관리 | Low | 시간 경과 시 | Section 21.1로 1차 보정 완료. CI 자동화 검토. |
+
+### 21.5. 총 예상 공수
+
+| 주차 | 작업 | 공수 | 우선순위 |
+|------|------|------|----------|
+| Week 1 | 메트릭 정확도 + 문서 보정 | 4h | P0 |
+| Week 2-3 | 프롬프트 CoT + 스키마 strict 시범 | 12h | P1 |
+| Week 3-4 | 체크포인트 + Feature Flag 문서 | 8h | P1 |
+| Week 5-6 | 프롬프트 버전 관리 + 대시보드 | 10h | P2 |
+| **합계** | | **34h** | |
+
+> **참고**: 위 공수는 코드 리뷰 회신 항목에 대한 개선만 포함합니다. Phase 1 잔여 작업(Section 18)과 별도로 병행합니다.
 
 ---
 
