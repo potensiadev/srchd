@@ -15,6 +15,14 @@ import {
 } from "@/lib/api-response";
 import { PLAN_CONFIG } from "@/lib/file-validation";
 
+interface OverageInfo {
+  enabled: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  unitPrice: number;  // PRD: 건당 ₩1,500
+}
+
 interface CreditsResponse {
   credits: number;           // 추가 구매 크레딧
   creditsUsedThisMonth: number;
@@ -25,6 +33,7 @@ interface CreditsResponse {
   nextResetDate?: string;    // 다음 크레딧 리셋일
   planStartedAt?: string;    // 플랜 최초 시작일
   wasReset?: boolean;        // 이번 요청에서 리셋되었는지
+  overage?: OverageInfo;     // PRD Section 10: Overage 정보 (Pro 전용)
 }
 
 // 중앙화된 플랜 설정 사용
@@ -63,6 +72,13 @@ export async function GET() {
         next_reset_date?: string;    // 다음 리셋일
         plan_started_at?: string;    // 플랜 최초 시작일
         was_reset?: boolean;
+        overage?: {                  // PRD Section 10: Overage 정보
+          enabled: boolean;
+          limit: number;
+          used: number;
+          remaining: number;
+          unit_price: number;
+        };
       };
 
       const response: CreditsResponse = {
@@ -75,6 +91,14 @@ export async function GET() {
         nextResetDate: creditInfo.next_reset_date,
         planStartedAt: creditInfo.plan_started_at,
         wasReset: creditInfo.was_reset,
+        // PRD Section 10: Overage 정보 (Pro 전용)
+        overage: creditInfo.overage ? {
+          enabled: creditInfo.overage.enabled,
+          limit: creditInfo.overage.limit,
+          used: creditInfo.overage.used,
+          remaining: creditInfo.overage.remaining,
+          unitPrice: creditInfo.overage.unit_price,
+        } : undefined,
       };
 
       return apiSuccess(response);

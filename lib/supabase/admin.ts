@@ -52,7 +52,6 @@ export function getAdminClient(): SupabaseClient<Database> {
 
   console.log("[AdminClient] Created with service role key (first 20 chars):", serviceRoleKey.substring(0, 20));
 
-  adminClient = client;
   return client;
 }
 

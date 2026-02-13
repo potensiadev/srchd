@@ -1,8 +1,8 @@
 /**
  * Supabase Middleware Client
  * Next.js 미들웨어에서 사용
- * - 세션 타임아웃 설정 (30분)
- * - 쿠키 보안 설정 강화
+ * - 쿠키 보안 설정 강화 (httpOnly, secure, sameSite)
+ * - 세션 만료는 Supabase가 자체 관리 (기본 1시간, refresh token으로 갱신)
  */
 
 import { createServerClient } from "@supabase/ssr";
@@ -13,9 +13,7 @@ import type { Database } from "@/types";
 // 세션 보안 설정
 // ─────────────────────────────────────────────────
 const SESSION_CONFIG = {
-  /** 세션 타임아웃 (초): 30분 */
-  TIMEOUT_SECONDS: 30 * 60,
-  /** 쿠키 설정 */
+  /** 쿠키 보안 설정 (maxAge는 Supabase가 관리하도록 제거) */
   COOKIE_OPTIONS: {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -50,12 +48,10 @@ export async function updateSession(request: NextRequest) {
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            // 쿠키 보안 설정 강화
+            // 쿠키 보안 설정 강화 (maxAge는 Supabase 기본값 사용)
             supabaseResponse.cookies.set(name, value, {
               ...options,
               ...SESSION_CONFIG.COOKIE_OPTIONS,
-              // 세션 타임아웃 적용
-              maxAge: SESSION_CONFIG.TIMEOUT_SECONDS,
             })
           );
         },
