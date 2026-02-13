@@ -21,18 +21,13 @@ const ALLOWED_EXTENSIONS = [".hwp", ".hwpx", ".doc", ".docx", ".pdf"];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_FILES = 30;
 
-// 단계별 예상 시간 (초)
-const PHASE_DURATIONS: Record<ProcessingPhase, number> = {
-  idle: 0,
-  uploading: 3,
-  routing: 2,
-  analyzing: 15,
-  extracting: 8,
-  embedding: 5,
-  complete: 0,
-};
-
 type FileStatus = "pending" | "uploading" | "processing" | "success" | "error";
+
+interface QuickExtractedData {
+  name?: string;
+  phone?: string;
+  email?: string;
+}
 
 interface UploadFile {
   id: string;
@@ -43,6 +38,8 @@ interface UploadFile {
   jobId?: string;
   candidateId?: string;
   storagePath?: string;
+  // Option C: 파싱 완료 후 빠른 추출 데이터
+  quickExtracted?: QuickExtractedData;
 }
 
 interface ResumeUploadDrawerProps {
@@ -298,6 +295,8 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
         const confirmErrorMap: Record<string, string> = {
           "파일 시그니처가 유효하지 않습니다": "파일 형식이 올바르지 않습니다. 파일이 손상되었거나 확장자가 변경되었을 수 있습니다.",
           "파일 검증에 실패했습니다": "파일을 검증할 수 없습니다. 파일이 손상되었을 수 있습니다.",
+          "비밀번호로 보호된 파일입니다": "비밀번호로 보호된 파일입니다. 비밀번호를 해제한 후 다시 업로드해주세요.",
+          "텍스트를 충분히 추출할 수 없습니다": "파일에서 텍스트를 추출할 수 없습니다. 스캔 이미지이거나 내용이 너무 짧을 수 있습니다.",
         };
         const friendlyMessage = Object.entries(confirmErrorMap).find(
           ([key]) => serverError.includes(key)
@@ -305,10 +304,18 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
         throw new Error(friendlyMessage || serverError || "파일 처리 중 오류가 발생했습니다. 다시 시도해주세요.");
       }
 
-      // 완료
+      // Option C: 파싱 완료 - quick_extracted 데이터 저장
+      const quickExtracted = confirmData.data?.quick_extracted as QuickExtractedData | undefined;
+
+      // 완료 (파싱은 완료, 분석은 백그라운드에서 진행 중)
       setFiles((prev) =>
         prev.map((f) =>
-          f.id === uploadFile.id ? { ...f, status: "success", phase: "complete" } : f
+          f.id === uploadFile.id ? {
+            ...f,
+            status: "success",
+            phase: "complete",
+            quickExtracted,
+          } : f
         )
       );
       setActiveProcessingFile((prev) => prev ? { ...prev, phase: "complete" } : null);
@@ -428,32 +435,6 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
     }
   }, [allComplete, stats.success, isUploading, onClose]);
 
-  // 예상 남은 시간 계산
-  const getEstimatedTime = (): string | null => {
-    if (!activeProcessingFile || activeProcessingFile.phase === "complete") return null;
-
-    const currentPhase = activeProcessingFile.phase;
-    const phases: ProcessingPhase[] = ["routing", "analyzing", "extracting", "embedding"];
-    const currentIndex = phases.indexOf(currentPhase);
-    if (currentIndex === -1) return null;
-
-    let remainingSeconds = 0;
-    for (let i = currentIndex; i < phases.length; i++) {
-      remainingSeconds += PHASE_DURATIONS[phases[i]];
-    }
-
-    // 남은 파일 수에 따른 추가 시간
-    const remainingFiles = stats.pending;
-    const avgTimePerFile = 30; // 파일당 평균 30초
-    remainingSeconds += remainingFiles * avgTimePerFile;
-
-    if (remainingSeconds < 10) return "곧 완료";
-    if (remainingSeconds < 60) return `약 ${Math.ceil(remainingSeconds / 10) * 10}초`;
-    return `약 ${Math.ceil(remainingSeconds / 60)}분`;
-  };
-
-  const estimatedTime = getEstimatedTime();
-
   // 파일별 상태 메시지
   const getFileStatusText = (file: UploadFile): string => {
     if (file.status === "error") return file.error || "업로드 실패";
@@ -562,14 +543,9 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
                         <Sparkles size={16} className="text-primary animate-pulse" />
                         <span className="text-sm font-medium text-gray-900">처리 중</span>
                       </div>
-                      <div className="flex items-center gap-3 text-sm">
-                        <span className="text-gray-500">
-                          {stats.success + stats.error}/{stats.total}
-                        </span>
-                        {estimatedTime && (
-                          <span className="text-primary font-medium">{estimatedTime}</span>
-                        )}
-                      </div>
+                      <span className="text-sm text-gray-500">
+                        {stats.success + stats.error}/{stats.total}
+                      </span>
                     </div>
                     <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                       <motion.div
@@ -675,6 +651,13 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
                             )}>
                               {getFileStatusText(file)}
                             </p>
+                            {/* Option C: 파싱 완료 시 quick_extracted 표시 */}
+                            {file.status === "success" && file.quickExtracted?.name && (
+                              <p className="text-xs text-emerald-600 mt-0.5 truncate">
+                                {file.quickExtracted.name}
+                                {file.quickExtracted.phone && ` · ${file.quickExtracted.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-****-$3')}`}
+                              </p>
+                            )}
                           </div>
 
                           {file.status === "error" && !isUploading && (

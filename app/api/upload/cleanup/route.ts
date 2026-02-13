@@ -51,12 +51,25 @@ export async function POST(request: NextRequest) {
 
     const publicUserId = userData.id;
 
-    // 1. Job 상태를 failed로 업데이트 (user_id로 소유권 검증)
+    // 1. 먼저 Job 상태 확인 (이미 구체적인 에러가 있으면 덮어쓰지 않음)
+    const { data: existingJob } = await supabaseAny
+      .from("processing_jobs")
+      .select("status, error_message")
+      .eq("id", jobId)
+      .eq("user_id", publicUserId)
+      .single();
+
+    // 이미 failed 상태이고 구체적인 에러 메시지가 있으면 덮어쓰지 않음
+    const shouldUpdateMessage = !existingJob?.error_message ||
+      existingJob.error_message === "Upload cancelled or failed";
+
+    // Job 상태를 failed로 업데이트 (user_id로 소유권 검증)
     const { data: jobData, error: jobError } = await supabaseAny
       .from("processing_jobs")
       .update({
         status: "failed",
-        error_message: "Upload cancelled or failed",
+        // 이미 구체적인 에러가 있으면 유지, 없으면 기본 메시지
+        ...(shouldUpdateMessage && { error_message: "Upload cancelled or failed" }),
       })
       .eq("id", jobId)
       .eq("user_id", publicUserId)  // IDOR 방지: public.users.id로 검증

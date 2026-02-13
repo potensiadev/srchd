@@ -94,6 +94,13 @@ export interface PositionListItem {
 // Position Candidate (Matching Result)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// 동의어 매칭 정보
+export interface SynonymMatch {
+  candidate_skill: string;  // 후보자가 가진 스킬 (예: "리액트")
+  matched_to: string;       // 매칭된 요구 스킬 (예: "React")
+  is_synonym: boolean;      // 동의어 매칭 여부
+}
+
 export interface PositionCandidate {
   id: string;
   positionId: string;
@@ -109,6 +116,7 @@ export interface PositionCandidate {
   // 매칭 상세
   matchedSkills: string[];
   missingSkills: string[];
+  synonymMatches?: SynonymMatch[];  // 동의어 매칭 상세 정보
   matchExplanation?: {
     summary: string;
     highlights: string[];

@@ -3,14 +3,18 @@
  * 클라이언트가 Storage에 직접 업로드 완료 후 Worker 파이프라인 트리거
  *
  * 보안: 업로드된 파일의 매직 바이트를 검증하여 위조된 파일 차단
+ * 크레딧은 분석 성공 후 Worker에서 차감 (실패 시 차감 없음)
  */
 
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { validateMagicBytes, validateZipStructure } from "@/lib/file-validation";
 import { withRateLimit } from "@/lib/rate-limit";
-import { callWorkerPipelineAsync } from "@/lib/fetch-retry";
-import { releaseCreditReservation } from "@/lib/supabase/admin";
+import {
+    callWorkerParseOnly,
+    callWorkerAnalyzeAsync,
+    type ParseOnlyResult,
+} from "@/lib/fetch-retry";
 import {
     apiSuccess,
     apiUnauthorized,
@@ -133,8 +137,7 @@ export async function POST(request: NextRequest) {
                         .eq("id", candidateId);
                 }
 
-                // 파일 검증 실패 시 크레딧 복구
-                await releaseCreditReservation(publicUserId, jobId);
+                // 크레딧은 presign에서 차감하지 않으므로 복구 불필요
 
                 return apiFileValidationError(magicValidation.error || "파일 형식이 올바르지 않습니다. 파일이 손상되었거나 확장자가 변경되었을 수 있습니다. 원본 파일을 확인해주세요.");
             }
@@ -166,8 +169,7 @@ export async function POST(request: NextRequest) {
                             .eq("id", candidateId);
                     }
 
-                    // ZIP 구조 검증 실패 시 크레딧 복구
-                    await releaseCreditReservation(publicUserId, jobId);
+                    // 크레딧은 presign에서 차감하지 않으므로 복구 불필요
 
                     return apiFileValidationError(zipValidation.error || "파일 구조가 올바르지 않습니다.");
                 }
@@ -175,40 +177,52 @@ export async function POST(request: NextRequest) {
         } catch (validationError) {
             console.error("[Upload Confirm] File validation error:", validationError);
 
-            // 파일 검증 예외 발생 시 크레딧 복구
-            await releaseCreditReservation(publicUserId, jobId);
+            // 크레딧은 presign에서 차감하지 않으므로 복구 불필요
 
             return apiInternalError("파일 검증 중 오류가 발생했습니다. 파일이 손상되었을 수 있습니다. 다른 파일로 다시 시도해주세요.");
         }
 
-        // Worker 파이프라인 호출 (비동기, 재시도 로직 포함)
-        // 보안: 클라이언트가 전달한 userId 대신 DB에서 검증된 publicUserId 사용
-        const workerPayload = {
-            file_url: storagePath,
-            file_name: fileName,
-            user_id: publicUserId,  // DB에서 검증된 사용자 ID
-            job_id: jobId,
-            candidate_id: candidateId,
-            mode: plan === "pro" ? "phase_2" : "phase_1", // Pro: 3-Way Cross-Check
-        };
+        // ─────────────────────────────────────────────────
+        // Option C 하이브리드: 파싱 먼저, 분석은 비동기
+        // ─────────────────────────────────────────────────
 
-        console.log("[Upload Confirm] Calling Worker pipeline with retry:", {
-            url: `${WORKER_URL}/pipeline`,
-            jobId,
-        });
-
-        // 비동기 호출: 재시도 로직 포함, 실패 시 상태 업데이트 + 크레딧 복구
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const supabaseAny = supabase as any;
-        callWorkerPipelineAsync(WORKER_URL, workerPayload, async (error, attempts) => {
-            console.error(`[Upload Confirm] Worker pipeline failed after ${attempts} attempts: ${error}`);
 
-            // 모든 재시도 실패 시 job 상태를 failed로 업데이트
+        // Step 1: Worker /parse-only 동기 호출 (최대 15초)
+        console.log("[Upload Confirm] Calling Worker /parse-only:", {
+            url: `${WORKER_URL}/parse-only`,
+            jobId,
+            storagePath,
+            fileName,
+        });
+
+        const parseResult: ParseOnlyResult = await callWorkerParseOnly(
+            WORKER_URL,
+            {
+                file_url: storagePath,
+                file_name: fileName,
+                user_id: publicUserId,
+                job_id: jobId,
+                candidate_id: candidateId,
+            },
+            15000 // 15초 타임아웃
+        );
+
+        // Step 2: 파싱 실패 시 즉시 에러 반환 (빠른 피드백)
+        if (!parseResult.success) {
+            console.error("[Upload Confirm] Parsing failed:", {
+                error_code: parseResult.error_code,
+                error_message: parseResult.error_message,
+            });
+
+            // job 상태 업데이트 (Worker에서 이미 업데이트하지만 확실히)
             await supabaseAny
                 .from("processing_jobs")
                 .update({
                     status: "failed",
-                    error_message: `Worker connection failed after ${attempts} attempts: ${error}`,
+                    error_code: parseResult.error_code || "PARSE_FAILED",
+                    error_message: parseResult.error_message?.substring(0, 500),
                 })
                 .eq("id", jobId);
 
@@ -220,23 +234,101 @@ export async function POST(request: NextRequest) {
                     .eq("id", candidateId);
             }
 
-            // Worker 연결 실패 시 크레딧 복구
-            // presign에서 예약된 크레딧을 돌려줌
-            try {
-                const releaseResult = await releaseCreditReservation(publicUserId, jobId);
-                if (releaseResult.success) {
-                    console.log(`[Upload Confirm] Credit released for user ${publicUserId}`);
-                } else {
-                    console.warn(`[Upload Confirm] Failed to release credit: ${releaseResult.error}`);
-                }
-            } catch (releaseError) {
-                console.error(`[Upload Confirm] Error releasing credit:`, releaseError);
-            }
+            // 사용자 친화적 에러 메시지 반환
+            const userErrorMessages: Record<string, string> = {
+                "ENCRYPTED": "비밀번호로 보호된 파일입니다. 비밀번호를 해제한 후 다시 업로드해주세요.",
+                "PARSE_FAILED": parseResult.error_message || "파일을 읽을 수 없습니다. 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다.",
+                "TEXT_TOO_SHORT": "파일에서 텍스트를 충분히 추출할 수 없습니다. 스캔 이미지이거나 내용이 너무 짧을 수 있습니다.",
+                "STORAGE_ERROR": "파일을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+                "CONNECTION_ERROR": "서버 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            };
+
+            const userMessage = userErrorMessages[parseResult.error_code || "PARSE_FAILED"]
+                || parseResult.error_message
+                || "파일 처리 중 오류가 발생했습니다.";
+
+            return apiFileValidationError(userMessage);
+        }
+
+        // Step 3: 파싱 성공 - quick_extracted 데이터 업데이트 (Progressive Loading)
+        console.log("[Upload Confirm] Parsing success:", {
+            text_length: parseResult.text_length,
+            file_type: parseResult.file_type,
+            parse_method: parseResult.parse_method,
+            page_count: parseResult.page_count,
+            quick_extracted: parseResult.quick_extracted,
+            duration_ms: parseResult.duration_ms,
         });
 
+        // candidate에 quick_extracted 데이터 저장 (이미 Worker에서 업데이트하지만 확실히)
+        if (candidateId && parseResult.quick_extracted) {
+            await supabaseAny
+                .from("candidates")
+                .update({
+                    status: "parsed",
+                    quick_extracted: parseResult.quick_extracted,
+                    // quick_extracted에서 추출된 기본 정보 반영
+                    ...(parseResult.quick_extracted.name && { name: parseResult.quick_extracted.name }),
+                })
+                .eq("id", candidateId);
+        }
+
+        // Step 4: Worker /analyze-only 비동기 호출 (Fire-and-forget)
+        console.log("[Upload Confirm] Calling Worker /analyze-only (async):", {
+            url: `${WORKER_URL}/analyze-only`,
+            jobId,
+        });
+
+        callWorkerAnalyzeAsync(
+            WORKER_URL,
+            {
+                text: parseResult.text || "",
+                file_url: storagePath,
+                file_name: fileName,
+                file_type: parseResult.file_type || ext.replace(".", ""),
+                user_id: publicUserId,
+                job_id: jobId,
+                candidate_id: candidateId,
+                mode: plan === "pro" ? "phase_2" : "phase_1",
+            },
+            async (error: string) => {
+                console.error(`[Upload Confirm] Worker analyze-only failed: ${error}`);
+
+                // 분석 실패 시 job 상태 업데이트
+                await supabaseAny
+                    .from("processing_jobs")
+                    .update({
+                        status: "failed",
+                        error_message: `Analysis failed: ${error}`.substring(0, 500),
+                    })
+                    .eq("id", jobId);
+
+                // candidate 상태도 업데이트
+                if (candidateId) {
+                    await supabaseAny
+                        .from("candidates")
+                        .update({ status: "failed" })
+                        .eq("id", candidateId);
+                }
+
+                console.log(`[Upload Confirm] Analyze failed - no credit to release (deduct on success only)`);
+            }
+        );
+
+        // Step 5: 즉시 성공 응답 (파싱 완료, 분석은 백그라운드)
         return apiSuccess({
             jobId,
-            message: "파일이 업로드되었습니다. 백그라운드에서 분석 중입니다.",
+            candidateId,
+            status: "parsed",
+            message: "파일이 업로드되었습니다. AI 분석 중입니다.",
+            quick_extracted: parseResult.quick_extracted,
+            parsing: {
+                text_length: parseResult.text_length,
+                file_type: parseResult.file_type,
+                parse_method: parseResult.parse_method,
+                page_count: parseResult.page_count,
+                duration_ms: parseResult.duration_ms,
+            },
         });
     } catch (error) {
         console.error("Confirm error:", error);

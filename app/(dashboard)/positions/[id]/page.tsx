@@ -713,18 +713,39 @@ export default function PositionDetailPage() {
                     </div>
                   </div>
 
-                  {/* Matched Skills */}
+                  {/* Matched Skills with Synonym Info */}
                   {match.matchedSkills && match.matchedSkills.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-gray-400 font-medium">매칭 스킬:</span>
-                      {match.matchedSkills.map((skill, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-xs border border-emerald-100 font-medium"
-                        >
-                          {skill}
-                        </span>
-                      ))}
+                      {match.matchedSkills.map((skill, idx) => {
+                        // 동의어 매칭 정보 찾기
+                        const synonymMatch = match.synonymMatches?.find(
+                          (sm) => sm.matched_to === skill && sm.is_synonym
+                        );
+
+                        return (
+                          <span
+                            key={idx}
+                            className={cn(
+                              "px-2 py-0.5 rounded-md text-xs border font-medium",
+                              synonymMatch
+                                ? "bg-purple-50 text-purple-600 border-purple-100"
+                                : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                            )}
+                            title={synonymMatch ? `동의어 매칭: ${synonymMatch.candidate_skill} → ${skill}` : undefined}
+                          >
+                            {synonymMatch ? (
+                              <>
+                                {synonymMatch.candidate_skill}
+                                <span className="mx-1 opacity-50">→</span>
+                                {skill}
+                              </>
+                            ) : (
+                              skill
+                            )}
+                          </span>
+                        );
+                      })}
                       {match.missingSkills && match.missingSkills.length > 0 && (
                         <>
                           <span className="text-xs text-gray-400 ml-2 font-medium">부족:</span>
