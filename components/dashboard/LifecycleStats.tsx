@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Flame,
@@ -209,12 +210,12 @@ export default function LifecycleStats({ className = "" }: LifecycleStatsProps) 
       {/* Quick Action */}
       {(stats.noContact30Days > 0 || stats.upcomingFollowups > 0) && (
         <div className="px-4 pb-4">
-          <a
+          <Link
             href="/candidates?filter=reactivation"
             className="block w-full text-center py-2 px-4 bg-primary/5 hover:bg-primary/10 text-primary text-sm font-medium rounded-lg transition-colors"
           >
             재활성 대상 후보자 보기
-          </a>
+          </Link>
         </div>
       )}
     </div>

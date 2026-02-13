@@ -141,7 +141,7 @@ export default function PDFViewer({ url, highlightKeyword, className = "", usePa
                 <div className="flex items-center gap-2">
                     {highlightKeyword && (
                         <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full font-medium">
-                            검색: "{highlightKeyword}"
+                            검색: &quot;{highlightKeyword}&quot;
                         </span>
                     )}
                 </div>

@@ -6,7 +6,7 @@ import {
   Send,
   AlertCircle,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FAQ_CATEGORIES } from "@/lib/marketing-data";
 
 function FAQItem({ question, answer }: { question: string; answer: string }) {
@@ -277,14 +277,6 @@ function ContactForm() {
 }
 
 export default function SupportPage() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-
-
   return (
     <main className="pt-32 pb-20 px-6">
       {/* Hero */}

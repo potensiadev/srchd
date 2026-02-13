@@ -28,9 +28,17 @@ from utils.docx_parser import DOCXParser
 from utils.url_extractor import extract_urls_from_text
 from utils.career_calculator import calculate_total_experience, format_experience_korean
 from utils.education_parser import determine_graduation_status, determine_degree_level
+from utils.async_helpers import run_async, run_async_with_shadow
 from services.embedding_service import get_embedding_service, EmbeddingResult
 from services.database_service import get_database_service, SaveResult
 from services.storage_service import get_supabase_client, reset_supabase_client
+from exceptions import (
+    WorkerError,
+    RetryableError,
+    PermanentError,
+    ErrorCode,
+    is_retryable,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -44,21 +52,23 @@ _http_client: Optional[httpx.Client] = None
 def get_http_client() -> httpx.Client:
     """
     httpx.Client 싱글톤 반환 (커넥션 풀 재사용)
-    
+
     PRD: Epic 1 (FR-1.1)
     - 매 재시도마다 새 Client 생성 → 싱글톤으로 재사용
     - max_keepalive_connections=5로 커넥션 풀 관리
+
+    Phase 1: timeout을 config에서 가져옴
     """
     global _http_client
     if _http_client is None:
         _http_client = httpx.Client(
-            timeout=10,
+            timeout=settings.timeout.webhook,  # Phase 1: config에서 참조
             limits=httpx.Limits(
                 max_keepalive_connections=5,
                 max_connections=10
             )
         )
-        logger.info("[Tasks] httpx.Client singleton initialized")
+        logger.info(f"[Tasks] httpx.Client singleton initialized (timeout={settings.timeout.webhook}s)")
     return _http_client
 
 
@@ -74,7 +84,7 @@ def notify_webhook(
     status: str,
     result: Optional[dict] = None,
     error: Optional[str] = None,
-    max_retries: int = 2
+    max_retries: Optional[int] = None
 ):
     """
     Webhook으로 작업 완료 알림 전송 (동기, 재시도 포함)
@@ -86,12 +96,19 @@ def notify_webhook(
         status: 작업 상태
         result: 결과 데이터
         error: 에러 메시지
-        max_retries: 최대 재시도 횟수 (기본: 2, 총 3번 시도)
+        max_retries: 최대 재시도 횟수 (None이면 config에서 가져옴)
+
+    Phase 1: 하드코딩된 값을 config.retry에서 참조
     """
     webhook_url = settings.WEBHOOK_URL
     if not webhook_url:
         logger.debug(f"[Webhook] URL not configured, skipping notification for job {job_id}")
         return
+
+    # Phase 1: config에서 재시도 설정 가져오기
+    if max_retries is None:
+        max_retries = settings.retry.webhook_max
+    retry_delay = settings.retry.webhook_delay
 
     payload = {
         "job_id": job_id,
@@ -147,10 +164,10 @@ def notify_webhook(
                 f"[Webhook] Unexpected error for job {job_id} (attempt {attempt + 1}/{max_retries + 1}): {e}"
             )
 
-        # 재시도 전 대기 (지수 백오프: 1초, 2초)
+        # Phase 1: 재시도 대기 시간을 config에서 가져옴 (지수 백오프)
         if attempt < max_retries:
-            wait_time = 2 ** attempt
-            logger.info(f"[Webhook] Retrying in {wait_time} seconds...")
+            wait_time = retry_delay * (2 ** attempt)
+            logger.info(f"[Webhook] Retrying in {wait_time:.1f} seconds...")
             time.sleep(wait_time)
 
     # 모든 재시도 실패
@@ -169,23 +186,31 @@ class DownloadError(Exception):
 
 def download_file_from_storage(
     file_path: str,
-    max_retries: int = 3,
-    retry_delay: float = 1.0
+    max_retries: Optional[int] = None,
+    retry_delay: Optional[float] = None
 ) -> bytes:
     """
     Supabase Storage에서 파일 다운로드 (재시도 로직 포함)
 
     Args:
         file_path: Storage 경로 (예: "resumes/{user_id}/{filename}")
-        max_retries: 최대 재시도 횟수 (기본: 3)
-        retry_delay: 재시도 간 대기 시간 (기본: 1초, 지수 백오프 적용)
+        max_retries: 최대 재시도 횟수 (None이면 config에서 가져옴)
+        retry_delay: 재시도 간 대기 시간 (None이면 config에서 가져옴, 지수 백오프 적용)
 
     Returns:
         파일 바이트 데이터
 
     Raises:
         DownloadError: 모든 재시도 실패 시
+
+    Phase 1: 하드코딩된 값을 config.retry에서 참조
     """
+    # Phase 1: config에서 재시도 설정 가져오기
+    if max_retries is None:
+        max_retries = settings.retry.storage_max
+    if retry_delay is None:
+        retry_delay = settings.retry.storage_delay
+
     # PRD Epic 1: Supabase 싱글톤 클라이언트 사용
     supabase = get_supabase_client()
     bucket_name = "resumes"
@@ -387,8 +412,6 @@ def process_resume(
     Returns:
         dict: 처리 결과
     """
-    import asyncio
-
     logger.info(f"[Task] process_resume started: job={job_id}, mode={mode}")
     start_time = time.time()
 
@@ -415,7 +438,12 @@ def process_resume(
         # PRD: "2명 이상의 정보 감지 시 처리 거절, 크레딧 미차감"
         # ─────────────────────────────────────────────────
         identity_checker = get_identity_checker()
-        identity_result = asyncio.run(identity_checker.check(text))
+        # Phase 0: asyncio.run() → run_async() (Context Manager 패턴)
+        identity_result = run_async_with_shadow(
+            lambda: identity_checker.check(text),
+            shadow_mode=settings.ASYNC_SHADOW_MODE,
+            use_new=settings.USE_NEW_ASYNC_HELPER
+        )
 
         if identity_result.should_reject:
             error_msg = f"다중 신원 감지: {identity_result.person_count}명의 정보가 포함되어 있습니다. ({identity_result.reason})"
@@ -443,9 +471,11 @@ def process_resume(
         # ─────────────────────────────────────────────────
         analyst = get_analyst_agent()
 
-        # RQ는 동기 환경이므로 asyncio.run 사용
-        analysis_result: AnalysisResult = asyncio.run(
-            analyst.analyze(resume_text=text, mode=analysis_mode, filename=file_name)
+        # Phase 0: asyncio.run() → run_async() (Context Manager 패턴)
+        analysis_result: AnalysisResult = run_async_with_shadow(
+            lambda: analyst.analyze(resume_text=text, mode=analysis_mode, filename=file_name),
+            shadow_mode=settings.ASYNC_SHADOW_MODE,
+            use_new=settings.USE_NEW_ASYNC_HELPER
         )
 
         if not analysis_result.success or not analysis_result.data:
@@ -601,17 +631,55 @@ def process_resume(
         embeddings_error = None
 
         try:
-            embedding_result: EmbeddingResult = asyncio.run(
-                embedding_service.process_candidate(
+            # Phase 0: asyncio.run() → run_async() (Context Manager 패턴)
+            embedding_result: EmbeddingResult = run_async_with_shadow(
+                lambda: embedding_service.process_candidate(
                     data=analyzed_data,
                     generate_embeddings=True,
                     raw_text=text  # PRD v0.1: 원본 텍스트 전달
-                )
+                ),
+                shadow_mode=settings.ASYNC_SHADOW_MODE,
+                use_new=settings.USE_NEW_ASYNC_HELPER
             )
-        except Exception as embed_error:
-            logger.error(f"[Task] Embedding generation exception: {embed_error}")
+        # Phase 1: 구체적 예외 처리
+        except TimeoutError as timeout_err:
+            # 타임아웃 - 재시도 가능하지만 부분 실패로 처리
+            logger.warning(f"[Task] Embedding timeout (retryable): {timeout_err}")
             embeddings_failed = True
-            embeddings_error = str(embed_error)
+            embeddings_error = f"Embedding timeout: {timeout_err}"
+            embedding_result = None
+        except ConnectionError as conn_err:
+            # 연결 오류 - 재시도 가능하지만 부분 실패로 처리
+            logger.warning(f"[Task] Embedding connection error: {conn_err}")
+            embeddings_failed = True
+            embeddings_error = f"Connection error: {conn_err}"
+            embedding_result = None
+        except ValueError as val_err:
+            # 입력 데이터 오류 - 재시도 불가
+            logger.error(f"[Task] Embedding validation error: {val_err}")
+            embeddings_failed = True
+            embeddings_error = f"Invalid input: {val_err}"
+            embedding_result = None
+        except RetryableError as retry_err:
+            # Phase 1: WorkerError 계열 재시도 가능 예외
+            logger.warning(f"[Task] Embedding retryable error [{retry_err.code}]: {retry_err.message}")
+            embeddings_failed = True
+            embeddings_error = f"{retry_err.code}: {retry_err.message}"
+            embedding_result = None
+        except PermanentError as perm_err:
+            # Phase 1: WorkerError 계열 영구 오류
+            logger.error(f"[Task] Embedding permanent error [{perm_err.code}]: {perm_err.message}")
+            embeddings_failed = True
+            embeddings_error = f"{perm_err.code}: {perm_err.message}"
+            embedding_result = None
+        except Exception as embed_error:
+            # 예상치 못한 오류 - 로그 후 부분 실패로 처리
+            logger.error(
+                f"[Task] Unexpected embedding error: {embed_error}",
+                exc_info=True  # Phase 1: 스택 트레이스 포함
+            )
+            embeddings_failed = True
+            embeddings_error = f"Unexpected: {type(embed_error).__name__}: {embed_error}"
             embedding_result = None
 
         chunk_count = 0
@@ -702,8 +770,11 @@ def process_resume(
             portfolio_url = analyzed_data.get("portfolio_url")
             if portfolio_url and portfolio_url.startswith(("http://", "https://")):
                 visual_agent = get_visual_agent()
-                thumbnail_result = asyncio.run(
-                    visual_agent.capture_portfolio_thumbnail(portfolio_url)
+                # Phase 0: asyncio.run() → run_async() (Context Manager 패턴)
+                thumbnail_result = run_async_with_shadow(
+                    lambda: visual_agent.capture_portfolio_thumbnail(portfolio_url),
+                    shadow_mode=settings.ASYNC_SHADOW_MODE,
+                    use_new=settings.USE_NEW_ASYNC_HELPER
                 )
 
                 if thumbnail_result.success and thumbnail_result.thumbnail:
@@ -725,9 +796,24 @@ def process_resume(
                     logger.warning(
                         f"[Task] Portfolio thumbnail failed: {thumbnail_result.error}"
                     )
+        # Phase 1: Visual Agent 구체적 예외 처리
+        except TimeoutError as timeout_err:
+            # 타임아웃 - 부분 실패 (계속 진행)
+            logger.warning(f"[Task] Visual agent timeout: {timeout_err}")
+        except ConnectionError as conn_err:
+            # 연결 오류 - 부분 실패 (계속 진행)
+            logger.warning(f"[Task] Visual agent connection error: {conn_err}")
+        except RetryableError as retry_err:
+            # 재시도 가능 오류지만 Visual은 부분 실패로 처리
+            logger.warning(f"[Task] Visual agent retryable error [{retry_err.code}]: {retry_err.message}")
+        except PermanentError as perm_err:
+            # 영구 오류 (URL이 잘못되었거나 등)
+            logger.warning(f"[Task] Visual agent permanent error [{perm_err.code}]: {perm_err.message}")
         except Exception as visual_error:
-            # Visual Agent 실패해도 전체 처리는 계속
-            logger.warning(f"[Task] Visual processing skipped: {visual_error}")
+            # 예상치 못한 오류 - 부분 실패로 처리 (전체 파이프라인 계속)
+            logger.warning(
+                f"[Task] Visual processing skipped: {type(visual_error).__name__}: {visual_error}"
+            )
 
         # processing_jobs 상태 업데이트
         db_service.update_job_status(
@@ -785,22 +871,84 @@ def process_resume(
             "embeddings_error": embeddings_error,
         }
 
-    except Exception as e:
-        logger.error(f"[Task] process_resume error: {e}", exc_info=True)
+    except PermanentError as perm_err:
+        # 재시도 불가 에러 (INVALID_FILE, MULTI_IDENTITY 등)
+        logger.error(
+            f"[Task] process_resume permanent error [{perm_err.code}]: {perm_err.message}",
+            exc_info=True
+        )
         db_service.update_job_status(
             job_id,
             status="failed",
-            error_code="INTERNAL_ERROR",
+            error_code=perm_err.code.value,
+            error_message=perm_err.message
+        )
+        if candidate_id:
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="failed",
+            )
+        notify_webhook(job_id, "failed", error=perm_err.message)
+        return {
+            "success": False,
+            "error": perm_err.message,
+            "error_code": perm_err.code.value,
+            "retryable": False,
+        }
+
+    except RetryableError as retry_err:
+        # 재시도 가능 에러 (TIMEOUT, RATE_LIMIT, NETWORK 등)
+        logger.warning(
+            f"[Task] process_resume retryable error [{retry_err.code}]: {retry_err.message}",
+            exc_info=True
+        )
+        db_service.update_job_status(
+            job_id,
+            status="failed",
+            error_code=retry_err.code.value,
+            error_message=retry_err.message
+        )
+        if candidate_id:
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="failed",
+            )
+        notify_webhook(job_id, "failed", error=retry_err.message)
+        return {
+            "success": False,
+            "error": retry_err.message,
+            "error_code": retry_err.code.value,
+            "retryable": True,
+        }
+
+    except Exception as e:
+        # 미분류 예외 - is_retryable로 재시도 가능 여부 판단
+        retryable = is_retryable(e)
+        error_code = "INTERNAL_ERROR"
+
+        if retryable:
+            logger.warning(f"[Task] process_resume error (retryable): {e}", exc_info=True)
+        else:
+            logger.error(f"[Task] process_resume error (permanent): {e}", exc_info=True)
+
+        db_service.update_job_status(
+            job_id,
+            status="failed",
+            error_code=error_code,
             error_message=str(e)
         )
-        # 실패 시 candidate 상태도 업데이트
         if candidate_id:
             db_service.update_candidate_status(
                 candidate_id=candidate_id,
                 status="failed",
             )
         notify_webhook(job_id, "failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "error_code": error_code,
+            "retryable": retryable,
+        }
 
 
 def full_pipeline(
@@ -810,11 +958,15 @@ def full_pipeline(
     file_name: str,
     mode: str = "phase_1",
     candidate_id: Optional[str] = None,
+    skip_credit_deduction: bool = False,
 ) -> dict:
     """
     전체 파이프라인 작업 (RQ Task)
 
-    파일 다운로드 → 파싱 → 분석 → PII 마스킹 → 임베딩 → DB 저장 → 크레딧 차감
+    PipelineOrchestrator를 통해 통합된 파이프라인 실행:
+    파일 다운로드 → 파싱 → 신원 확인 → 분석 → 검증 → URL 추출 →
+    경력 계산 → 학력 판별 → PII 마스킹 → 임베딩 → DB 저장 →
+    크레딧 차감 → JD 자동 매칭
 
     Next.js API에서 호출하는 주요 작업
 
@@ -824,10 +976,14 @@ def full_pipeline(
         file_path: Supabase Storage 경로
         file_name: 원본 파일명
         mode: phase_1 또는 phase_2
+        candidate_id: 기존 후보자 ID (업데이트/재시도용)
+        skip_credit_deduction: 크레딧 차감 스킵 여부 (재시도 시)
 
     Returns:
         dict: 전체 처리 결과
     """
+    from orchestrator.pipeline_orchestrator import get_pipeline_orchestrator
+
     logger.info(f"[Task] full_pipeline started: job={job_id}, file={file_name}")
 
     db_service = get_database_service()
@@ -845,47 +1001,160 @@ def full_pipeline(
             notify_webhook(job_id, "failed", error=error_msg)
             return {"success": False, "error": error_msg}
 
-        # Step 1: 파일 파싱
-        parse_result = parse_file(
-            job_id=job_id,
-            user_id=user_id,
-            file_path=file_path,
-            file_name=file_name,
+        # PipelineOrchestrator를 통해 통합된 파이프라인 실행
+        orchestrator = get_pipeline_orchestrator()
+        # Phase 0: asyncio.run() → run_async() (Context Manager 패턴)
+        result = run_async_with_shadow(
+            lambda: orchestrator.run_from_storage(
+                storage_path=file_path,
+                filename=file_name,
+                user_id=user_id,
+                job_id=job_id,
+                mode=mode,
+                candidate_id=candidate_id,
+                is_retry=skip_credit_deduction,
+                skip_credit_deduction=skip_credit_deduction,
+            ),
+            shadow_mode=settings.ASYNC_SHADOW_MODE,
+            use_new=settings.USE_NEW_ASYNC_HELPER
         )
 
-        if not parse_result.get("success"):
-            return parse_result
+        if not result.success:
+            # 실패 시 상태 업데이트
+            db_service.update_job_status(
+                job_id,
+                status="failed",
+                error_code=result.error_code or "PIPELINE_FAILED",
+                error_message=result.error or "파이프라인 실패"
+            )
+            if candidate_id:
+                db_service.update_candidate_status(
+                    candidate_id=candidate_id,
+                    status="failed",
+                )
+            notify_webhook(job_id, "failed", error=result.error)
+            return {
+                "success": False,
+                "error": result.error,
+                "error_code": result.error_code,
+            }
 
-        # Step 2: 이력서 처리
-        process_result = process_resume(
+        # 성공 시 상태 업데이트
+        db_service.update_job_status(
             job_id=job_id,
-            user_id=user_id,
-            text=parse_result["text"],
-            mode=mode,
-            source_file=file_path,
-            file_type=parse_result.get("file_type", ""),
-            file_name=file_name,
-            candidate_id=candidate_id,
+            status="completed",
+            candidate_id=result.candidate_id,
+            confidence_score=result.confidence_score,
+            chunk_count=result.chunks_saved,
+            pii_count=result.pii_count,
         )
 
-        return process_result
+        # Webhook 알림
+        notify_webhook(job_id, "completed", result={
+            "candidate_id": result.candidate_id,
+            "confidence_score": result.confidence_score,
+            "chunk_count": result.chunks_saved,
+            "pii_count": result.pii_count,
+            "processing_time_ms": result.processing_time_ms,
+            "is_update": result.is_update,
+            "parent_id": result.parent_id,
+        })
 
-    except Exception as e:
-        logger.error(f"[Task] full_pipeline error: {e}", exc_info=True)
+        logger.info(
+            f"[Task] full_pipeline completed: candidate={result.candidate_id}, "
+            f"confidence={result.confidence_score:.2f}, time={result.processing_time_ms}ms"
+        )
+
+        return {
+            "success": True,
+            "candidate_id": result.candidate_id,
+            "confidence_score": result.confidence_score,
+            "chunks_saved": result.chunks_saved,
+            "pii_count": result.pii_count,
+            "processing_time_ms": result.processing_time_ms,
+            "is_update": result.is_update,
+            "parent_id": result.parent_id,
+            "warnings": result.warnings,
+        }
+
+    except PermanentError as perm_err:
+        # 재시도 불가 에러 (INVALID_FILE, MULTI_IDENTITY 등)
+        logger.error(
+            f"[Task] full_pipeline permanent error [{perm_err.code}]: {perm_err.message}",
+            exc_info=True
+        )
         db_service.update_job_status(
             job_id,
             status="failed",
-            error_code="INTERNAL_ERROR",
+            error_code=perm_err.code.value,
+            error_message=perm_err.message
+        )
+        if candidate_id:
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="failed",
+            )
+        notify_webhook(job_id, "failed", error=perm_err.message)
+        return {
+            "success": False,
+            "error": perm_err.message,
+            "error_code": perm_err.code.value,
+            "retryable": False,
+        }
+
+    except RetryableError as retry_err:
+        # 재시도 가능 에러 (TIMEOUT, RATE_LIMIT, NETWORK 등)
+        logger.warning(
+            f"[Task] full_pipeline retryable error [{retry_err.code}]: {retry_err.message}",
+            exc_info=True
+        )
+        db_service.update_job_status(
+            job_id,
+            status="failed",
+            error_code=retry_err.code.value,
+            error_message=retry_err.message
+        )
+        if candidate_id:
+            db_service.update_candidate_status(
+                candidate_id=candidate_id,
+                status="failed",
+            )
+        notify_webhook(job_id, "failed", error=retry_err.message)
+        return {
+            "success": False,
+            "error": retry_err.message,
+            "error_code": retry_err.code.value,
+            "retryable": True,
+        }
+
+    except Exception as e:
+        # 미분류 예외 - is_retryable로 재시도 가능 여부 판단
+        retryable = is_retryable(e)
+        error_code = "INTERNAL_ERROR"
+
+        if retryable:
+            logger.warning(f"[Task] full_pipeline error (retryable): {e}", exc_info=True)
+        else:
+            logger.error(f"[Task] full_pipeline error (permanent): {e}", exc_info=True)
+
+        db_service.update_job_status(
+            job_id,
+            status="failed",
+            error_code=error_code,
             error_message=str(e)
         )
-        # 실패 시 candidate 상태도 업데이트
         if candidate_id:
             db_service.update_candidate_status(
                 candidate_id=candidate_id,
                 status="failed",
             )
         notify_webhook(job_id, "failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "error_code": error_code,
+            "retryable": retryable,
+        }
 
 
 def get_file_type_from_name(file_name: str) -> str:

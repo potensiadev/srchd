@@ -3,13 +3,9 @@
 import { motion } from "framer-motion";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
 import {
   Sparkles,
-  ArrowRight,
   CheckCircle,
-  Clock,
   TrendingUp,
   Target,
   Quote,
@@ -107,7 +103,7 @@ const searchResults: Record<string, {
 export default function LandingPageContent() {
   const [mounted, setMounted] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [, setIsLoggedIn] = useState(false);
 
   // Demo Section Refs
   const demo2Ref = useRef<HTMLDivElement>(null);
@@ -117,7 +113,7 @@ export default function LandingPageContent() {
   const [demo2Step, setDemo2Step] = useState<"idle" | "input" | "analyzing" | "matching" | "complete">("idle");
   const [demo2JD, setDemo2JD] = useState("");
   const demo2TimeoutRefs = useRef<NodeJS.Timeout[]>([]);
-  const [demo2MobileSlide, setDemo2MobileSlide] = useState(0);
+  const [, setDemo2MobileSlide] = useState(0);
   const demo2CarouselRef = useRef<HTMLDivElement>(null);
 
   // Demo 3 State
@@ -431,7 +427,7 @@ export default function LandingPageContent() {
                     ))}
                   </div>
 
-                  <p className="text-gray-300 mb-6 leading-relaxed">"{t.quote}"</p>
+                  <p className="text-gray-300 mb-6 leading-relaxed">&quot;{t.quote}&quot;</p>
 
                   <div className="flex items-center gap-4">
                     {/* Avatar Placeholder */}
@@ -473,7 +469,7 @@ export default function LandingPageContent() {
                 <span className="text-primary">커피 한 잔이면 끝.</span>
               </h2>
               <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                "이 스택은 필수고, 저건 우대사항이고..." 머리 아프게 분석하지 마세요.
+                &quot;이 스택은 필수고, 저건 우대사항이고...&quot; 머리 아프게 분석하지 마세요.
                 AI가 채용공고의 행간까지 읽어내어, 가장 핏(Fit)한 인재를 즉시 찾아냅니다.
               </p>
 
@@ -653,14 +649,14 @@ export default function LandingPageContent() {
                 <span className="text-indigo-600">사람 말로 찾으세요.</span>
               </h2>
               <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                "일 잘하는 5년차 마케터 찾아줘"라고 동료에게 말하듯 검색하세요.
+                &quot;일 잘하는 5년차 마케터 찾아줘&quot;라고 동료에게 말하듯 검색하세요.
                 AI가 찰떡같이 알아듣고, 단순 키워드 매칭으로는 찾을 수 없었던 숨은 인재까지 발굴해냅니다.
               </p>
 
               <div className="flex flex-wrap gap-2">
                 {searchExamples.slice(0, 3).map((ex, i) => (
                   <div key={i} className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 text-sm">
-                    "{ex}"
+                    &quot;{ex}&quot;
                   </div>
                 ))}
               </div>

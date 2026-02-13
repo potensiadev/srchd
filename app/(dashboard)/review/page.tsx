@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
     ShieldAlert,
     CheckCircle2,
@@ -22,11 +22,7 @@ export default function ReviewQueuePage() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        fetchReviewQueue();
-    }, []);
-
-    const fetchReviewQueue = async () => {
+    const fetchReviewQueue = useCallback(async () => {
         setIsLoading(true);
         try {
             const res = await fetch("/api/candidates/review");
@@ -42,7 +38,11 @@ export default function ReviewQueuePage() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [selectedId]);
+
+    useEffect(() => {
+        fetchReviewQueue();
+    }, [fetchReviewQueue]);
 
     const selectedCandidate = candidates.find(c => c.id === selectedId);
 

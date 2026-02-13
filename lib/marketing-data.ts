@@ -7,8 +7,6 @@ import {
     FileSearch,
     Users,
     Lock,
-    BarChart3,
-    Sparkles
 } from "lucide-react";
 
 // Navigation links (Korean)

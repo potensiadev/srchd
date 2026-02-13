@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useMemo } from "react";
 import { Upload, FolderUp, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,17 +12,33 @@ interface GravityDropZoneProps {
     disabled?: boolean;
 }
 
-// 파티클 생성 함수
-function generateParticles(count: number) {
-    return Array.from({ length: count }, (_, i) => ({
-        id: i,
-        angle: (360 / count) * i,
-        radius: 80 + Math.random() * 40,
-        size: 2 + Math.random() * 3,
-        duration: 3 + Math.random() * 2,
-        delay: Math.random() * 2,
-    }));
-}
+// 사전 정의된 파티클 데이터 (렌더 순수성 보장)
+const PARTICLE_DATA = [
+    { radius: 95, size: 3.5, duration: 4.2, delay: 0.3 },
+    { radius: 108, size: 2.8, duration: 3.7, delay: 1.1 },
+    { radius: 85, size: 4.1, duration: 4.8, delay: 0.8 },
+    { radius: 112, size: 2.3, duration: 3.2, delay: 1.6 },
+    { radius: 92, size: 3.9, duration: 4.5, delay: 0.5 },
+    { radius: 118, size: 2.6, duration: 3.9, delay: 1.3 },
+    { radius: 88, size: 4.4, duration: 4.1, delay: 0.9 },
+    { radius: 105, size: 3.1, duration: 3.5, delay: 1.8 },
+    { radius: 98, size: 3.7, duration: 4.6, delay: 0.2 },
+    { radius: 115, size: 2.4, duration: 3.3, delay: 1.4 },
+    { radius: 82, size: 4.2, duration: 4.9, delay: 0.7 },
+    { radius: 102, size: 2.9, duration: 3.8, delay: 1.0 },
+    { radius: 90, size: 3.6, duration: 4.3, delay: 0.4 },
+    { radius: 110, size: 2.7, duration: 3.4, delay: 1.7 },
+    { radius: 86, size: 4.0, duration: 4.7, delay: 0.6 },
+    { radius: 100, size: 3.2, duration: 3.6, delay: 1.2 },
+    { radius: 94, size: 3.8, duration: 4.4, delay: 0.1 },
+    { radius: 116, size: 2.5, duration: 3.1, delay: 1.5 },
+    { radius: 84, size: 4.3, duration: 5.0, delay: 0.85 },
+    { radius: 107, size: 3.0, duration: 3.55, delay: 1.05 },
+    { radius: 96, size: 3.4, duration: 4.35, delay: 0.35 },
+    { radius: 113, size: 2.65, duration: 3.45, delay: 1.65 },
+    { radius: 89, size: 3.95, duration: 4.55, delay: 0.55 },
+    { radius: 104, size: 3.15, duration: 3.75, delay: 1.25 },
+];
 
 export default function GravityDropZone({
     onFilesDropped,
@@ -33,7 +49,15 @@ export default function GravityDropZone({
     const [isDragging, setIsDragging] = useState(false);
     const [isRejected, setIsRejected] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const particles = useRef(generateParticles(24)).current;
+
+    // useMemo로 파티클 생성 (렌더 순수성 보장)
+    const particles = useMemo(() =>
+        PARTICLE_DATA.map((p, i) => ({
+            id: i,
+            angle: (360 / PARTICLE_DATA.length) * i,
+            ...p,
+        })),
+    []);
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();

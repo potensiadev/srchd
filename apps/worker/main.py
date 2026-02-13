@@ -320,7 +320,7 @@ async def health_check(detailed: bool = False):
 
         # Gemini
         gemini_status = DependencyStatus(name="gemini", status="unconfigured")
-        if settings.GOOGLE_AI_API_KEY:
+        if settings.GEMINI_API_KEY:
             if llm_manager.gemini_client:
                 gemini_status = DependencyStatus(name="gemini", status="healthy")
             else:
@@ -418,7 +418,7 @@ async def debug_status():
                 "model": settings.OPENAI_MODEL,
             },
             "gemini": {
-                "configured": bool(settings.GOOGLE_AI_API_KEY),
+                "configured": bool(settings.GEMINI_API_KEY),
                 "client_ready": llm_manager.gemini_client is not None,
                 "model": settings.GEMINI_MODEL,
             },
@@ -957,201 +957,61 @@ async def _run_analyze_only_pipeline(request: AnalyzeOnlyRequest):
     """
     분석 전용 파이프라인 (백그라운드 실행)
 
-    /parse-only에서 파싱된 텍스트를 받아 분석, PII 처리, 임베딩, DB 저장을 수행합니다.
+    PipelineOrchestrator를 통해 통합된 파이프라인 실행:
+    /parse-only에서 파싱된 텍스트를 받아 신원 확인 → 분석 → URL 추출 →
+    경력 계산 → 학력 판별 → 검증 → PII 마스킹 → PDF 변환 → 임베딩 →
+    DB 저장 → 크레딧 차감 → JD 자동 매칭
     """
-    import time
-    start_time = time.time()
-
     db_service = get_database_service()
 
     try:
-        # Step 1: AI 분석
-        logger.info(f"[AnalyzeOnly] Analyzing resume...")
+        logger.info(f"[AnalyzeOnly] Starting pipeline via Orchestrator...")
 
-        analysis_mode = AnalysisMode.PHASE_2 if request.mode == "phase_2" else AnalysisMode.PHASE_1
-        analyst = get_analyst_agent()
-        analysis_result = await analyst.analyze(
-            resume_text=request.text,
-            mode=analysis_mode,
-            filename=request.file_name
-        )
-
-        if not analysis_result.success or not analysis_result.data:
-            raise Exception(f"Analysis failed: {analysis_result.error}")
-
-        logger.info(f"[AnalyzeOnly] Analysis complete: confidence={analysis_result.confidence_score:.2f}")
-
-        # Progressive Loading: AI 분석 완료 상태 업데이트 (80%)
-        quick_data = {
-            "name": analysis_result.data.get("name"),
-            "phone": analysis_result.data.get("phone"),
-            "email": analysis_result.data.get("email"),
-            "last_company": analysis_result.data.get("last_company"),
-            "last_position": analysis_result.data.get("last_position"),
-        }
-        db_service.update_candidate_status(
-            candidate_id=request.candidate_id,
-            status="analyzed",
-            quick_extracted={k: v for k, v in quick_data.items() if v}
-        )
-        logger.info(f"[AnalyzeOnly] Candidate status updated to 'analyzed'")
-
-        # 원본 데이터 보관
-        original_data = analysis_result.data.copy()
-        analyzed_data = analysis_result.data
-
-        # Step 2: PII 마스킹 + 암호화
-        logger.info(f"[AnalyzeOnly] Processing PII...")
-
-        privacy_agent = get_privacy_agent()
-        privacy_result = privacy_agent.process(analyzed_data)
-
-        encrypted_store = {}
-        hash_store = {}
-        pii_count = 0
-
-        if privacy_result.success:
-            analyzed_data = privacy_result.masked_data
-            pii_count = len(privacy_result.pii_found)
-            encrypted_store = privacy_result.encrypted_store
-
-            if original_data.get("phone"):
-                hash_store["phone"] = privacy_agent.hash_for_dedup(original_data["phone"])
-            if original_data.get("email"):
-                hash_store["email"] = privacy_agent.hash_for_dedup(original_data["email"])
-
-        logger.info(f"[AnalyzeOnly] PII processed: {pii_count} items found")
-
-        # Step 2.5: PDF 변환 (원본이 PDF가 아닌 경우)
-        pdf_storage_path: Optional[str] = None
-        if request.file_type.lower() not in ["pdf"]:
-            logger.info(f"[AnalyzeOnly] Converting {request.file_type} to PDF...")
-            try:
-                # 파일 다시 다운로드 (PDF 변환용)
-                file_response = db_service.client.storage.from_("resumes").download(request.file_url)
-                if file_response:
-                    pdf_converter = get_pdf_converter()
-                    conversion_result = pdf_converter.convert_to_pdf(file_response, request.file_name)
-
-                    if conversion_result.success and conversion_result.pdf_bytes:
-                        pdf_storage_path = db_service.upload_converted_pdf(
-                            pdf_bytes=conversion_result.pdf_bytes,
-                            user_id=request.user_id,
-                            job_id=request.job_id,
-                        )
-                        if pdf_storage_path:
-                            logger.info(f"[AnalyzeOnly] PDF converted and uploaded: {pdf_storage_path}")
-            except Exception as pdf_error:
-                logger.warning(f"[AnalyzeOnly] PDF conversion failed (continuing): {pdf_error}")
-
-        # Step 3: 임베딩 생성
-        logger.info(f"[AnalyzeOnly] Generating embeddings...")
-
-        embedding_result = None
-        chunk_count = 0
-        try:
-            embedding_service = get_embedding_service()
-            embedding_result = await embedding_service.process_candidate(
-                data=analyzed_data,
-                generate_embeddings=True,
-                raw_text=request.text
-            )
-            chunk_count = len(embedding_result.chunks) if embedding_result and embedding_result.success else 0
-            logger.info(f"[AnalyzeOnly] Embeddings generated: {chunk_count} chunks")
-        except Exception as embed_error:
-            logger.warning(f"[AnalyzeOnly] Embedding generation failed (continuing): {embed_error}")
-
-        # Step 4: DB 저장
-        logger.info(f"[AnalyzeOnly] Saving to database...")
-
-        save_result = db_service.save_candidate(
+        # PipelineOrchestrator를 통해 통합된 파이프라인 실행
+        orchestrator = get_pipeline_orchestrator()
+        result = await orchestrator.run_from_text(
+            text=request.text,
+            file_url=request.file_url,
+            filename=request.file_name,
+            file_type=request.file_type,
             user_id=request.user_id,
             job_id=request.job_id,
-            analyzed_data=analyzed_data,
-            confidence_score=analysis_result.confidence_score,
-            field_confidence=analysis_result.field_confidence,
-            warnings=[w.to_dict() for w in analysis_result.warnings],
-            encrypted_store=encrypted_store,
-            hash_store=hash_store,
-            source_file=request.file_url,
-            file_type=request.file_type,
-            analysis_mode=analysis_mode.value,
             candidate_id=request.candidate_id,
+            mode=request.mode or "phase_1",
+            skip_credit_deduction=request.skip_credit_deduction,
         )
 
-        if not save_result.success:
-            raise Exception(f"Failed to save candidate: {save_result.error}")
+        if not result.success:
+            logger.error(f"[AnalyzeOnly] Pipeline failed: {result.error}")
 
-        candidate_id = save_result.candidate_id
-        logger.info(f"[AnalyzeOnly] Saved candidate: {candidate_id}")
-
-        # Step 4.5: PDF URL 업데이트
-        if pdf_storage_path and candidate_id:
-            db_service.update_candidate_pdf_url(
-                candidate_id=candidate_id,
-                pdf_url=pdf_storage_path
+            # 실패 시 상태 업데이트
+            db_service.update_job_status(
+                job_id=request.job_id,
+                status="failed",
+                error_code=result.error_code or "PIPELINE_FAILED",
+                error_message=result.error or "파이프라인 실패",
             )
 
-        # 청크 저장
-        chunks_saved = 0
-        if embedding_result and embedding_result.success and embedding_result.chunks:
-            try:
-                if save_result.is_update:
-                    db_service.delete_candidate_chunks(candidate_id)
+            db_service.update_candidate_status(
+                candidate_id=request.candidate_id,
+                status="failed",
+            )
+            return
 
-                chunks_saved = db_service.save_chunks_with_embeddings(
-                    candidate_id=candidate_id,
-                    chunks=embedding_result.chunks
-                )
-                logger.info(f"[AnalyzeOnly] Saved {chunks_saved} chunks")
-            except Exception as chunk_error:
-                logger.warning(f"[AnalyzeOnly] Chunk saving failed: {chunk_error}")
-
-        # Step 5: Job 상태 업데이트
+        # 성공 시 상태 업데이트
         db_service.update_job_status(
             job_id=request.job_id,
             status="completed",
-            candidate_id=candidate_id,
-            confidence_score=analysis_result.confidence_score,
-            chunk_count=chunks_saved,
-            pii_count=pii_count,
+            candidate_id=result.candidate_id,
+            confidence_score=result.confidence_score,
+            chunk_count=result.chunks_saved,
+            pii_count=result.pii_count,
         )
 
-        # Step 6: 크레딧 차감
-        if request.skip_credit_deduction:
-            logger.info(f"[AnalyzeOnly] Skipping credit deduction")
-        elif save_result.is_update:
-            logger.info(f"[AnalyzeOnly] Duplicate update, skipping credit deduction")
-        else:
-            logger.info(f"[AnalyzeOnly] Deducting credit for user {request.user_id}...")
-            credit_deducted = db_service.deduct_credit(
-                user_id=request.user_id,
-                candidate_id=candidate_id,
-            )
-            if credit_deducted:
-                logger.info(f"[AnalyzeOnly] Credit deducted successfully")
-            else:
-                logger.warning(f"[AnalyzeOnly] Failed to deduct credit")
-
-        # Step 7: 기존 JD와 자동 매칭
-        if chunks_saved > 0:
-            logger.info(f"[AnalyzeOnly] Running auto-match with existing positions...")
-            match_result = db_service.match_candidate_to_existing_positions(
-                candidate_id=candidate_id,
-                user_id=request.user_id,
-                min_score=0.3
-            )
-            if match_result["success"]:
-                logger.info(
-                    f"[AnalyzeOnly] Auto-match complete: "
-                    f"{match_result['matched_positions']}/{match_result['total_positions']} positions"
-                )
-
-        processing_time = int((time.time() - start_time) * 1000)
         logger.info(
-            f"[AnalyzeOnly] Complete! candidate={candidate_id}, "
-            f"confidence={analysis_result.confidence_score:.2f}, "
-            f"chunks={chunks_saved}, time={processing_time}ms"
+            f"[AnalyzeOnly] Complete! candidate={result.candidate_id}, "
+            f"confidence={result.confidence_score:.2f}, "
+            f"chunks={result.chunks_saved}, time={result.processing_time_ms}ms"
         )
 
     except Exception as e:

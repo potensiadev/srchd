@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Flame,
@@ -182,12 +182,13 @@ export default function CandidateLifecycle({
     });
   };
 
-  const daysSinceLastContact = candidate.lastContactAt
-    ? Math.floor(
-        (Date.now() - new Date(candidate.lastContactAt).getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : null;
+  // useMemo로 계산하여 렌더 순수성 보장
+  const daysSinceLastContact = useMemo(() => {
+    if (!candidate.lastContactAt) return null;
+    const now = Date.now();
+    const lastContact = new Date(candidate.lastContactAt).getTime();
+    return Math.floor((now - lastContact) / (1000 * 60 * 60 * 24));
+  }, [candidate.lastContactAt]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

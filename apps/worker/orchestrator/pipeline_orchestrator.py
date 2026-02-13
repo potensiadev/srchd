@@ -859,6 +859,495 @@ class PipelineOrchestrator:
             context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
         )
 
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 새로운 진입점 메서드들 (main.py, tasks.py 통합용)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    async def run_from_storage(
+        self,
+        storage_path: str,
+        filename: str,
+        user_id: str,
+        job_id: str,
+        mode: str = "phase_1",
+        candidate_id: Optional[str] = None,
+        is_retry: bool = False,
+        skip_credit_deduction: bool = False,
+    ) -> OrchestratorResult:
+        """
+        Storage에서 파일 다운로드 후 전체 파이프라인 실행
+
+        tasks.py의 full_pipeline()에서 사용하는 진입점입니다.
+
+        Args:
+            storage_path: Supabase Storage 경로 (예: "resumes/{user_id}/{filename}")
+            filename: 원본 파일명
+            user_id: 사용자 ID
+            job_id: 작업 ID
+            mode: 분석 모드 (phase_1 or phase_2)
+            candidate_id: 기존 후보자 ID (업데이트/재시도용)
+            is_retry: 재시도 여부
+            skip_credit_deduction: 크레딧 차감 스킵 여부
+
+        Returns:
+            OrchestratorResult with processing results
+        """
+        start_time = time.time()
+
+        try:
+            # Storage에서 파일 다운로드
+            file_bytes = await self._download_from_storage(storage_path)
+
+            if not file_bytes:
+                return OrchestratorResult(
+                    success=False,
+                    error=f"파일 다운로드 실패: {storage_path}",
+                    error_code="DOWNLOAD_FAILED",
+                    processing_time_ms=int((time.time() - start_time) * 1000),
+                )
+
+            # 기존 run() 메서드 호출
+            result = await self.run(
+                file_bytes=file_bytes,
+                filename=filename,
+                user_id=user_id,
+                job_id=job_id,
+                mode=mode,
+                candidate_id=candidate_id,
+                is_retry=is_retry,
+            )
+
+            # 추가 처리: 크레딧 차감, 자동 매칭 등
+            if result.success and result.candidate_id:
+                await self._post_process(
+                    result=result,
+                    user_id=user_id,
+                    job_id=job_id,
+                    skip_credit_deduction=skip_credit_deduction,
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] run_from_storage error: {e}", exc_info=True)
+            return OrchestratorResult(
+                success=False,
+                error=str(e),
+                error_code="INTERNAL_ERROR",
+                processing_time_ms=int((time.time() - start_time) * 1000),
+            )
+
+    async def run_from_text(
+        self,
+        text: str,
+        file_url: str,
+        filename: str,
+        file_type: str,
+        user_id: str,
+        job_id: str,
+        candidate_id: str,
+        mode: str = "phase_1",
+        skip_credit_deduction: bool = False,
+    ) -> OrchestratorResult:
+        """
+        이미 파싱된 텍스트부터 파이프라인 실행 (파싱 스킵)
+
+        main.py의 /analyze-only 엔드포인트에서 사용하는 진입점입니다.
+        파싱 단계를 건너뛰고 AI 분석부터 시작합니다.
+
+        Args:
+            text: 이미 파싱된 이력서 텍스트
+            file_url: 원본 파일 Storage 경로
+            filename: 원본 파일명
+            file_type: 파일 타입 (hwp, pdf, docx 등)
+            user_id: 사용자 ID
+            job_id: 작업 ID
+            candidate_id: 후보자 ID (이미 생성된 상태)
+            mode: 분석 모드 (phase_1 or phase_2)
+            skip_credit_deduction: 크레딧 차감 스킵 여부
+
+        Returns:
+            OrchestratorResult with processing results
+        """
+        start_time = time.time()
+
+        # PipelineContext 생성
+        ctx = PipelineContext()
+        ctx.metadata.candidate_id = candidate_id
+        ctx.metadata.job_id = job_id
+        ctx.metadata.user_id = user_id
+        ctx.metadata.config["mode"] = mode
+        ctx.metadata.config["entry_point"] = "run_from_text"
+
+        logger.info(f"[Orchestrator] Starting pipeline from text: {ctx.metadata.pipeline_id}")
+
+        # 메트릭 수집 시작
+        metrics_collector = _get_metrics_collector()
+        if metrics_collector:
+            metrics_collector.start_pipeline(
+                pipeline_id=ctx.metadata.pipeline_id,
+                job_id=job_id,
+                user_id=user_id,
+                pipeline_type="from_text",
+                is_retry=False,
+            )
+
+        try:
+            # Stage 1-2 스킵: 직접 파싱된 텍스트 설정
+            ctx.set_raw_input(b"", filename, source="pre_parsed", file_path=file_url)
+            ctx.set_parsed_text(text, parsing_method="external", parsing_confidence=0.9)
+            ctx.metadata.config["file_type"] = file_type
+
+            # Stage 3: PII 추출 (정규식 전용)
+            await self._stage_pii_extraction(ctx)
+
+            # Stage 4: 신원 확인
+            identity_result = await self._stage_identity_check(ctx)
+            if identity_result.get("should_reject"):
+                return self._create_error_result(
+                    ctx, identity_result["error"], "MULTI_IDENTITY", start_time
+                )
+
+            # Stage 5: AI 분석
+            analysis_result = await self._stage_analysis(ctx, mode)
+            if not analysis_result["success"]:
+                return self._create_error_result(
+                    ctx, analysis_result["error"], "ANALYSIS_FAILED", start_time
+                )
+
+            # Stage 5.5: 추가 처리 (URL 추출, 경력 계산, 학력 판별)
+            await self._stage_post_analysis(ctx)
+
+            # Stage 6: 검증 및 환각 탐지
+            await self._stage_validation(ctx)
+
+            # Stage 7: PII 마스킹 + 암호화
+            privacy_result = await self._stage_privacy(ctx)
+
+            # Stage 7.5: PDF 변환 (원본이 PDF가 아닌 경우)
+            pdf_storage_path = None
+            if file_type.lower() not in ["pdf"]:
+                pdf_storage_path = await self._stage_pdf_conversion(ctx, file_url, user_id, job_id)
+
+            # Stage 8: 임베딩 생성
+            embedding_result = await self._stage_embedding(ctx)
+
+            # Stage 9: DB 저장
+            save_result = await self._stage_save(ctx, user_id, job_id, mode, candidate_id)
+            if not save_result["success"]:
+                return self._create_error_result(
+                    ctx, save_result["error"], "DB_SAVE_FAILED", start_time
+                )
+
+            # PDF URL 업데이트
+            if pdf_storage_path and save_result.get("candidate_id"):
+                from services.database_service import get_database_service
+                db_service = get_database_service()
+                db_service.update_candidate_pdf_url(
+                    candidate_id=save_result["candidate_id"],
+                    pdf_url=pdf_storage_path
+                )
+
+            # 후처리: 크레딧 차감, 자동 매칭
+            final_result = ctx.finalize()
+            processing_time = int((time.time() - start_time) * 1000)
+
+            result = OrchestratorResult(
+                success=True,
+                candidate_id=save_result["candidate_id"],
+                confidence_score=final_result["confidence"],
+                field_confidence=dict(ctx.current_data.confidence_scores),
+                chunk_count=embedding_result.get("chunk_count", 0),
+                chunks_saved=save_result.get("chunks_saved", 0),
+                pii_count=privacy_result.get("pii_count", 0),
+                warnings=[w["message"] for w in final_result.get("warnings", [])],
+                processing_time_ms=processing_time,
+                pipeline_id=ctx.metadata.pipeline_id,
+                is_update=save_result.get("is_update", False),
+                parent_id=save_result.get("parent_id"),
+                context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
+            )
+
+            # 후처리
+            await self._post_process(
+                result=result,
+                user_id=user_id,
+                job_id=job_id,
+                skip_credit_deduction=skip_credit_deduction,
+                is_update=save_result.get("is_update", False),
+            )
+
+            # 메트릭 완료 기록
+            if metrics_collector:
+                metrics_collector.complete_pipeline(
+                    pipeline_id=ctx.metadata.pipeline_id,
+                    success=True,
+                    text_length=len(text),
+                    chunk_count=embedding_result.get("chunk_count", 0),
+                    pii_count=privacy_result.get("pii_count", 0),
+                    confidence_score=final_result["confidence"],
+                )
+
+            logger.info(
+                f"[Orchestrator] Pipeline from text completed: {ctx.metadata.pipeline_id}, "
+                f"candidate={save_result['candidate_id']}, time={processing_time}ms"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] run_from_text error: {e}", exc_info=True)
+            if metrics_collector:
+                metrics_collector.complete_pipeline(
+                    pipeline_id=ctx.metadata.pipeline_id,
+                    success=False,
+                    error_code="INTERNAL_ERROR",
+                    error_message=str(e)[:200],
+                )
+            return self._create_error_result(ctx, str(e), "INTERNAL_ERROR", start_time)
+
+    async def _download_from_storage(self, storage_path: str) -> Optional[bytes]:
+        """Supabase Storage에서 파일 다운로드"""
+        from services.storage_service import get_supabase_client
+        import time as time_module
+
+        max_retries = 3
+        retry_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                logger.info(f"[Orchestrator] Downloading: {storage_path} (attempt {attempt + 1})")
+
+                supabase = get_supabase_client()
+                response = supabase.storage.from_("resumes").download(storage_path)
+
+                if response and len(response) > 0:
+                    logger.info(f"[Orchestrator] Downloaded {len(response)} bytes")
+                    return response
+                else:
+                    raise ValueError("Empty response from storage")
+
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Download attempt {attempt + 1} failed: {e}")
+
+                if attempt < max_retries:
+                    wait_time = retry_delay * (2 ** attempt)
+                    await asyncio.sleep(wait_time)
+
+        logger.error(f"[Orchestrator] All download attempts failed for: {storage_path}")
+        return None
+
+    async def _stage_post_analysis(self, ctx: PipelineContext) -> Dict[str, Any]:
+        """
+        Stage 5.5: 분석 후 추가 처리
+
+        - URL 추출 (GitHub, LinkedIn, Portfolio)
+        - 경력 개월수 계산
+        - 학력 졸업 상태 판별
+        """
+        ctx.start_stage("post_analysis", "post_processor")
+
+        try:
+            # 현재 분석 결과 가져오기
+            decisions = ctx.decision_manager.decide_all()
+            analyzed_data = {
+                name: d.final_value for name, d in decisions.items()
+                if d.final_value is not None
+            }
+
+            # 1. URL 추출
+            from utils.url_extractor import extract_urls_from_text
+            extracted_urls = extract_urls_from_text(ctx.parsed_data.raw_text)
+
+            # GitHub URL: 텍스트 추출 우선
+            if extracted_urls.github_url:
+                ctx.propose("url_extractor", "github_url", extracted_urls.github_url, 0.95, "정규식 추출")
+                logger.info(f"[Orchestrator] GitHub URL extracted: {extracted_urls.github_url}")
+            elif analyzed_data.get("github_url"):
+                # LLM 결과가 github.com이 아니면 제거
+                if "github.com" not in analyzed_data["github_url"].lower():
+                    ctx.propose("url_extractor", "github_url", None, 0.95, "유효하지 않은 URL 제거")
+                    logger.warning("[Orchestrator] Invalid github_url from LLM removed")
+
+            # LinkedIn URL: 텍스트 추출 우선
+            if extracted_urls.linkedin_url:
+                ctx.propose("url_extractor", "linkedin_url", extracted_urls.linkedin_url, 0.95, "정규식 추출")
+                logger.info(f"[Orchestrator] LinkedIn URL extracted: {extracted_urls.linkedin_url}")
+            elif analyzed_data.get("linkedin_url"):
+                if "linkedin.com" not in analyzed_data["linkedin_url"].lower():
+                    ctx.propose("url_extractor", "linkedin_url", None, 0.95, "유효하지 않은 URL 제거")
+                    logger.warning("[Orchestrator] Invalid linkedin_url from LLM removed")
+
+            # Portfolio URL: 텍스트 추출 우선, 없으면 LLM 결과 유지
+            if extracted_urls.portfolio_url and not analyzed_data.get("portfolio_url"):
+                ctx.propose("url_extractor", "portfolio_url", extracted_urls.portfolio_url, 0.85, "정규식 추출")
+                logger.info(f"[Orchestrator] Portfolio URL extracted: {extracted_urls.portfolio_url}")
+
+            # 2. 경력 개월수 계산
+            from utils.career_calculator import calculate_total_experience
+            careers = analyzed_data.get("careers", [])
+            if careers:
+                career_summary = calculate_total_experience(careers)
+                ctx.propose("career_calculator", "exp_years", career_summary.years, 0.95, "계산된 경력 연수")
+                ctx.propose("career_calculator", "exp_total_months", career_summary.total_months, 0.95, "계산된 총 개월수")
+                ctx.propose("career_calculator", "exp_display", career_summary.format_korean(), 0.95, "표시용 경력")
+                ctx.propose("career_calculator", "has_current_job", career_summary.has_current_job, 0.95, "현재 재직 여부")
+                logger.info(
+                    f"[Orchestrator] Career calculated: {career_summary.years}년 "
+                    f"{career_summary.remaining_months}개월 ({career_summary.total_months}개월)"
+                )
+
+            # 3. 학력 졸업 상태 판별
+            from utils.education_parser import determine_graduation_status, determine_degree_level
+            educations = analyzed_data.get("educations", [])
+            if educations:
+                updated_educations = []
+                for edu in educations:
+                    edu_copy = edu.copy() if isinstance(edu, dict) else edu
+
+                    # 졸업 상태 자동 판별
+                    end_date = edu_copy.get("end_date") or edu_copy.get("end") or edu_copy.get("graduation_date")
+                    explicit_status = edu_copy.get("status") or edu_copy.get("graduation_status")
+                    status = determine_graduation_status(end_date_text=end_date, explicit_status=explicit_status)
+                    edu_copy["graduation_status"] = status.value
+
+                    # 학위 수준 판별
+                    degree_text = " ".join(filter(None, [
+                        edu_copy.get("school", ""),
+                        edu_copy.get("degree", ""),
+                        edu_copy.get("major", "")
+                    ]))
+                    degree_level = determine_degree_level(degree_text)
+                    edu_copy["degree_level"] = degree_level.value
+
+                    updated_educations.append(edu_copy)
+
+                ctx.propose("education_parser", "educations", updated_educations, 0.9, "학력 정보 보강")
+                logger.info(f"[Orchestrator] Education parsed: {len(updated_educations)} entries")
+
+            ctx.complete_stage("post_analysis", {
+                "github_url": bool(extracted_urls.github_url),
+                "linkedin_url": bool(extracted_urls.linkedin_url),
+                "portfolio_url": bool(extracted_urls.portfolio_url),
+                "career_calculated": bool(careers),
+                "education_parsed": bool(educations),
+            })
+
+            return {"success": True}
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Post-analysis error (continuing): {e}")
+            ctx.complete_stage("post_analysis", {"error": str(e)})
+            return {"success": True}  # 실패해도 계속 진행
+
+    async def _stage_pdf_conversion(
+        self,
+        ctx: PipelineContext,
+        file_url: str,
+        user_id: str,
+        job_id: str
+    ) -> Optional[str]:
+        """
+        Stage 7.5: PDF 변환 (원본이 PDF가 아닌 경우)
+
+        Returns:
+            PDF Storage 경로 또는 None
+        """
+        try:
+            from services.database_service import get_database_service
+            from services.pdf_converter import get_pdf_converter
+
+            file_type = ctx.metadata.config.get("file_type", "")
+            if file_type.lower() in ["pdf"]:
+                return None
+
+            logger.info(f"[Orchestrator] Converting {file_type} to PDF...")
+
+            db_service = get_database_service()
+
+            # 파일 다시 다운로드
+            file_response = db_service.client.storage.from_("resumes").download(file_url)
+            if not file_response:
+                logger.warning("[Orchestrator] PDF conversion: file download failed")
+                return None
+
+            pdf_converter = get_pdf_converter()
+            conversion_result = pdf_converter.convert_to_pdf(file_response, ctx.raw_input.filename)
+
+            if conversion_result.success and conversion_result.pdf_bytes:
+                pdf_storage_path = db_service.upload_converted_pdf(
+                    pdf_bytes=conversion_result.pdf_bytes,
+                    user_id=user_id,
+                    job_id=job_id,
+                )
+                if pdf_storage_path:
+                    logger.info(f"[Orchestrator] PDF converted and uploaded: {pdf_storage_path}")
+                    return pdf_storage_path
+
+            logger.warning(f"[Orchestrator] PDF conversion failed: {conversion_result.error}")
+            return None
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] PDF conversion error (continuing): {e}")
+            return None
+
+    async def _post_process(
+        self,
+        result: OrchestratorResult,
+        user_id: str,
+        job_id: str,
+        skip_credit_deduction: bool = False,
+        is_update: bool = False,
+    ) -> None:
+        """
+        파이프라인 후처리
+
+        - 크레딧 차감
+        - 기존 JD와 자동 매칭
+        - Visual Agent (포트폴리오 썸네일)
+        """
+        if not result.success or not result.candidate_id:
+            return
+
+        from services.database_service import get_database_service
+        db_service = get_database_service()
+
+        # 1. 크레딧 차감
+        if skip_credit_deduction:
+            logger.info(f"[Orchestrator] Skipping credit deduction")
+        elif is_update:
+            logger.info(f"[Orchestrator] Duplicate update, skipping credit deduction")
+        else:
+            logger.info(f"[Orchestrator] Deducting credit for user {user_id}...")
+            credit_deducted = db_service.deduct_credit(
+                user_id=user_id,
+                candidate_id=result.candidate_id,
+            )
+            if credit_deducted:
+                logger.info(f"[Orchestrator] Credit deducted successfully")
+            else:
+                logger.warning(f"[Orchestrator] Failed to deduct credit")
+
+        # 2. 기존 JD와 자동 매칭
+        if result.chunks_saved > 0:
+            logger.info(f"[Orchestrator] Running auto-match with existing positions...")
+            try:
+                match_result = db_service.match_candidate_to_existing_positions(
+                    candidate_id=result.candidate_id,
+                    user_id=user_id,
+                    min_score=0.3
+                )
+                if match_result.get("success"):
+                    logger.info(
+                        f"[Orchestrator] Auto-match complete: "
+                        f"{match_result.get('matched_positions', 0)}/{match_result.get('total_positions', 0)} positions"
+                    )
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Auto-match error (continuing): {e}")
+
+        # 3. Visual Agent (포트폴리오 썸네일) - TODO: 필요 시 활성화
+        # 현재는 성능 영향으로 비활성화
+
 
 # 싱글톤 인스턴스
 _orchestrator: Optional[PipelineOrchestrator] = None

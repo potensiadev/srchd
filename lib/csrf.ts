@@ -71,9 +71,15 @@ export function validateOrigin(request: NextRequest): CSRFValidationResult {
   // Origin 헤더가 없는 경우 (Same-Origin 요청 또는 직접 요청)
   // Referer로 폴백 체크
   if (!origin) {
-    // Referer도 없으면 Same-Origin으로 간주 (브라우저가 보내지 않은 경우)
-    // 단, 프로덕션에서는 API 클라이언트 요청일 수 있으므로 허용
+    // Referer도 없는 경우
     if (!referer) {
+      // 프로덕션 환경: Origin/Referer 없이는 CSRF 검증 불가 → 차단
+      // (API 클라이언트는 별도 API 키 인증 사용 권장)
+      if (process.env.NODE_ENV === "production") {
+        console.warn("[CSRF] Request blocked: missing Origin and Referer headers");
+        return { valid: false, error: "Missing Origin header" };
+      }
+      // 개발 환경: curl, Postman 등 테스트 도구 허용
       return { valid: true };
     }
 

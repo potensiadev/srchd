@@ -453,7 +453,7 @@ export async function POST(request: NextRequest) {
       // 키워드 분리: parseSearchQuery 유틸 함수 사용
       // Mixed Language Query 지원: 공백, 쉼표, 한글+영문 경계로 분리
       // 예: "React개발자" → ["React", "개발자"], "시니어Developer" → ["시니어", "Developer"]
-      let keywords = parseSearchQuery(sanitizedQuery);
+      const keywords = parseSearchQuery(sanitizedQuery);
 
       // 오타 보정된 쿼리도 키워드로 분리하여 추가
       for (const corrected of correctedQueries) {
