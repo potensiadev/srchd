@@ -10,8 +10,18 @@ import { Loader2, Shield, Zap, Clock } from "lucide-react";
 function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/candidates";
+  const callbackError = searchParams.get("error");
+  const errorMessage = searchParams.get("message");
 
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    if (callbackError === "auth_callback_failed") {
+      return "로그인 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
+    }
+    if (callbackError === "oauth_error") {
+      return errorMessage || "OAuth 인증 중 오류가 발생했습니다.";
+    }
+    return null;
+  });
   const [isLoading, setIsLoading] = useState(false);
 
   const supabase = createClient();
@@ -23,7 +33,7 @@ function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/api/auth/callback?next=${next}`,
+        redirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
 

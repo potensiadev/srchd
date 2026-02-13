@@ -63,10 +63,10 @@ function toCandidateDetail(row: Record<string, unknown>): CandidateDetail {
     // Detail specific fields
     birthYear: row.birth_year as number | undefined,
     gender: row.gender as "male" | "female" | "other" | undefined,
-    // Issue #4: PII는 UI에서 전체 표시 (row.phone, email, address 사용)
-    phone: (row.phone as string) || (row.phone_masked as string) || undefined,
-    email: (row.email as string) || (row.email_masked as string) || undefined,
-    address: (row.address as string) || (row.address_masked as string) || undefined,
+    // PII는 마스킹된 버전만 표시 (DB에는 phone_masked, email_masked, address_masked만 존재)
+    phone: (row.phone_masked as string) || undefined,
+    email: (row.email_masked as string) || undefined,
+    address: (row.address_masked as string) || undefined,
 
     // 학력 분리 필드
     educationLevel: row.education_level as string | undefined,
@@ -118,7 +118,7 @@ const CANDIDATE_DETAIL_COLUMNS = `
   id, name, last_position, last_company, exp_years, skills,
   photo_url, summary, confidence_score, risk_level, requires_review,
   created_at, updated_at, birth_year, gender,
-  phone, phone_masked, email, email_masked, address, address_masked,
+  phone_masked, email_masked, address_masked,
   education_level, education_school, education_major, location_city,
   careers, projects, education, strengths,
   portfolio_thumbnail_url, portfolio_url, github_url, linkedin_url,
