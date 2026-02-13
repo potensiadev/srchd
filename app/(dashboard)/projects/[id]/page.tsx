@@ -54,24 +54,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         fetchProjectDetails();
     }, [fetchProjectDetails]);
 
-    const fetchProjectDetails = async () => {
-        try {
-            const res = await fetch(`/api/projects/${id}`);
-            if (res.ok) {
-                const data = await res.json();
-                setProject(data.data.project);
-                setCandidates(data.data.candidates);
-            } else {
-                // Handle 404 or error
-                console.error("Failed to load project");
-            }
-        } catch (error) {
-            console.error("Error loading project:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     if (isLoading) {
         return <div className="p-8 text-center">Loading project...</div>;
     }
