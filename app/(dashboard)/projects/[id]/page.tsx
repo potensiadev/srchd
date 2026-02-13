@@ -1,12 +1,14 @@
 
 "use client";
 
-import { useState, useEffect, use, useCallback } from "react";
+import { useState, useEffect, use, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Clock, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CandidateGrid from "@/components/dashboard/CandidateGrid";
 import { Badge } from "@/components/ui/badge";
+import type { CandidateSearchResult } from "@/types";
+import { getConfidenceLevel } from "@/types/candidate";
 
 interface Project {
     id: string;
@@ -24,6 +26,12 @@ interface ProjectCandidate {
     skills: string[];
     exp_years: number;
     confidence_score: number;
+    photo_url?: string;
+    summary?: string;
+    risk_level?: string;
+    requires_review?: boolean;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -53,6 +61,31 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     useEffect(() => {
         fetchProjectDetails();
     }, [fetchProjectDetails]);
+
+    // Convert ProjectCandidate to CandidateSearchResult format
+    const searchResults: CandidateSearchResult[] = useMemo(() => {
+        return candidates.map((c): CandidateSearchResult => {
+            const aiConfidence = Math.round((c.confidence_score ?? 0) * 100);
+            return {
+                id: c.id,
+                name: c.name,
+                role: c.last_position ?? '',
+                company: c.last_company ?? '',
+                expYears: c.exp_years ?? 0,
+                skills: c.skills ?? [],
+                photoUrl: c.photo_url,
+                summary: c.summary,
+                aiConfidence,
+                confidenceLevel: getConfidenceLevel(aiConfidence),
+                riskLevel: (c.risk_level as 'low' | 'medium' | 'high') ?? 'low',
+                requiresReview: c.requires_review ?? false,
+                createdAt: c.created_at ?? new Date().toISOString(),
+                updatedAt: c.updated_at ?? new Date().toISOString(),
+                matchScore: 100,
+                matchedChunks: [],
+            };
+        });
+    }, [candidates]);
 
     if (isLoading) {
         return <div className="p-8 text-center">Loading project...</div>;
@@ -120,7 +153,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     </div>
 
                     <CandidateGrid
-                        searchResults={candidates}
+                        searchResults={searchResults}
                         isSearching={false}
                     />
                 </div>
