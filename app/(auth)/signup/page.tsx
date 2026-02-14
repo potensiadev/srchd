@@ -16,6 +16,15 @@ export default function SignupPage() {
     setIsLoading(true);
     setError(null);
 
+    // 이전 로컬 세션이 남아 있을 경우 서버 쿠키와 불일치가 생길 수 있어 정리
+    await supabase.auth.signOut({ scope: "local" });
+
+    if (typeof window !== "undefined") {
+      Object.keys(window.localStorage)
+        .filter((key) => key.startsWith("sb-") && key.includes("auth-token"))
+        .forEach((key) => window.localStorage.removeItem(key));
+    }
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {

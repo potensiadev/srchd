@@ -15,6 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { logoutAndClearSession } from "@/lib/auth/logout";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCredits, useInvalidateCredits } from "@/hooks";
 import { openCheckout } from "@/lib/paddle/client";
@@ -139,8 +140,7 @@ function SettingsContent() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/?logged_out=true");
+    await logoutAndClearSession();
   };
 
   // Paddle 결제 시작

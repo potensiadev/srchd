@@ -8,6 +8,7 @@ import Link from "next/link";
 import CreditCounter from "./CreditCounter";
 import { useCredits } from "@/hooks";
 import { PLAN_CONFIG, type PlanId } from "@/lib/paddle/config";
+import { logoutAndClearSession } from "@/lib/auth/logout";
 
 const NAV_ITEMS = [
     { icon: Users, label: "Candidates", href: "/candidates" },
@@ -19,14 +20,13 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
     const pathname = usePathname();
-    const { data: creditsData } = useCredits();
+    const { data: creditsData, isLoading: isCreditsLoading, error: creditsError } = useCredits();
 
     // 이메일은 useCredits에서 가져옴 (서버 측 인증 기반)
     const userEmail = creditsData?.email || "";
 
-    const handleLogout = () => {
-        // 서버 측 signOut API 사용 (쿠키 완전 삭제)
-        window.location.href = "/api/auth/signout";
+    const handleLogout = async () => {
+        await logoutAndClearSession();
     };
 
     const isActive = (href: string) => {
@@ -92,7 +92,7 @@ export default function Sidebar() {
                         </div>
                         <div className="text-xs max-w-[140px]">
                             <p className="font-medium text-gray-900 truncate" title={userEmail}>
-                                {userEmail || "Loading..."}
+                                {userEmail || (creditsError ? "세션 만료" : isCreditsLoading ? "Loading..." : "-" )}
                             </p>
                             <p className="text-gray-400">{planName} Plan</p>
                         </div>
