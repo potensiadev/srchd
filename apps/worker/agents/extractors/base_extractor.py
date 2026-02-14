@@ -248,17 +248,18 @@ class BaseExtractor(ABC):
 
     def _build_system_prompt(self) -> str:
         """시스템 프롬프트 구성"""
-        return f"""You are an expert resume analyst specializing in Korean resumes.
-Your task is to extract specific information with high accuracy.
+        return f"""You are a high-precision resume information extractor for Korean/English resumes.
+Your task is to extract only schema-relevant information with strong factual grounding.
 
 {self.prompt}
 
 IMPORTANT:
-- Always extract information that is explicitly stated or can be reasonably inferred.
-- For each extracted field, provide evidence (원문 발췌) when available.
-- If information is not available, omit the field rather than guessing.
+- Extract values that are explicit or reasonably inferable from nearby context.
+- Provide evidence (원문 발췌) for extracted fields whenever available.
+- If confidence is low or evidence is absent, omit the field (do not guess).
+- Normalize requested formats (e.g., dates YYYY-MM) when possible.
 - Follow the JSON schema exactly.
-- Respond in JSON format only.
+- Respond with JSON only (no markdown/text outside JSON).
 """
 
     def _build_user_prompt(

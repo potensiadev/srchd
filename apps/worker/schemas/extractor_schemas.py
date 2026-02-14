@@ -90,8 +90,11 @@ PROFILE_EXTRACTOR_PROMPT = """## Profile Extractor
 - 이름은 문서 상단에 단독으로 표시됨
 - 파일명에서 이름 추론 가능
 - 나이/생년월일/주민번호 앞자리에서 birth_year 추출
-"""
 
+### 출력 원칙
+- 근거가 불충분하면 해당 필드는 생략
+- evidence는 가능한 짧고 직접적인 원문 발췌 사용
+"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Career Extractor Schema
@@ -212,6 +215,10 @@ CAREER_EXTRACTOR_PROMPT = """## Career Extractor
 ### 날짜 형식
 - YYYY-MM 형식으로 정규화
 - "현재", "재직중" → is_current: true, end_date: null
+
+### 출력 원칙
+- 겹치는 기간/모호한 항목은 텍스트 근거 기반으로 보수적으로 추출
+- 추측 대신 생략
 """
 
 
@@ -318,6 +325,9 @@ EDUCATION_EXTRACTOR_PROMPT = """## Education Extractor
 
 ### Evidence 규칙
 `{field}_evidence`로 원문 발췌 제공
+
+### 출력 원칙
+- 학위/졸업 여부가 불명확하면 단정하지 말고 생략
 """
 
 
@@ -403,6 +413,10 @@ SKILLS_EXTRACTOR_PROMPT = """## Skills Extractor
 
 ### Evidence 규칙
 skills_evidence에 스킬 관련 원문 섹션 발췌
+
+### 출력 원칙
+- 일반 역량(커뮤니케이션 등)보다 기술/도구 중심으로 추출
+- 중복/유사 표기는 정규화하여 통합
 """
 
 
@@ -511,6 +525,9 @@ PROJECTS_EXTRACTOR_PROMPT = """## Projects Extractor
 
 ### Evidence 규칙
 name_evidence로 프로젝트명 원문 발췌
+
+### 출력 원칙
+- 단순 업무 나열은 제외하고, 과제 단위(목표/성과/기술) 중심으로 추출
 """
 
 
@@ -578,6 +595,7 @@ SUMMARY_GENERATOR_PROMPT = """## Summary Generator
 ### Match Reason 작성 가이드
 - 후보자가 왜 채용 시장에서 매력적인지 1문장
 - Aha Moment를 줄 수 있는 핵심 소구점
+- 요약/강점/소구점은 반드시 추출된 이력 사실과 정량 성과에 기반
 """
 
 

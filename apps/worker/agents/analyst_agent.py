@@ -551,12 +551,17 @@ class AnalystAgent:
         else:
             schema_prompt = RESUME_SCHEMA_PROMPT
 
-        system_prompt = f"""You are an expert Resume Parser. Extract ALL information from the resume.
+        system_prompt = f"""You are a production-grade Resume Parser for Korean/English resumes.
+Extract all verifiable candidate information from the provided resume text and filename.
 
 {schema_prompt}
 
-Return a single JSON object with all extracted fields. If a field is not found, omit it.
-IMPORTANT: Generate a high-quality 'match_reason' (Aha Moment) that explains why this candidate is a strong hire for their target roles.
+Output rules:
+- Return exactly ONE JSON object (no markdown, no prose).
+- If a field is not found with reasonable confidence, omit it (do not fabricate).
+- Normalize dates to YYYY-MM when possible.
+- Keep generated fields grounded in extracted facts (avoid hallucinations).
+- Always produce a high-quality 'match_reason' (Aha Moment): one concise sentence explaining why this candidate is a strong hire for likely target roles.
 """
         user_prompt = f"""Extract all information from this resume:
 

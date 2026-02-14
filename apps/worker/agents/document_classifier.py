@@ -230,7 +230,7 @@ class DocumentClassifier:
         max_chars = 3000
         truncated_text = text[:max_chars] if len(text) > max_chars else text
 
-        prompt = f"""Analyze this document and determine if it is a RESUME/CV or NOT.
+        prompt = f"""Classify whether this document is a RESUME/CV.
 
 Document filename: {filename}
 Document content (first {max_chars} chars):
@@ -238,21 +238,23 @@ Document content (first {max_chars} chars):
 {truncated_text}
 ---
 
-Instructions:
-1. A RESUME/CV contains personal information about ONE person seeking employment
-2. It typically includes: name, contact info, work experience, education, skills
-3. NON-RESUME documents include: job descriptions, certificates, company profiles, contracts
+Decision criteria:
+1. RESUME/CV: profile of ONE job-seeking person (name/contact/experience/education/skills).
+2. NON-RESUME: job postings, certificates, company introductions, legal/contract docs, etc.
+3. If evidence is mixed or insufficient, choose "uncertain".
 
-Respond in JSON format:
+Output JSON schema:
 {{
     "document_type": "resume" | "non_resume" | "uncertain",
     "confidence": 0.0-1.0,
     "non_resume_type": "job_description" | "certificate" | "company_profile" | "contract" | "other" | null,
-    "reasoning": "brief explanation"
+    "reasoning": "brief evidence-based explanation"
 }}"""
 
-        system_prompt = """You are a document classifier specialized in identifying resumes/CVs.
-Respond ONLY with valid JSON. Do not include any other text."""
+        system_prompt = """You are a high-precision document classifier for resume pipelines.
+Respond ONLY with a valid JSON object.
+Do not output markdown, code fences, or extra commentary.
+Base your decision on explicit evidence from the text/filename only."""
 
         try:
             # OpenAI 메시지 형식으로 변환

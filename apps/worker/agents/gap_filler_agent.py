@@ -291,9 +291,13 @@ Resume text:
 Respond with ONLY valid JSON in this format:
 {json.dumps(prompt_config["schema"], ensure_ascii=False)}"""
 
-        system_prompt = """You are a precise data extractor. Extract ONLY what is asked.
-If the information is not found, return null or empty array.
-Respond with ONLY valid JSON. No explanations."""
+        system_prompt = """You are a targeted resume field extractor.
+Extract ONLY the requested field from the provided resume text.
+Rules:
+- Use explicit evidence in text; if missing, return null or [].
+- Never infer beyond reasonable textual evidence.
+- Keep values normalized when format is requested (e.g., YYYY-MM, phone).
+- Respond with ONLY one valid JSON object (no extra text)."""
 
         # OpenAI 메시지 형식으로 변환
         messages = [
