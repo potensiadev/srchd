@@ -134,7 +134,7 @@ class LLMManager:
         json_schema: Dict[str, Any],
         model: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> LLMResponse:
         """
         Structured Output으로 JSON 응답 요청 (OpenAI 전용)
@@ -240,7 +240,7 @@ class LLMManager:
         json_schema: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> LLMResponse:
         """
         JSON 응답 요청 (모든 프로바이더 지원)
