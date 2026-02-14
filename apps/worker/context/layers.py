@@ -457,6 +457,7 @@ class CurrentData:
             "education_major": self.education_major,
             "careers": self.careers,
             "educations": self.educations,
+            "education": self.educations,  # DB 호환성을 위한 alias
             "skills": self.skills,
             "certifications": self.certifications,
             "projects": self.projects,

@@ -344,9 +344,6 @@ class PipelineContext:
         return decision
 
     def decide_all(self) -> Dict[str, Decision]:
-        # """모든 필드에 대해 결정"""
-        # return self.decision_manager.decide_all()
-    
         """모든 필드에 대해 결정하고 CurrentData에 반영"""
         decisions = self.decision_manager.decide_all()
 
