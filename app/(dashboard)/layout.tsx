@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+// Remove onboarding provider
 import Sidebar from "@/components/layout/Sidebar";
 
 
