@@ -160,22 +160,36 @@ class AggregatedMetrics:
         }
 
 
-# LLM 비용 테이블 (USD per 1M tokens)
+# T3-2: LLM 비용 테이블 (USD per 1M tokens)
+# 2026-02 기준 가격. 정기적으로 업데이트 필요.
 LLM_PRICING = {
     "openai": {
+        # GPT-4o 시리즈
         "gpt-4o": {"input": 2.50, "output": 10.00},
         "gpt-4o-mini": {"input": 0.15, "output": 0.60},
         "gpt-4-turbo": {"input": 10.00, "output": 30.00},
+        # GPT-4.5 (2026)
+        "gpt-4.5": {"input": 75.00, "output": 150.00},
     },
     "gemini": {
+        # Gemini 1.5 시리즈
         "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
         "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
+        # Gemini 2.0 시리즈
         "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+        "gemini-2.0-pro": {"input": 1.25, "output": 5.00},
+        # Gemini 3.0 시리즈 (2026)
+        "gemini-3-pro": {"input": 1.25, "output": 5.00},
+        "gemini-3-pro-preview": {"input": 1.25, "output": 5.00},
     },
     "anthropic": {
+        # Claude 3 시리즈
         "claude-3-5-sonnet": {"input": 3.00, "output": 15.00},
         "claude-3-opus": {"input": 15.00, "output": 75.00},
         "claude-3-haiku": {"input": 0.25, "output": 1.25},
+        # Claude 4 시리즈 (2026)
+        "claude-sonnet-4": {"input": 3.00, "output": 15.00},
+        "claude-opus-4": {"input": 15.00, "output": 75.00},
     },
 }
 

@@ -51,10 +51,11 @@ class AnalysisResult:
     processing_time_ms: int = 0
     mode: AnalysisMode = AnalysisMode.PHASE_1
     error: Optional[str] = None
-    # 🟡 실제 토큰 사용량
+    # 🟡 T3-2: 실제 토큰 사용량 (per-provider 포함)
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     providers_used: List[str] = field(default_factory=list)
+    per_provider_usage: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -69,6 +70,7 @@ class AnalysisResult:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "providers_used": self.providers_used,
+            "per_provider_usage": self.per_provider_usage,  # T3-2
         }
 
 
@@ -155,8 +157,8 @@ class AnalystAgent:
                 # Fallback to original parallel calling
                 result = await self._parallel_llm_call(messages, analysis_mode)
 
-            # 🟡 토큰 사용량 포함된 반환값 처리
-            merged_data, confidence, warnings, token_usage, providers_used = result
+            # 🟡 T3-2: 토큰 사용량 포함된 반환값 처리 (per-provider 포함)
+            merged_data, confidence, warnings, token_usage, providers_used, per_provider = result
 
             if not merged_data:
                 raise Exception("All LLM providers failed to extract data")
@@ -177,6 +179,7 @@ class AnalystAgent:
                 total_input_tokens=token_usage.get("input", 0),
                 total_output_tokens=token_usage.get("output", 0),
                 providers_used=providers_used,
+                per_provider_usage=per_provider,
             )
 
         except Exception as e:
@@ -222,8 +225,8 @@ class AnalystAgent:
             all_responses[LLMProvider.GEMINI] = primary_response
 
             if not primary_response.success:
-                token_usage, providers_used = self._collect_token_usage(all_responses)
-                return {}, 0.0, [Warning("critical", "all", "All primary models failed")], token_usage, providers_used
+                token_usage, providers_used, per_provider = self._collect_token_usage(all_responses)
+                return {}, 0.0, [Warning("critical", "all", "All primary models failed")], token_usage, providers_used, per_provider
 
         # Evaluate first response
         confidence, missing_fields = self._evaluate_first_response(primary_response)
@@ -242,8 +245,8 @@ class AnalystAgent:
                 "Single model result accepted (high confidence)",
                 "info"
             ))
-            token_usage, providers_used = self._collect_token_usage(all_responses)
-            return primary_response.content, confidence, warnings, token_usage, providers_used
+            token_usage, providers_used, per_provider = self._collect_token_usage(all_responses)
+            return primary_response.content, confidence, warnings, token_usage, providers_used, per_provider
 
         # ─────────────────────────────────────────────────────────────────
         # Step 2: Secondary model (Gemini) for cross-check
@@ -264,8 +267,8 @@ class AnalystAgent:
             logger.info("[AnalystAgent] ✓ 2-way cross-check sufficient")
             self._multi_model_count += 1
             self._log_call_ratio()
-            token_usage, providers_used = self._collect_token_usage(all_responses)
-            return merged_data, merged_confidence, warnings, token_usage, providers_used
+            token_usage, providers_used, per_provider = self._collect_token_usage(all_responses)
+            return merged_data, merged_confidence, warnings, token_usage, providers_used, per_provider
 
         # ─────────────────────────────────────────────────────────────────
         # Step 3: Phase 2 only - Claude deep verification
@@ -283,9 +286,9 @@ class AnalystAgent:
 
         self._multi_model_count += 1
         self._log_call_ratio()
-        token_usage, providers_used = self._collect_token_usage(all_responses)
-        return merged_data, merged_confidence, warnings, token_usage, providers_used
-    
+        token_usage, providers_used, per_provider = self._collect_token_usage(all_responses)
+        return merged_data, merged_confidence, warnings, token_usage, providers_used, per_provider
+
     def _log_call_ratio(self):
         """
         LLM 호출 비율 로깅 (모니터링용)
@@ -303,41 +306,60 @@ class AnalystAgent:
     def _collect_token_usage(
         self,
         responses: Dict[LLMProvider, LLMResponse]
-    ) -> tuple[Dict[str, int], List[str]]:
+    ) -> tuple[Dict[str, int], List[str], Dict[str, Dict[str, Any]]]:
         """
-        🟡 모든 LLM 응답에서 토큰 사용량 수집
+        🟡 T3-2: 모든 LLM 응답에서 토큰 사용량 수집 (per-provider 포함)
 
         Args:
             responses: LLM 응답 딕셔너리
 
         Returns:
-            tuple: (token_usage, providers_used)
+            tuple: (token_usage, providers_used, per_provider_usage)
             - token_usage: {"input": total_input, "output": total_output}
             - providers_used: 사용된 프로바이더 이름 목록
+            - per_provider_usage: {provider: {"model": str, "input": int, "output": int}}
         """
         total_input = 0
         total_output = 0
         providers_used = []
+        per_provider_usage = {}
 
         for provider, response in responses.items():
-            providers_used.append(provider.value)
-            if response.usage:
-                total_input += response.usage.get("prompt_tokens", 0)
-                total_output += response.usage.get("completion_tokens", 0)
+            provider_name = provider.value
+            providers_used.append(provider_name)
 
-        return {"input": total_input, "output": total_output}, providers_used
+            input_tokens = 0
+            output_tokens = 0
+
+            if response.usage:
+                input_tokens = response.usage.get("prompt_tokens", 0)
+                output_tokens = response.usage.get("completion_tokens", 0)
+                total_input += input_tokens
+                total_output += output_tokens
+
+            per_provider_usage[provider_name] = {
+                "model": response.model,
+                "input": input_tokens,
+                "output": output_tokens,
+            }
+
+        return (
+            {"input": total_input, "output": total_output},
+            providers_used,
+            per_provider_usage
+        )
 
     async def _parallel_llm_call(
         self,
         messages: List[Dict[str, str]],
         analysis_mode: AnalysisMode
-    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str]]:
+    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str], Dict[str, Dict[str, Any]]]:
         """
         Parallel LLM calling for speed optimization.
         GPT-4o + Gemini (+ Claude for Phase 2) 동시 호출
 
         Returns:
-            tuple: (merged_data, confidence, warnings, token_usage, providers_used)
+            tuple: (merged_data, confidence, warnings, token_usage, providers_used, per_provider_usage)
         """
         providers = self._get_providers(analysis_mode)
         logger.info(f"[AnalystAgent] Parallel calling {len(providers)} providers: {[p.value for p in providers]}")
@@ -581,7 +603,7 @@ Return valid JSON only."""
     def _merge_responses(
         self,
         responses: Dict[LLMProvider, LLMResponse]
-    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str]]:
+    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str], Dict[str, Dict[str, Any]]]:
         """
         Merge responses with cross-check on critical fields.
 
@@ -589,10 +611,10 @@ Return valid JSON only."""
         3-Way (Phase 2): OpenAI + Gemini + Claude 다수결 검증 (Pro plan)
 
         Returns:
-            tuple: (merged_data, confidence, warnings, token_usage, providers_used)
+            tuple: (merged_data, confidence, warnings, token_usage, providers_used, per_provider_usage)
         """
-        # 🟡 토큰 사용량 수집
-        token_usage, providers_used = self._collect_token_usage(responses)
+        # 🟡 T3-2: 토큰 사용량 수집 (per-provider 포함)
+        token_usage, providers_used, per_provider = self._collect_token_usage(responses)
 
         warnings_precheck = []
 
@@ -620,11 +642,11 @@ Return valid JSON only."""
         valid_responses = [r for r in responses.values() if r.success and r.content]
 
         if not valid_responses:
-            return {}, 0.0, warnings_precheck + [Warning("critical", "all", "All LLM providers failed")], token_usage, providers_used
+            return {}, 0.0, warnings_precheck + [Warning("critical", "all", "All LLM providers failed")], token_usage, providers_used, per_provider
 
         # If only one response, use it
         if len(valid_responses) == 1:
-            return valid_responses[0].content, 0.7, warnings_precheck + [Warning("info", "cross_check", "Only one provider available")], token_usage, providers_used
+            return valid_responses[0].content, 0.7, warnings_precheck + [Warning("info", "cross_check", "Only one provider available")], token_usage, providers_used, per_provider
 
         # Get all provider responses
         openai_data = responses.get(LLMProvider.OPENAI)
@@ -639,7 +661,7 @@ Return valid JSON only."""
         elif claude_data and claude_data.success:
             base_data = claude_data.content.copy()
         else:
-            return {}, 0.0, [Warning("critical", "all", "No valid responses")], token_usage, providers_used
+            return {}, 0.0, [Warning("critical", "all", "No valid responses")], token_usage, providers_used, per_provider
 
         warnings = []
         confidence_sum = 0
@@ -729,7 +751,7 @@ Return valid JSON only."""
 
         avg_confidence = confidence_sum / max(1, field_count) if field_count > 0 else 0.8
 
-        return base_data, avg_confidence, warnings_precheck + warnings, token_usage, providers_used
+        return base_data, avg_confidence, warnings_precheck + warnings, token_usage, providers_used, per_provider
 
 
 # Singleton

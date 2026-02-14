@@ -155,6 +155,9 @@ class PipelineOrchestrator:
         self._coverage_calculator = None
         self._gap_filler_agent = None
 
+        # P1 정확도 향상: Field-Based Analyst (feature flag에 따라 지연 초기화)
+        self._field_based_analyst = None
+
     def _get_document_classifier(self):
         """DocumentClassifier 지연 초기화"""
         if self._document_classifier is None and self.feature_flags.use_document_classifier:
@@ -182,6 +185,13 @@ class PipelineOrchestrator:
                 coverage_threshold=self.feature_flags.coverage_threshold,
             )
         return self._gap_filler_agent
+
+    def _get_field_based_analyst(self):
+        """FieldBasedAnalyst 지연 초기화"""
+        if self._field_based_analyst is None and self.feature_flags.use_field_based_analyst:
+            from agents.field_based_analyst import get_field_based_analyst
+            self._field_based_analyst = get_field_based_analyst()
+        return self._field_based_analyst
 
     async def run(
         self,
@@ -739,8 +749,9 @@ class PipelineOrchestrator:
                 ctx.fail_stage("analysis", error, "ANALYSIS_FAILED")
                 return {"success": False, "error": error}
 
-            # LLM 사용량 기록
-            ctx.record_llm_call("analysis", result.processing_time_ms // 100)
+            # T3-2: LLM 사용량 기록 (실제 토큰 사용량)
+            total_tokens = result.total_input_tokens + result.total_output_tokens
+            ctx.record_llm_call("analysis", total_tokens)
 
             # 분석 결과를 제안으로 변환
             self._process_analysis_result(ctx, result)
@@ -761,14 +772,14 @@ class PipelineOrchestrator:
             if metrics_collector:
                 metrics_collector.record_stage(ctx.metadata.pipeline_id, "analysis", stage_duration)
 
-                # 🟡 실제 토큰 사용량 사용 (AnalysisResult에서 제공)
-                for provider in result.providers_used:
+                # T3-2: per_provider_usage 활용하여 정확한 메트릭 기록
+                for provider, usage in result.per_provider_usage.items():
                     metrics_collector.record_llm_call(
                         ctx.metadata.pipeline_id,
                         provider,
-                        "gpt-4o" if provider == "openai" else provider,
-                        tokens_input=result.total_input_tokens // max(1, len(result.providers_used)),
-                        tokens_output=result.total_output_tokens // max(1, len(result.providers_used)),
+                        usage.get("model", provider),  # 실제 모델명 사용
+                        tokens_input=usage.get("input", 0),
+                        tokens_output=usage.get("output", 0),
                     )
 
             logger.info(
