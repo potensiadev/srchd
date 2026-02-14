@@ -52,6 +52,12 @@ class OrchestratorResult:
     is_update: bool = False
     parent_id: Optional[str] = None
 
+    # Phase 1 추가 필드
+    document_kind: Optional[str] = None  # 'resume', 'non_resume', 'uncertain'
+    doc_classification_confidence: float = 0.0
+    coverage_score: float = 0.0
+    gap_fill_count: int = 0
+
     # 디버그 정보
     context_summary: Optional[Dict[str, Any]] = None
 
@@ -71,6 +77,10 @@ class OrchestratorResult:
             "pipeline_id": self.pipeline_id,
             "is_update": self.is_update,
             "parent_id": self.parent_id,
+            "document_kind": self.document_kind,
+            "doc_classification_confidence": self.doc_classification_confidence,
+            "coverage_score": self.coverage_score,
+            "gap_fill_count": self.gap_fill_count,
         }
 
 
@@ -83,10 +93,13 @@ class PipelineOrchestrator:
     Stages:
     1. 파일 다운로드 (Storage에서)
     2. 파일 파싱 (PDF/HWP/DOCX)
+    2.5. 문서 분류 (이력서/비이력서) [Phase 1]
     3. PII 추출 (정규식 전용)
     4. 신원 확인 (Multi-Identity 체크)
     5. AI 분석 (GPT + Gemini)
     6. 검증 및 환각 탐지
+    6.5. 커버리지 계산 [Phase 1]
+    6.6. 갭 필링 (빈 필드 재추출) [Phase 1]
     7. PII 마스킹 + 암호화
     8. 임베딩 생성
     9. DB 저장
@@ -111,6 +124,39 @@ class PipelineOrchestrator:
         self.hwp_parser = HWPParser(hancom_api_key=settings.HANCOM_API_KEY or None)
         self.pdf_parser = PDFParser()
         self.docx_parser = DOCXParser()
+
+        # Phase 1 에이전트 초기화 (feature flag에 따라 지연 초기화)
+        self._document_classifier = None
+        self._coverage_calculator = None
+        self._gap_filler_agent = None
+
+    def _get_document_classifier(self):
+        """DocumentClassifier 지연 초기화"""
+        if self._document_classifier is None and self.feature_flags.use_document_classifier:
+            from agents.document_classifier import DocumentClassifier
+            self._document_classifier = DocumentClassifier()
+        return self._document_classifier
+
+    def _get_coverage_calculator(self):
+        """CoverageCalculator 지연 초기화"""
+        if self._coverage_calculator is None and self.feature_flags.use_coverage_calculator:
+            from agents.coverage_calculator import CoverageCalculator
+            self._coverage_calculator = CoverageCalculator()
+        return self._coverage_calculator
+
+    def _get_gap_filler_agent(self):
+        """GapFillerAgent 지연 초기화"""
+        if self._gap_filler_agent is None and self.feature_flags.use_gap_filler:
+            from agents.gap_filler_agent import GapFillerAgent
+            from services.llm_manager import get_llm_manager
+            llm_manager = get_llm_manager()
+            self._gap_filler_agent = GapFillerAgent(
+                llm_manager=llm_manager,
+                max_retries=self.feature_flags.gap_filler_max_retries,
+                timeout_seconds=self.feature_flags.gap_filler_timeout,
+                coverage_threshold=self.feature_flags.coverage_threshold,
+            )
+        return self._gap_filler_agent
 
     async def run(
         self,
@@ -170,6 +216,13 @@ class PipelineOrchestrator:
                     ctx, parse_result["error"], "PARSE_FAILED", start_time
                 )
 
+            # Stage 2.5: 문서 분류 (Phase 1)
+            classification_result = await self._stage_document_classification(ctx)
+            if classification_result.get("should_reject"):
+                return self._create_error_result(
+                    ctx, classification_result["error"], "NOT_RESUME", start_time
+                )
+
             # Stage 3: PII 추출 (정규식 전용)
             await self._stage_pii_extraction(ctx)
 
@@ -189,6 +242,12 @@ class PipelineOrchestrator:
 
             # Stage 6: 검증 및 환각 탐지
             await self._stage_validation(ctx)
+
+            # Stage 6.5: 커버리지 계산 (Phase 1)
+            coverage_result = await self._stage_coverage_calculation(ctx)
+
+            # Stage 6.6: 갭 필링 (Phase 1)
+            gap_fill_result = await self._stage_gap_filling(ctx, coverage_result)
 
             # Stage 7: PII 마스킹 + 암호화
             privacy_result = await self._stage_privacy(ctx)
@@ -236,6 +295,10 @@ class PipelineOrchestrator:
                 pipeline_id=ctx.metadata.pipeline_id,
                 is_update=save_result.get("is_update", False),
                 parent_id=save_result.get("parent_id"),
+                document_kind=classification_result.get("document_kind"),
+                doc_classification_confidence=classification_result.get("confidence", 0.0),
+                coverage_score=coverage_result.get("coverage_score", 0.0),
+                gap_fill_count=gap_fill_result.get("filled_count", 0),
                 context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
             )
 
@@ -344,6 +407,73 @@ class PipelineOrchestrator:
         except Exception as e:
             ctx.fail_stage("parsing", str(e))
             return {"success": False, "error": str(e)}
+
+    async def _stage_document_classification(self, ctx: PipelineContext) -> Dict[str, Any]:
+        """
+        Stage 2.5: 문서 분류 (Phase 1)
+
+        이력서 vs 비이력서 분류 후 비이력서는 거부합니다.
+        """
+        if not self.feature_flags.use_document_classifier:
+            logger.debug("[Orchestrator] Document classification disabled")
+            return {"success": True, "document_kind": "resume", "confidence": 1.0}
+
+        ctx.start_stage("document_classification", "document_classifier")
+
+        try:
+            classifier = self._get_document_classifier()
+            if not classifier:
+                ctx.complete_stage("document_classification", {"skipped": True})
+                return {"success": True, "document_kind": "resume", "confidence": 1.0}
+
+            text = ctx.parsed_data.raw_text
+            filename = ctx.raw_input.filename
+
+            result = await classifier.classify(text, filename)
+
+            ctx.complete_stage("document_classification", {
+                "document_kind": result.document_kind.value,
+                "confidence": result.confidence,
+                "non_resume_type": result.non_resume_type.value if result.non_resume_type else None,
+                "signals_found": len(result.signals_found),
+                "used_llm": result.used_llm,
+            })
+
+            # 이력서가 아닌 경우 거부
+            if result.should_reject:
+                error_msg = f"이력서가 아닙니다: {result.rejection_reason}"
+                ctx.warning_collector.add(
+                    "NOT_RESUME",
+                    error_msg,
+                    severity="error"
+                )
+                logger.info(
+                    f"[Orchestrator] Document rejected: {result.document_kind.value}, "
+                    f"reason={result.rejection_reason}"
+                )
+                return {
+                    "success": False,
+                    "should_reject": True,
+                    "error": error_msg,
+                    "document_kind": result.document_kind.value,
+                    "confidence": result.confidence,
+                }
+
+            logger.info(
+                f"[Orchestrator] Document classified: {result.document_kind.value}, "
+                f"confidence={result.confidence:.2f}"
+            )
+            return {
+                "success": True,
+                "document_kind": result.document_kind.value,
+                "confidence": result.confidence,
+            }
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Document classification error (continuing): {e}")
+            ctx.complete_stage("document_classification", {"error": str(e)})
+            # 분류 실패 시 이력서로 가정하고 계속 진행
+            return {"success": True, "document_kind": "uncertain", "confidence": 0.0}
 
     async def _stage_pii_extraction(self, ctx: PipelineContext) -> Dict[str, Any]:
         """Stage 3: PII 추출 (정규식 전용)"""
@@ -659,6 +789,166 @@ class PipelineOrchestrator:
                 is_valid = ctx.verify_hallucination(field_name, value, "analyst_agent")
                 if not is_valid:
                     logger.warning(f"[Orchestrator] Hallucination detected: {field_name}={value}")
+
+    async def _stage_coverage_calculation(self, ctx: PipelineContext) -> Dict[str, Any]:
+        """
+        Stage 6.5: 커버리지 계산 (Phase 1)
+
+        필드 완성도를 계산하고 갭 필링 대상 필드를 식별합니다.
+        """
+        if not self.feature_flags.use_coverage_calculator:
+            logger.debug("[Orchestrator] Coverage calculation disabled")
+            return {"success": True, "coverage_score": 0.0, "gap_fill_candidates": []}
+
+        ctx.start_stage("coverage_calculation", "coverage_calculator")
+
+        try:
+            calculator = self._get_coverage_calculator()
+            if not calculator:
+                ctx.complete_stage("coverage_calculation", {"skipped": True})
+                return {"success": True, "coverage_score": 0.0, "gap_fill_candidates": []}
+
+            # 현재 결정된 데이터 수집
+            decisions = ctx.decision_manager.decide_all()
+            analyzed_data = {
+                name: d.final_value for name, d in decisions.items()
+                if d.final_value is not None
+            }
+
+            # 필드별 신뢰도 수집
+            field_confidence = {
+                name: d.confidence for name, d in decisions.items()
+                if d.confidence is not None
+            }
+
+            # 증거 맵 수집 (evidence_store가 있는 경우)
+            evidence_map = {}
+            if hasattr(ctx, 'evidence_store') and ctx.evidence_store:
+                for field_name in analyzed_data.keys():
+                    evidence = ctx.evidence_store.get_evidence(field_name)
+                    if evidence:
+                        evidence_map[field_name] = evidence
+
+            result = calculator.calculate(
+                analyzed_data=analyzed_data,
+                evidence_map=evidence_map,
+                original_text=ctx.parsed_data.raw_text,
+                field_confidence=field_confidence,
+            )
+
+            ctx.complete_stage("coverage_calculation", {
+                "coverage_score": result.coverage_score,
+                "evidence_backed_ratio": result.evidence_backed_ratio,
+                "missing_fields_count": len(result.missing_fields),
+                "low_confidence_count": len(result.low_confidence_fields),
+                "gap_fill_candidates_count": len(result.gap_fill_candidates),
+                "critical_coverage": result.critical_coverage,
+                "important_coverage": result.important_coverage,
+                "optional_coverage": result.optional_coverage,
+            })
+
+            logger.info(
+                f"[Orchestrator] Coverage calculated: {result.coverage_score:.1f}%, "
+                f"missing={len(result.missing_fields)}, "
+                f"gap_candidates={len(result.gap_fill_candidates)}"
+            )
+
+            return {
+                "success": True,
+                "coverage_score": result.coverage_score,
+                "gap_fill_candidates": result.gap_fill_candidates,
+                "missing_fields": result.missing_fields,
+                "low_confidence_fields": result.low_confidence_fields,
+                "field_coverages": result.field_coverages,
+            }
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Coverage calculation error (continuing): {e}")
+            ctx.complete_stage("coverage_calculation", {"error": str(e)})
+            return {"success": True, "coverage_score": 0.0, "gap_fill_candidates": []}
+
+    async def _stage_gap_filling(
+        self,
+        ctx: PipelineContext,
+        coverage_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Stage 6.6: 갭 필링 (Phase 1)
+
+        빈 필드에 대해 타겟 프롬프트로 재추출을 시도합니다.
+        """
+        if not self.feature_flags.use_gap_filler:
+            logger.debug("[Orchestrator] Gap filling disabled")
+            return {"success": True, "filled_count": 0}
+
+        gap_candidates = coverage_result.get("gap_fill_candidates", [])
+        if not gap_candidates:
+            logger.debug("[Orchestrator] No gap candidates to fill")
+            return {"success": True, "filled_count": 0}
+
+        ctx.start_stage("gap_filling", "gap_filler_agent")
+
+        try:
+            gap_filler = self._get_gap_filler_agent()
+            if not gap_filler:
+                ctx.complete_stage("gap_filling", {"skipped": True})
+                return {"success": True, "filled_count": 0}
+
+            # 현재 결정된 데이터 수집
+            decisions = ctx.decision_manager.decide_all()
+            current_data = {
+                name: d.final_value for name, d in decisions.items()
+                if d.final_value is not None
+            }
+
+            coverage_score = coverage_result.get("coverage_score", 0.0)
+
+            result = await gap_filler.fill_gaps(
+                gap_candidates=gap_candidates,
+                current_data=current_data,
+                original_text=ctx.parsed_data.raw_text,
+                coverage_score=coverage_score,
+            )
+
+            # 채워진 필드를 제안으로 추가
+            filled_count = 0
+            if result.success and result.filled_fields:
+                for field_name, value in result.filled_fields.items():
+                    ctx.propose(
+                        "gap_filler_agent", field_name,
+                        value,
+                        0.85,  # GapFiller 기본 신뢰도
+                        "GapFiller 재추출"
+                    )
+                    filled_count += 1
+                    logger.info(f"[Orchestrator] Gap filled: {field_name}")
+
+            ctx.complete_stage("gap_filling", {
+                "skipped": result.skipped,
+                "filled_count": filled_count,
+                "still_missing_count": len(result.still_missing),
+                "total_llm_calls": result.total_llm_calls,
+                "total_retries": result.total_retries,
+                "processing_time_ms": result.processing_time_ms,
+            })
+
+            logger.info(
+                f"[Orchestrator] Gap filling complete: filled={filled_count}, "
+                f"still_missing={len(result.still_missing)}, "
+                f"llm_calls={result.total_llm_calls}"
+            )
+
+            return {
+                "success": True,
+                "filled_count": filled_count,
+                "still_missing": result.still_missing,
+                "skipped": result.skipped,
+            }
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Gap filling error (continuing): {e}")
+            ctx.complete_stage("gap_filling", {"error": str(e)})
+            return {"success": True, "filled_count": 0}
 
     async def _stage_privacy(self, ctx: PipelineContext) -> Dict[str, Any]:
         """Stage 7: PII 마스킹 + 암호화"""
@@ -998,6 +1288,13 @@ class PipelineOrchestrator:
             ctx.set_parsed_text(text, parsing_method="external", parsing_confidence=0.9)
             ctx.metadata.config["file_type"] = file_type
 
+            # Stage 2.5: 문서 분류 (Phase 1)
+            classification_result = await self._stage_document_classification(ctx)
+            if classification_result.get("should_reject"):
+                return self._create_error_result(
+                    ctx, classification_result["error"], "NOT_RESUME", start_time
+                )
+
             # Stage 3: PII 추출 (정규식 전용)
             await self._stage_pii_extraction(ctx)
 
@@ -1020,6 +1317,12 @@ class PipelineOrchestrator:
 
             # Stage 6: 검증 및 환각 탐지
             await self._stage_validation(ctx)
+
+            # Stage 6.5: 커버리지 계산 (Phase 1)
+            coverage_result = await self._stage_coverage_calculation(ctx)
+
+            # Stage 6.6: 갭 필링 (Phase 1)
+            gap_fill_result = await self._stage_gap_filling(ctx, coverage_result)
 
             # Stage 7: PII 마스킹 + 암호화
             privacy_result = await self._stage_privacy(ctx)
@@ -1065,6 +1368,10 @@ class PipelineOrchestrator:
                 pipeline_id=ctx.metadata.pipeline_id,
                 is_update=save_result.get("is_update", False),
                 parent_id=save_result.get("parent_id"),
+                document_kind=classification_result.get("document_kind"),
+                doc_classification_confidence=classification_result.get("confidence", 0.0),
+                coverage_score=coverage_result.get("coverage_score", 0.0),
+                gap_fill_count=gap_fill_result.get("filled_count", 0),
                 context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
             )
 
