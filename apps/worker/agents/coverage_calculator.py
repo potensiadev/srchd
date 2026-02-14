@@ -14,6 +14,7 @@ import re
 from typing import Dict, List, Any, Optional
 
 from schemas.phase1_types import (
+    DocumentKind,
     MissingReason,
     FieldPriority,
     FieldCoverage,
@@ -26,6 +27,16 @@ from schemas.phase1_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 경력기술서에서 선택적(optional)으로 처리할 필드
+# 경력기술서는 프로젝트 중심이므로 연락처/학력이 없어도 정상
+CAREER_DESCRIPTION_OPTIONAL_FIELDS = {
+    "phone",
+    "email",
+    "address",
+    "birth_year",
+    "educations",
+}
 
 
 class CoverageCalculator:
@@ -61,6 +72,7 @@ class CoverageCalculator:
         evidence_map: Optional[Dict[str, Any]] = None,
         original_text: str = "",
         field_confidence: Optional[Dict[str, float]] = None,
+        document_type: Optional[str] = None,
     ) -> CoverageResult:
         """
         필드 완성도 계산
@@ -70,6 +82,8 @@ class CoverageCalculator:
             evidence_map: 필드별 원문 근거 (EvidenceStore에서)
             original_text: 파싱된 원문 텍스트
             field_confidence: 필드별 신뢰도 점수
+            document_type: 문서 타입 (resume, career_description 등)
+                           경력기술서의 경우 연락처/학력 필드는 선택적으로 처리
 
         Returns:
             CoverageResult
@@ -78,6 +92,9 @@ class CoverageCalculator:
             evidence_map = {}
         if field_confidence is None:
             field_confidence = {}
+
+        # 문서 타입에 따른 필드 가중치 조정
+        effective_weights = self._get_effective_weights(document_type)
 
         field_coverages: Dict[str, FieldCoverage] = {}
         total_weight = 0.0
@@ -96,8 +113,8 @@ class CoverageCalculator:
             FieldPriority.OPTIONAL: 0.0,
         }
 
-        # 각 필드 평가
-        for field_name, (priority, weight) in FIELD_WEIGHTS.items():
+        # 각 필드 평가 (문서 타입별 가중치 적용)
+        for field_name, (priority, weight) in effective_weights.items():
             value = analyzed_data.get(field_name)
             evidence = evidence_map.get(field_name)
             confidence = field_confidence.get(field_name, 0.5)
@@ -143,7 +160,7 @@ class CoverageCalculator:
         coverage_score = (achieved_weight / total_weight) * 100 if total_weight > 0 else 0
 
         # 증거 기반 비율
-        evidence_backed_ratio = evidence_count / len(FIELD_WEIGHTS)
+        evidence_backed_ratio = evidence_count / len(effective_weights) if effective_weights else 0
 
         # 우선순위별 커버리지 계산
         critical_coverage = (
@@ -196,6 +213,48 @@ class CoverageCalculator:
         )
 
         return result
+
+    def _get_effective_weights(
+        self,
+        document_type: Optional[str]
+    ) -> Dict[str, tuple]:
+        """
+        문서 타입에 따른 유효 필드 가중치 반환
+
+        경력기술서(career_description)의 경우:
+        - 연락처(phone, email), 학력(educations), 주소(address) 등은 선택적
+        - 해당 필드의 가중치를 0으로 설정하여 커버리지 계산에서 제외
+
+        Args:
+            document_type: 문서 타입 (resume, career_description 등)
+
+        Returns:
+            필드명 → (우선순위, 가중치) 매핑
+        """
+        # 기본 이력서 가중치 복사
+        effective_weights = dict(FIELD_WEIGHTS)
+
+        # 경력기술서인 경우 특정 필드 가중치 조정
+        if document_type == DocumentKind.CAREER_DESCRIPTION.value or document_type == DocumentKind.CAREER_DESCRIPTION:
+            logger.info(
+                f"[CoverageCalculator] 경력기술서 모드: "
+                f"{CAREER_DESCRIPTION_OPTIONAL_FIELDS} 필드를 선택적으로 처리"
+            )
+
+            # 경력기술서에서 선택적인 필드는 가중치를 0으로 설정
+            for field_name in CAREER_DESCRIPTION_OPTIONAL_FIELDS:
+                if field_name in effective_weights:
+                    original_priority, _ = effective_weights[field_name]
+                    # 가중치를 0으로 설정하여 커버리지 계산에서 제외
+                    effective_weights[field_name] = (FieldPriority.OPTIONAL, 0.0)
+
+            # 가중치가 0인 필드 제외 후 나머지 필드 가중치 정규화
+            total_weight = sum(w for _, w in effective_weights.values() if w > 0)
+            if total_weight > 0 and total_weight != 1.0:
+                # 가중치 합이 1이 되도록 정규화 (선택적)
+                pass  # 현재는 정규화 없이 그대로 사용
+
+        return effective_weights
 
     def _has_meaningful_value(self, value: Any) -> bool:
         """의미 있는 값인지 확인"""

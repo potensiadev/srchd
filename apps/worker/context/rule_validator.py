@@ -251,6 +251,14 @@ class RuleValidator:
             if "is_current" in career:
                 normalized_career["is_current"] = bool(career["is_current"])
 
+            # is_current와 end_date 논리적 일관성 검증
+            # is_current=True이면 end_date는 None이어야 함 (현재 재직 중인데 종료일이 있으면 모순)
+            if normalized_career.get("is_current") and normalized_career.get("end_date"):
+                all_warnings.append(
+                    f"careers[{i}]: is_current=True이지만 end_date가 있음, end_date 제거함"
+                )
+                normalized_career["end_date"] = None
+
             # 설명
             if "description" in career:
                 normalized_career["description"] = career["description"]

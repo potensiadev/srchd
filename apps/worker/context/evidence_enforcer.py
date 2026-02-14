@@ -101,6 +101,18 @@ class EvidenceEnforcer:
     # Evidence 유효성 판단 임계값
     SIMILARITY_THRESHOLD = 0.6
 
+    # 파일명 패턴 (evidence에 포함되면 invalid 처리)
+    FILENAME_PATTERNS = [
+        r"\[NAME\]",  # PII 마스킹 패턴
+        r"_경력기술서",  # 파일명 접미사
+        r"_이력서",
+        r"_resume",
+        r"_cv",
+        r"\.pdf$",
+        r"\.docx?$",
+        r"\.hwp$",
+    ]
+
     def __init__(self, source_text: str = ""):
         """
         Args:
@@ -147,6 +159,18 @@ class EvidenceEnforcer:
                 check.confidence_penalty = self.MISSING_EVIDENCE_PENALTY
             return check
 
+        # 파일명 패턴 감지 (파일명이 evidence로 사용된 경우 무효화)
+        if self._contains_filename_pattern(evidence_span):
+            logger.warning(
+                f"[EvidenceEnforcer] {field_name}: evidence에 파일명 패턴 감지 - 무효화 처리 "
+                f"(evidence='{evidence_span[:50]}...')"
+            )
+            check.is_present = False
+            check.is_valid = False
+            check.evidence_span = ""  # 파일명 패턴이 있는 evidence 제거
+            check.confidence_penalty = self.INVALID_EVIDENCE_PENALTY
+            return check
+
         # Evidence 유효성 검증
         if self.source_text:
             similarity = self._check_in_source(evidence_span)
@@ -165,6 +189,21 @@ class EvidenceEnforcer:
             check.is_valid = True
 
         return check
+
+    def _contains_filename_pattern(self, evidence_span: str) -> bool:
+        """
+        Evidence에 파일명 패턴이 포함되어 있는지 확인
+
+        파일명이 evidence로 사용된 경우 (예: "[NAME]_경력기술서" 등) True 반환
+        """
+        if not evidence_span:
+            return False
+
+        for pattern in self.FILENAME_PATTERNS:
+            if re.search(pattern, evidence_span, re.IGNORECASE):
+                return True
+
+        return False
 
     def enforce(
         self,

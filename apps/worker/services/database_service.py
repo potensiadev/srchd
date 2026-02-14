@@ -514,8 +514,15 @@ class DatabaseService:
                 "email_hash": hash_store.get("email"),
                 # 경력 정보
                 "exp_years": analyzed_data.get("exp_years", 0),
-                "last_company": analyzed_data.get("last_company"),
-                "last_position": analyzed_data.get("last_position"),
+                # last_company/last_position은 current_company/current_position과 동의어이므로 fallback 처리
+                "last_company": (
+                    analyzed_data.get("last_company")
+                    or analyzed_data.get("current_company")
+                ),
+                "last_position": (
+                    analyzed_data.get("last_position")
+                    or analyzed_data.get("current_position")
+                ),
                 "careers": analyzed_data.get("careers", []),
                 # 스킬
                 "skills": analyzed_data.get("skills", []),

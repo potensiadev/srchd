@@ -1661,12 +1661,19 @@ async def run_pipeline(
         # Progressive Loading: AI 분석 완료 상태 업데이트 (80%)
         if candidate_id:
             # 분석 결과에서 빠른 정보 추출
+            # last_company/last_position은 current_company/current_position과 동일하므로 fallback 처리
             quick_data = {
                 "name": analysis_result.data.get("name"),
                 "phone": analysis_result.data.get("phone"),
                 "email": analysis_result.data.get("email"),
-                "last_company": analysis_result.data.get("last_company"),
-                "last_position": analysis_result.data.get("last_position"),
+                "last_company": (
+                    analysis_result.data.get("last_company")
+                    or analysis_result.data.get("current_company")
+                ),
+                "last_position": (
+                    analysis_result.data.get("last_position")
+                    or analysis_result.data.get("current_position")
+                ),
             }
             db_service.update_candidate_status(
                 candidate_id=candidate_id,

@@ -19,9 +19,10 @@ from datetime import datetime
 
 class DocumentKind(str, Enum):
     """문서 분류 결과"""
-    RESUME = "resume"           # 이력서
-    NON_RESUME = "non_resume"   # 비이력서
-    UNCERTAIN = "uncertain"     # 불확실 (LLM fallback 필요)
+    RESUME = "resume"                         # 이력서 (연락처, 학력, 경력 포함)
+    CAREER_DESCRIPTION = "career_description"  # 경력기술서 (프로젝트 중심, 연락처/학력 선택적)
+    NON_RESUME = "non_resume"                 # 비이력서
+    UNCERTAIN = "uncertain"                   # 불확실 (LLM fallback 필요)
 
 
 class NonResumeType(str, Enum):
@@ -196,6 +197,21 @@ RESUME_SIGNALS_EN = [
     "education", "academic",
     "skills", "technical skills", "expertise",
     "summary", "objective", "profile",
+]
+
+# 경력기술서 신호 키워드 (이력서와 구분되는 특징)
+# 경력기술서는 프로젝트 중심으로 작성되며, 연락처/학력이 없는 경우가 많음
+CAREER_DESCRIPTION_SIGNALS_KO = [
+    "경력기술서", "경력기술", "프로젝트 경력",
+    "배경", "문제 정의", "역할", "성과",  # 프로젝트 기술 구조
+    "협업", "기획", "개선", "구축", "설계",
+    "PM", "Product Manager", "기획자",
+]
+
+CAREER_DESCRIPTION_SIGNALS_EN = [
+    "career description", "project history",
+    "background", "problem definition", "role", "achievement",
+    "collaboration", "designed", "built", "improved",
 ]
 
 # 비이력서 신호 키워드

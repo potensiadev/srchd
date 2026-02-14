@@ -1213,11 +1213,19 @@ class PipelineOrchestrator:
                     if evidence:
                         evidence_map[field_name] = evidence
 
+            # 문서 타입 가져오기 (경력기술서 등 특수 문서 타입 처리용)
+            document_type = None
+            if "document_classification" in ctx.stage_results:
+                doc_class_result = ctx.stage_results["document_classification"]
+                document_type = doc_class_result.get("document_kind")
+                logger.debug(f"[Orchestrator] Coverage calculation with document_type={document_type}")
+
             result = calculator.calculate(
                 analyzed_data=analyzed_data,
                 evidence_map=evidence_map,
                 original_text=ctx.parsed_data.raw_text,
                 field_confidence=field_confidence,
+                document_type=document_type,
             )
 
             ctx.complete_stage("coverage_calculation", {

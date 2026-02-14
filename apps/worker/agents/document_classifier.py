@@ -24,6 +24,8 @@ from schemas.phase1_types import (
     RESUME_SIGNALS_KO,
     RESUME_SIGNALS_EN,
     NON_RESUME_SIGNALS,
+    CAREER_DESCRIPTION_SIGNALS_KO,
+    CAREER_DESCRIPTION_SIGNALS_EN,
 )
 from services.llm_manager import LLMProvider
 from config import get_settings
@@ -120,9 +122,19 @@ class DocumentClassifier:
         # 이력서 신호 점수
         resume_score = 0
 
+        # 경력기술서 점수 (이력서와 구분)
+        career_desc_score = 0
+
         # 1. 파일명에서 힌트 추출
-        resume_filename_hints = ["이력서", "resume", "cv", "경력", "지원서"]
+        resume_filename_hints = ["이력서", "resume", "cv", "지원서"]
+        career_desc_filename_hints = ["경력기술서", "경력기술", "career description"]
         non_resume_filename_hints = ["채용", "공고", "jd", "job", "모집"]
+
+        # 경력기술서 파일명 힌트 (우선 체크)
+        for hint in career_desc_filename_hints:
+            if hint in filename_lower:
+                signals.append(f"filename_career_desc:{hint}")
+                career_desc_score += 5  # 강한 신호
 
         for hint in resume_filename_hints:
             if hint in filename_lower:
@@ -145,6 +157,17 @@ class DocumentClassifier:
             if signal in text_lower:
                 signals.append(f"resume_en:{signal}")
                 resume_score += 1
+
+        # 3.5. 경력기술서 신호 탐지
+        for signal in CAREER_DESCRIPTION_SIGNALS_KO:
+            if signal in text:
+                signals.append(f"career_desc_ko:{signal}")
+                career_desc_score += 1
+
+        for signal in CAREER_DESCRIPTION_SIGNALS_EN:
+            if signal in text_lower:
+                signals.append(f"career_desc_en:{signal}")
+                career_desc_score += 1
 
         # 4. 비이력서 신호 탐지
         detected_non_resume_type = None
@@ -173,8 +196,29 @@ class DocumentClassifier:
         # 6. 점수 계산 및 분류 결정
         net_score = resume_score - non_resume_score
 
+        # 연락처/학력 신호 여부 확인 (경력기술서 vs 이력서 구분용)
+        has_contact_signals = any("pattern:phone" in s or "pattern:email" in s for s in signals)
+        has_education_signals = any("학력" in s or "education" in s.lower() for s in signals)
+
+        # 경력기술서 판단: 경력 신호는 있지만 연락처/학력이 없고, 경력기술서 특유의 신호가 있음
+        if career_desc_score >= 3 and not has_contact_signals and not has_education_signals:
+            # 경력기술서 (프로젝트 중심 문서)
+            confidence = min(0.95, 0.6 + (career_desc_score * 0.06))
+            logger.info(
+                f"[DocumentClassifier] 경력기술서 감지: "
+                f"career_desc_score={career_desc_score}, "
+                f"has_contact={has_contact_signals}, has_edu={has_education_signals}"
+            )
+            return ClassificationResult(
+                document_kind=DocumentKind.CAREER_DESCRIPTION,
+                confidence=confidence,
+                non_resume_type=None,
+                signals=signals,
+                llm_used=False,
+            )
+
         if net_score >= self.MIN_RESUME_SIGNALS:
-            # 이력서
+            # 일반 이력서 (연락처/학력 포함)
             confidence = min(0.95, 0.5 + (net_score * 0.08))
             return ClassificationResult(
                 document_kind=DocumentKind.RESUME,

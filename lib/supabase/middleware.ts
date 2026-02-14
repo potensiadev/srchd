@@ -15,7 +15,8 @@ import type { Database } from "@/types";
 const SESSION_CONFIG = {
   /** 쿠키 보안 설정 (maxAge는 Supabase가 관리하도록 제거) */
   COOKIE_OPTIONS: {
-    httpOnly: true,
+    // httpOnly: false - 클라이언트 측 Supabase SDK가 세션 쿠키를 읽을 수 있어야 함
+    // (Storage 업로드, 실시간 구독 등 클라이언트 기능에 필요)
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     path: "/",
