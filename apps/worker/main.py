@@ -942,6 +942,15 @@ async def analyze_only_endpoint(
     """
     logger.info(f"[AnalyzeOnly] Starting for job {request.job_id}, candidate: {request.candidate_id}")
 
+
+    # Progressive 상태 업데이트: parsed -> processing
+    # (백그라운드 파이프라인 시작 직후 UI가 멈춘 것으로 보이지 않도록 명시)
+    db_service = get_database_service()
+    db_service.update_candidate_status(
+        candidate_id=request.candidate_id,
+        status="processing",
+    )
+
     # 백그라운드에서 분석 실행
     import asyncio
     asyncio.create_task(_run_analyze_only_pipeline(request))
@@ -1013,7 +1022,26 @@ async def _run_analyze_only_pipeline(request: AnalyzeOnlyRequest):
             f"confidence={result.confidence_score:.2f}, "
             f"chunks={result.chunks_saved}, time={result.processing_time_ms}ms"
         )
+    except asyncio.CancelledError:
+        logger.error(
+            f"[AnalyzeOnly] Cancelled: job={request.job_id}, candidate={request.candidate_id}",
+            exc_info=True,
+        )
 
+        # CancelledError는 Exception을 상속하지 않아 별도 처리 필요
+        # (프로세스 재시작/스케일링 등으로 백그라운드 태스크가 취소될 수 있음)
+        db_service.update_job_status(
+            job_id=request.job_id,
+            status="failed",
+            error_code="PIPELINE_CANCELLED",
+            error_message="Analyze-only background task cancelled before completion",
+        )
+        db_service.update_candidate_status(
+            candidate_id=request.candidate_id,
+            status="failed",
+        )
+        raise
+    
     except Exception as e:
         logger.error(f"[AnalyzeOnly] Failed: {e}", exc_info=True)
 
