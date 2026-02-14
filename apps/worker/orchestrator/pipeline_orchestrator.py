@@ -631,10 +631,15 @@ class PipelineOrchestrator:
         data = result.data
         field_confidence = result.field_confidence
 
-        # 주요 필드 제안
+        # 주요 필드 제안 (모든 스칼라 필드 포함)
         fields_to_propose = [
             "exp_years", "current_company", "current_position",
-            "summary", "last_company", "last_position"
+            "summary", "last_company", "last_position",
+            # 추가 필드들
+            "birth_year", "gender", "address", "location_city",
+            "education_level", "education_school", "education_major",
+            "match_reason",
+            "portfolio_url", "github_url", "linkedin_url",
         ]
 
         for field_name in fields_to_propose:
@@ -660,7 +665,7 @@ class PipelineOrchestrator:
                 )
 
         # 배열 필드
-        array_fields = ["careers", "educations", "skills", "certifications", "projects"]
+        array_fields = ["careers", "educations", "skills", "certifications", "projects", "strengths"]
         for field_name in array_fields:
             if data.get(field_name):
                 confidence = field_confidence.get(field_name, 0.7)
