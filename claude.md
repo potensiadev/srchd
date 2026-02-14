@@ -363,12 +363,28 @@ pnpm e2e            # Playwright E2E 테스트
 6. **package.json 이름**: `temp_app`으로 되어 있음 → `srchd` 또는 `rai`로 변경 권장
 7. **한컴 API**: 코드 구현 완료되었으나 API 키 미설정 상태 (환경변수 설정 시 자동 활성화)
 
-### Phase 1 에이전트 (구현 완료, Feature Flag 비활성)
-> 아래 에이전트들은 **구현 완료**되었으며, Feature Flag로 활성화 가능
+### Phase 1 에이전트 (구현 완료, 오케스트레이터 통합 완료, Feature Flag 비활성)
+> 아래 에이전트들은 **구현 및 PipelineOrchestrator 통합 완료**되었으며, Feature Flag로 활성화 가능
 
 8. **DocumentClassifier**: 이력서 vs 비이력서 분류 (`USE_DOCUMENT_CLASSIFIER=true`)
+   - 파이프라인 위치: Stage 2.5 (파싱 → **문서분류** → PII추출)
+   - 비이력서 감지 시 거부 + 크레딧 미차감
 9. **CoverageCalculator**: 필드 완성도 점수 + missing_reason 추적 (`USE_COVERAGE_CALCULATOR=true`)
+   - 파이프라인 위치: Stage 6.5 (검증 → **커버리지계산** → 갭필링)
+   - OrchestratorResult.coverage_score 출력
 10. **GapFillerAgent**: 빈 필드 타겟 재추출 (최대 2회) (`USE_GAP_FILLER=true`)
+    - 파이프라인 위치: Stage 6.6 (커버리지계산 → **갭필링** → 개인정보처리)
+    - OrchestratorResult.gap_fill_count 출력
+
+**추가 환경 변수**:
+```
+USE_DOCUMENT_CLASSIFIER=true        # DocumentClassifier 활성화
+USE_COVERAGE_CALCULATOR=true        # CoverageCalculator 활성화
+USE_GAP_FILLER=true                 # GapFillerAgent 활성화
+GAP_FILLER_MAX_RETRIES=2            # GapFiller 재시도 횟수
+GAP_FILLER_TIMEOUT=5                # GapFiller 타임아웃 (초)
+COVERAGE_THRESHOLD=0.85             # 이 이상이면 GapFiller 스킵
+```
 
 **활성화 조건** (Beta 피드백 기반):
 - 비이력서 업로드 >5% → DocumentClassifier 활성화

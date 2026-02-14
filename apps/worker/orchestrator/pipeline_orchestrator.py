@@ -544,7 +544,10 @@ class PipelineOrchestrator:
 
             ctx.complete_stage("identity_check", {
                 "person_count": result.person_count,
-                "confidence": result.confidence,
+                # "confidence": result.confidence,
+                # IdentityCheckResponse에는 confidence 필드가 없음
+                # (result enum/사유 정보만 제공)
+                "result": result.result.value,
             })
 
             return {"success": True, "should_reject": False}
