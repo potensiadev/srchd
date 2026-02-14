@@ -195,10 +195,15 @@ class DecisionManager:
         proposals = self.get_proposals(field_name)
 
         if not proposals:
-            return self._create_empty_decision(field_name)
+            decision = self._create_empty_decision(field_name)
+            self.decisions[field_name] = decision
+            return decision
 
         if len(proposals) == 1:
-            return self._create_single_decision(field_name, proposals[0])
+            decision = self._create_single_decision(field_name, proposals[0])
+            self.decisions[field_name] = decision
+            logger.debug(f"[DecisionManager] 결정 (단일 제안): {field_name} = {decision.final_value}")
+            return decision
 
         # 충돌 감지
         unique_values = set(str(p.proposed_value) for p in proposals)

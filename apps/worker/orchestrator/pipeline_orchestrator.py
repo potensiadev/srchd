@@ -1074,10 +1074,21 @@ class PipelineOrchestrator:
             db_service = get_database_service()
 
             # 모든 결정 확정
-            ctx.decide_all()
+            decisions = ctx.decide_all()
+            logger.info(f"[Orchestrator] decide_all completed: {len(decisions)} decisions")
 
             # 최종 데이터 준비
             analyzed_data = ctx.current_data.to_candidate_dict()
+
+            # 디버그: 저장할 데이터 로깅
+            key_fields = ["name", "exp_years", "skills", "careers", "summary", "educations"]
+            for field in key_fields:
+                value = analyzed_data.get(field)
+                if isinstance(value, list):
+                    logger.info(f"[Orchestrator] Save data - {field}: {len(value)} items")
+                elif value is not None:
+                    preview = str(value)[:50] if isinstance(value, str) else value
+                    logger.info(f"[Orchestrator] Save data - {field}: {preview}")
 
             # 해시 생성 (중복 체크용)
             privacy_agent = get_privacy_agent()
