@@ -363,10 +363,23 @@ class CurrentData:
     phone: Optional[str] = None
     email: Optional[str] = None
 
+    # 추가 개인 정보
+    birth_year: Optional[int] = None
+    gender: Optional[str] = None
+    address: Optional[str] = None
+    location_city: Optional[str] = None
+
     # LLM 분석 결과
     exp_years: Optional[float] = None
     current_company: Optional[str] = None
     current_position: Optional[str] = None
+    last_company: Optional[str] = None
+    last_position: Optional[str] = None
+
+    # 학력 정보
+    education_level: Optional[str] = None
+    education_school: Optional[str] = None
+    education_major: Optional[str] = None
 
     # 구조화된 데이터
     careers: List[Dict[str, Any]] = field(default_factory=list)
@@ -378,6 +391,12 @@ class CurrentData:
     # 요약
     summary: Optional[str] = None
     strengths: List[str] = field(default_factory=list)
+    match_reason: Optional[str] = None
+
+    # URL 정보
+    portfolio_url: Optional[str] = None
+    github_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
 
     # 신뢰도 점수 (0-100 정수)
     confidence_scores: Dict[str, int] = field(default_factory=dict)
@@ -424,9 +443,18 @@ class CurrentData:
             "name": self.name,
             "phone": self.phone,
             "email": self.email,
+            "birth_year": self.birth_year,
+            "gender": self.gender,
+            "address": self.address,
+            "location_city": self.location_city,
             "exp_years": self.exp_years,
             "current_company": self.current_company,
             "current_position": self.current_position,
+            "last_company": self.last_company,
+            "last_position": self.last_position,
+            "education_level": self.education_level,
+            "education_school": self.education_school,
+            "education_major": self.education_major,
             "careers": self.careers,
             "educations": self.educations,
             "skills": self.skills,
@@ -434,6 +462,10 @@ class CurrentData:
             "projects": self.projects,
             "summary": self.summary,
             "strengths": self.strengths,
+            "match_reason": self.match_reason,
+            "portfolio_url": self.portfolio_url,
+            "github_url": self.github_url,
+            "linkedin_url": self.linkedin_url,
             "confidence": self.overall_confidence,
             "confidence_scores": self.confidence_scores,
             "embedding": self.embedding,
