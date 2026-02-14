@@ -483,7 +483,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // 5. Soft Delete 실행
     // ─────────────────────────────────────────────────
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: updateError } = await (supabase as any)
+    const { data: updatedData, error: updateError } = await (supabase as any)
       .from("candidates")
       .update({
         status: "deleted",
@@ -491,11 +491,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         delete_reason: "user_request",
       })
       .eq("id", id)
-      .eq("user_id", publicUserId); // RLS 이중 보호
+      .eq("user_id", publicUserId) // RLS 이중 보호
+      .select("id, status")
+      .single();
 
     if (updateError) {
       console.error("[DELETE Candidate] Update error:", updateError);
       return apiInternalError("삭제 처리에 실패했습니다.");
+    }
+
+    // RLS로 인해 업데이트되지 않은 경우 확인
+    if (!updatedData || updatedData.status !== "deleted") {
+      console.error("[DELETE Candidate] Update failed - no rows affected or status not changed");
+      return apiInternalError("삭제 처리에 실패했습니다. 권한을 확인해주세요.");
     }
 
     return apiSuccess({
