@@ -16,7 +16,7 @@ import time
 import re
 from typing import Optional
 
-from ..schemas.phase1_types import (
+from schemas.phase1_types import (
     DocumentKind,
     NonResumeType,
     ClassificationResult,

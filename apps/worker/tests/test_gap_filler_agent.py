@@ -4,8 +4,8 @@ GapFillerAgent 단위 테스트
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from apps.worker.agents.gap_filler_agent import GapFillerAgent
-from apps.worker.schemas.phase1_types import COVERAGE_THRESHOLD
+from agents.gap_filler_agent import GapFillerAgent
+from schemas.phase1_types import COVERAGE_THRESHOLD
 
 
 class TestGapFillerAgent:

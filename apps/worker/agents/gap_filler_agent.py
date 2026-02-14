@@ -21,7 +21,7 @@ import time
 import json
 from typing import Dict, List, Any, Optional
 
-from ..schemas.phase1_types import (
+from schemas.phase1_types import (
     GapFillAttempt,
     GapFillResult,
     COVERAGE_THRESHOLD,

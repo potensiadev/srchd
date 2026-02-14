@@ -3,8 +3,8 @@ CoverageCalculator 단위 테스트
 """
 
 import pytest
-from apps.worker.agents.coverage_calculator import CoverageCalculator
-from apps.worker.schemas.phase1_types import (
+from agents.coverage_calculator import CoverageCalculator
+from schemas.phase1_types import (
     MissingReason,
     FieldPriority,
     FIELD_WEIGHTS,

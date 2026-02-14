@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Dict, List, Any, Optional
 
-from ..schemas.phase1_types import (
+from schemas.phase1_types import (
     MissingReason,
     FieldPriority,
     FieldCoverage,
