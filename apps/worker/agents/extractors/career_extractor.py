@@ -233,7 +233,7 @@ IMPORTANT INSTRUCTIONS:
    - start_date: Start date in YYYY-MM format
    - end_date: End date in YYYY-MM format (null if current)
    - is_current: true if currently employed there
-   - description: Job responsibilities (optional)
+   - description: 담당 업무 상세 내용 (주요 역할, 성과, 기술 스택 포함)
 3. Include evidence fields (*_evidence) with original text excerpts
 4. Calculate exp_years as total years of experience""")
 

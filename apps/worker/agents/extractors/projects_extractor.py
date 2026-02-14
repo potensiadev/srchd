@@ -157,7 +157,10 @@ Your task is to extract project information from resumes.
 
 {self.prompt}
 
-⭐ CRITICAL: Project Extraction from Various Sections
+⭐ CRITICAL: Extract ALL Projects from the ENTIRE Document
+
+You MUST extract projects from ALL companies mentioned in the resume, not just the first few.
+Do NOT stop early. Read through the ENTIRE document from start to end.
 
 Korean resumes often list projects under different section names:
 - "프로젝트", "주요 프로젝트", "Projects"
@@ -186,9 +189,13 @@ OX퀴즈 리텐션 및 상품 가입 전환 엔진 기획 (전북은행) 2025.09
   - period: "2025.09 - 2025.10"
   - achievements: ["런칭 23일 만에..."]
 
-IMPORTANT:
-- Respond in JSON format only.
-- Include evidence fields for verification.
+⚠️ MANDATORY RULES:
+- Extract ALL projects from EVERY company in the resume
+- Do NOT limit the number of projects - extract as many as exist
+- Do NOT truncate or skip projects from later sections of the document
+- Include projects from ALL career periods (past and present)
+- Respond in JSON format only
+- Include evidence fields for verification
 """
 
     def _build_user_prompt(
@@ -212,8 +219,13 @@ IMPORTANT:
         prompt_parts.append(f"""Resume Text:
 {text}
 
+⚠️ IMPORTANT: Read the ENTIRE text above and extract ALL projects from EVERY company.
+
 EXTRACT:
-1. All projects (from ANY section, not just "프로젝트" sections)
+1. ALL projects from the ENTIRE document (from ANY section, not just "프로젝트" sections)
+   - Include projects from ALL companies mentioned (첫 회사부터 마지막 회사까지 모두)
+   - Do NOT stop after the first few projects
+   - Do NOT skip projects from later parts of the document
 2. Portfolio URLs (personal websites, project demos)
 3. GitHub/GitLab URLs
 4. LinkedIn URL

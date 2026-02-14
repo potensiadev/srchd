@@ -203,9 +203,11 @@ CAREER_EXTRACTOR_PROMPT = """## Career Extractor
 ### 경력 항목 필수 필드
 - company: 회사명
 - position: 직책
+- department: 부서명
 - start_date: 입사일 (YYYY-MM)
 - end_date: 퇴사일 (YYYY-MM) 또는 null
 - is_current: 현재 재직 여부
+- description: 담당 업무 상세 (주요 역할, 성과, 기술 스택 포함)
 
 ### Evidence 규칙
 각 필드에 `{field}_evidence`로 원문 발췌 제공:
@@ -496,8 +498,14 @@ PROJECTS_EXTRACTOR_PROMPT = """## Projects Extractor
 
 후보자의 프로젝트 경험을 추출합니다.
 
+### ⚠️ 핵심 규칙: 모든 프로젝트 추출
+- 문서 전체를 끝까지 읽고 모든 회사의 프로젝트를 추출
+- 첫 번째 회사뿐만 아니라 모든 회사의 프로젝트 포함
+- 프로젝트 개수 제한 없음 - 존재하는 모든 프로젝트 추출
+- 문서 후반부의 프로젝트도 반드시 포함
+
 ### 추출 대상
-- projects[]: 프로젝트 목록
+- projects[]: 프로젝트 목록 (전체 문서에서 모든 프로젝트)
 - portfolio_url, github_url, linkedin_url
 
 ### 프로젝트 항목 필드
@@ -509,7 +517,7 @@ PROJECTS_EXTRACTOR_PROMPT = """## Projects Extractor
 - achievements: 성과 목록
 - technologies: 사용 기술
 
-### ⭐ 프로젝트 추출 특별 지침
+### 프로젝트 추출 섹션
 
 다양한 섹션에서 프로젝트 추출:
 - "프로젝트", "주요 프로젝트"
@@ -528,6 +536,7 @@ name_evidence로 프로젝트명 원문 발췌
 
 ### 출력 원칙
 - 단순 업무 나열은 제외하고, 과제 단위(목표/성과/기술) 중심으로 추출
+- 모든 회사의 프로젝트를 빠짐없이 추출
 """
 
 
