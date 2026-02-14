@@ -8,6 +8,8 @@ import {
 } from "@/lib/api-response";
 import { invalidateUserSearchCache } from "@/lib/cache";
 import { checkQualityRefundCondition } from "@/lib/refund/config";
+import { queueEmail } from "@/lib/email/service";
+import { generateEmailSubject } from "@/lib/email/templates";
 
 // NextResponse는 Health check GET에서 사용
 
@@ -22,6 +24,19 @@ import { checkQualityRefundCondition } from "@/lib/refund/config";
 // Webhook Secret 필수 검증
 // 환경변수가 설정되지 않으면 모든 요청 거부
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+/**
+ * 다음 크레딧 갱신일 계산 (다음 달 1일)
+ */
+function getNextResetDate(): string {
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return nextMonth.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 /**
  * 품질 환불 처리 함수
@@ -339,13 +354,79 @@ export async function POST(request: NextRequest) {
       try {
         const { data: candidateData } = await supabase
           .from("candidates")
-          .select("user_id")
+          .select("user_id, name")
           .eq("id", payload.result.candidate_id)
           .single();
 
         if (candidateData?.user_id) {
           await invalidateUserSearchCache(candidateData.user_id);
           console.log(`[Webhook] Search cache invalidated for user: ${candidateData.user_id.slice(0, 8)}`);
+
+          // ─────────────────────────────────────────────────
+          // T1-1: 분석 완료 이메일 알림 (E-04)
+          // ─────────────────────────────────────────────────
+          try {
+            // processing_jobs에서 파일명 조회
+            const { data: jobData } = await supabase
+              .from("processing_jobs")
+              .select("file_name")
+              .eq("id", payload.job_id)
+              .single();
+
+            const emailMetadata = {
+              candidate_name: candidateData.name || "후보자",
+              candidate_id: payload.result.candidate_id,
+              file_name: jobData?.file_name || "이력서",
+              confidence_score: payload.result.confidence_score,
+            };
+
+            const subject = generateEmailSubject("E-04", emailMetadata);
+            await queueEmail(candidateData.user_id, "E-04", subject, emailMetadata);
+            console.log(`[Webhook] E-04 email queued for user: ${candidateData.user_id.slice(0, 8)}`);
+          } catch (emailError) {
+            // 이메일 큐잉 실패는 로그만 남기고 계속 진행
+            console.error("[Webhook] Failed to queue E-04 email:", emailError);
+          }
+
+          // ─────────────────────────────────────────────────
+          // T1-3: 크레딧 부족 경고 이메일 (E-07, E-08)
+          // ─────────────────────────────────────────────────
+          try {
+            // 사용자의 현재 크레딧 잔액 조회
+            const { data: userData } = await supabase
+              .from("users")
+              .select("credits, credits_used_this_month, plan")
+              .eq("id", candidateData.user_id)
+              .single();
+
+            if (userData) {
+              const remaining = userData.credits - userData.credits_used_this_month;
+              const planName = userData.plan === "pro" ? "Pro" : "Starter";
+              const LOW_CREDIT_THRESHOLD = 5;
+
+              if (remaining <= 0) {
+                // E-08: 크레딧 완전 소진
+                const metadata = {
+                  plan_name: planName,
+                  next_reset_date: getNextResetDate(),
+                };
+                const subject = generateEmailSubject("E-08", metadata);
+                await queueEmail(candidateData.user_id, "E-08", subject, metadata);
+                console.log(`[Webhook] E-08 email queued (credits exhausted): ${candidateData.user_id.slice(0, 8)}`);
+              } else if (remaining <= LOW_CREDIT_THRESHOLD) {
+                // E-07: 크레딧 부족 경고
+                const metadata = {
+                  remaining_credits: remaining,
+                  plan_name: planName,
+                };
+                const subject = generateEmailSubject("E-07", metadata);
+                await queueEmail(candidateData.user_id, "E-07", subject, metadata);
+                console.log(`[Webhook] E-07 email queued (low credits: ${remaining}): ${candidateData.user_id.slice(0, 8)}`);
+              }
+            }
+          } catch (creditEmailError) {
+            console.error("[Webhook] Failed to check/queue credit emails:", creditEmailError);
+          }
         }
       } catch (cacheError) {
         // 캐시 무효화 실패는 로그만 남기고 계속 진행
@@ -355,6 +436,32 @@ export async function POST(request: NextRequest) {
 
     if (payload.status === "failed") {
       console.warn(`[Webhook] Job failed: ${payload.error}`);
+
+      // ─────────────────────────────────────────────────
+      // T1-2: 분석 실패 이메일 알림 (E-05)
+      // ─────────────────────────────────────────────────
+      try {
+        // processing_jobs에서 사용자 ID와 파일명 조회
+        const { data: jobData } = await supabase
+          .from("processing_jobs")
+          .select("user_id, file_name, is_refunded")
+          .eq("id", payload.job_id)
+          .single();
+
+        if (jobData?.user_id) {
+          const emailMetadata = {
+            file_name: jobData.file_name || "이력서",
+            error_reason: payload.error || "파일 처리 중 오류가 발생했습니다.",
+            is_refunded: jobData.is_refunded ?? true, // 기본적으로 실패 시 환불
+          };
+
+          const subject = generateEmailSubject("E-05", emailMetadata);
+          await queueEmail(jobData.user_id, "E-05", subject, emailMetadata);
+          console.log(`[Webhook] E-05 email queued for user: ${jobData.user_id.slice(0, 8)}`);
+        }
+      } catch (emailError) {
+        console.error("[Webhook] Failed to queue E-05 email:", emailError);
+      }
     }
 
     return apiSuccess({

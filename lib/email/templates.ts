@@ -68,6 +68,184 @@ function ctaButton(text: string, url: string): string {
 }
 
 /**
+ * E-04: 이력서 분석 완료 알림
+ */
+function templateE04(metadata: Record<string, unknown>): string {
+  const candidateName = (metadata.candidate_name as string) || "후보자";
+  const fileName = (metadata.file_name as string) || "이력서";
+  const confidenceScore = metadata.confidence_score as number;
+  const candidateId = metadata.candidate_id as string;
+  const detailUrl = candidateId
+    ? `${APP_URL}/candidates/${candidateId}`
+    : `${APP_URL}/candidates`;
+
+  return emailLayout(`
+    <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #18181b;">이력서 분석이 완료되었습니다</h2>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      안녕하세요, 서치드입니다.
+    </p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      <strong>${fileName}</strong> 파일의 AI 분석이 완료되었습니다.
+    </p>
+    <div style="padding: 20px; background-color: #f0fdf4; border-radius: 8px; margin: 24px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">후보자명</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${candidateName}</td>
+        </tr>
+        ${
+          typeof confidenceScore === "number"
+            ? `
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">분석 신뢰도</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${Math.round(confidenceScore * 100)}%</td>
+        </tr>
+        `
+            : ""
+        }
+      </table>
+    </div>
+    ${ctaButton("분석 결과 확인하기", detailUrl)}
+    <p style="margin: 24px 0 0 0; font-size: 14px; color: #71717a;">
+      서치드를 이용해 주셔서 감사합니다.
+    </p>
+  `);
+}
+
+/**
+ * E-05: 이력서 분석 실패 알림
+ */
+function templateE05(metadata: Record<string, unknown>): string {
+  const fileName = (metadata.file_name as string) || "이력서";
+  const errorReason = (metadata.error_reason as string) || "알 수 없는 오류가 발생했습니다.";
+  const isRefunded = metadata.is_refunded as boolean;
+  const uploadUrl = `${APP_URL}/upload`;
+
+  return emailLayout(`
+    <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #18181b;">이력서 분석에 실패했습니다</h2>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      안녕하세요, 서치드입니다.
+    </p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      <strong>${fileName}</strong> 파일 분석에 실패했습니다.
+    </p>
+    <div style="padding: 16px; background-color: #fef2f2; border-radius: 8px; margin: 24px 0;">
+      <p style="margin: 0 0 8px 0; font-size: 14px; color: #991b1b; font-weight: 500;">
+        실패 사유
+      </p>
+      <p style="margin: 0; font-size: 14px; color: #991b1b;">
+        ${errorReason}
+      </p>
+    </div>
+    ${
+      isRefunded
+        ? `
+    <div style="padding: 16px; background-color: #f0fdf4; border-radius: 8px; margin: 0 0 24px 0;">
+      <p style="margin: 0; font-size: 14px; color: #166534;">
+        ✓ 사용된 크레딧이 자동으로 환불되었습니다.
+      </p>
+    </div>
+    `
+        : ""
+    }
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      다른 파일로 다시 시도해 주세요. 문제가 지속되면 고객센터로 문의해 주세요.
+    </p>
+    ${ctaButton("다시 업로드하기", uploadUrl)}
+    <p style="margin: 24px 0 0 0; font-size: 14px; color: #71717a;">
+      문제가 지속되면 <a href="${APP_URL}/support" style="color: ${BRAND_COLOR};">고객센터</a>로 문의해 주세요.
+    </p>
+  `);
+}
+
+/**
+ * E-07: 크레딧 부족 경고 알림
+ */
+function templateE07(metadata: Record<string, unknown>): string {
+  const remainingCredits = (metadata.remaining_credits as number) || 0;
+  const planName = (metadata.plan_name as string) || "Starter";
+  const pricingUrl = `${APP_URL}/pricing`;
+
+  return emailLayout(`
+    <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #18181b;">크레딧이 부족합니다</h2>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      안녕하세요, 서치드입니다.
+    </p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      현재 크레딧 잔액이 얼마 남지 않았습니다.
+    </p>
+    <div style="padding: 20px; background-color: #fefce8; border-radius: 8px; margin: 24px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">현재 플랜</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${planName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">남은 크레딧</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #ca8a04; text-align: right; font-weight: 600;">${remainingCredits}개</td>
+        </tr>
+      </table>
+    </div>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      Pro 플랜으로 업그레이드하시면 매월 200개의 크레딧을 이용하실 수 있습니다.
+    </p>
+    ${ctaButton("플랜 업그레이드", pricingUrl)}
+    <p style="margin: 24px 0 0 0; font-size: 14px; color: #71717a;">
+      서치드를 이용해 주셔서 감사합니다.
+    </p>
+  `);
+}
+
+/**
+ * E-08: 크레딧 소진 알림
+ */
+function templateE08(metadata: Record<string, unknown>): string {
+  const planName = (metadata.plan_name as string) || "Starter";
+  const nextResetDate = metadata.next_reset_date as string;
+  const pricingUrl = `${APP_URL}/pricing`;
+
+  return emailLayout(`
+    <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #18181b;">크레딧이 모두 소진되었습니다</h2>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      안녕하세요, 서치드입니다.
+    </p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      이번 달 크레딧을 모두 사용하셨습니다.
+    </p>
+    <div style="padding: 16px; background-color: #fef2f2; border-radius: 8px; margin: 24px 0;">
+      <p style="margin: 0; font-size: 14px; color: #991b1b;">
+        크레딧이 갱신될 때까지 이력서 분석을 이용하실 수 없습니다.
+      </p>
+    </div>
+    <div style="padding: 20px; background-color: #f4f4f5; border-radius: 8px; margin: 24px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">현재 플랜</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${planName}</td>
+        </tr>
+        ${
+          nextResetDate
+            ? `
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">다음 갱신일</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${nextResetDate}</td>
+        </tr>
+        `
+            : ""
+        }
+      </table>
+    </div>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      Pro 플랜으로 업그레이드하시면 매월 200개의 크레딧으로 더 많은 이력서를 분석하실 수 있습니다.
+    </p>
+    ${ctaButton("Pro 플랜으로 업그레이드", pricingUrl)}
+    <p style="margin: 24px 0 0 0; font-size: 14px; color: #71717a;">
+      서치드를 이용해 주셔서 감사합니다.
+    </p>
+  `);
+}
+
+/**
  * E-10: 결제 실패 알림
  */
 function templateE10(metadata: Record<string, unknown>): string {
@@ -248,6 +426,14 @@ export function generateEmailHtml(
   metadata: Record<string, unknown>
 ): string {
   switch (emailType) {
+    case "E-04":
+      return templateE04(metadata);
+    case "E-05":
+      return templateE05(metadata);
+    case "E-07":
+      return templateE07(metadata);
+    case "E-08":
+      return templateE08(metadata);
     case "E-09":
       return templateE09(metadata);
     case "E-10":
@@ -256,7 +442,6 @@ export function generateEmailHtml(
       return templateE11(metadata);
     case "E-12":
       return templateE12(metadata);
-    // 다른 이메일 타입은 추후 구현
     default:
       return emailLayout(`
         <p style="font-size: 16px; color: #3f3f46;">
