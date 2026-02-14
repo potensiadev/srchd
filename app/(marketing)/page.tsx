@@ -755,7 +755,7 @@ export default function LandingPageContent() {
               무료로 시작하기
             </SpotlightButton>
             <p className="mt-6 text-sm text-gray-400">
-              14일 무료 체험 • 신용카드 등록 없음 • 언제든 해지 가능
+              7일 무료 체험 • 신용카드 등록 없음 • 언제든 해지 가능
             </p>
           </div>
 

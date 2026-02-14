@@ -182,7 +182,7 @@ Secondary: "데모 영상 보기" (link to video modal, not scroll)
 // Before signup redirect, show email capture modal
 const LeadCaptureModal = () => (
   <Dialog>
-    <h3>14일 무료 체험을 시작하세요</h3>
+    <h3>7일 무료 체험을 시작하세요</h3>
     <input placeholder="업무용 이메일" />
     <button>체험 시작</button>
     <p className="text-xs">이메일 주소로 시작 가이드를 보내드립니다</p>

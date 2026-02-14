@@ -117,7 +117,7 @@ export default function ProductsPage() {
               다음 주 월요일,<br className="md:hidden" /> 이력서 걱정 없이 출근하세요
             </h2>
             <p className="text-blue-100 mb-10 max-w-lg mx-auto text-lg">
-              14일 무료 체험. 신용카드 필요 없음.
+              7일 무료 체험. 신용카드 필요 없음.
               <br />
               5분이면 첫 이력서 분석까지 완료됩니다.
             </p>

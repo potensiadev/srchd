@@ -9,7 +9,7 @@ const faqs = [
   {
     question: "무료 체험 기간이 있나요?",
     answer:
-      "네, Closed Beta 기간 동안 모든 신규 사용자에게 14일간 무료 체험을 제공합니다. 신용카드 없이 바로 시작할 수 있습니다.",
+      "네, 모든 신규 사용자에게 7일간 무료 체험을 제공합니다. 신용카드 없이 바로 시작할 수 있습니다.",
   },
   {
     question: "분석 건수를 초과하면 어떻게 되나요?",
@@ -95,7 +95,7 @@ export default function PricingPage() {
                 {/* Trust Signal */}
                 <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 font-medium bg-emerald-50 w-fit px-2 py-1 rounded-md">
                   <ShieldCheck className="w-3 h-3" />
-                  14일 무료 체험 • 언제든 취소 가능
+                  7일 무료 체험 • 언제든 취소 가능
                 </div>
               </div>
 

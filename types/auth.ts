@@ -57,6 +57,11 @@ export interface UserProfile {
   credits: number;
   creditsUsedThisMonth: number;
 
+  // 7일 무료 체험
+  trialEndsAt?: string;
+  isTrialActive?: boolean;
+  trialDaysRemaining?: number;
+
   // 동의 상태
   consentsCompleted: boolean;
   consentsCompletedAt?: string;
@@ -194,9 +199,47 @@ export function hasInsufficientCredits(user: UserProfile): boolean {
 }
 
 /**
+ * 무료 체험 기간 상수
+ */
+export const FREE_TRIAL_DAYS = 7;
+
+/**
+ * 무료 체험 활성 여부 확인
+ */
+export function isTrialActive(user: UserProfile): boolean {
+  if (!user.trialEndsAt) return false;
+  return new Date(user.trialEndsAt) > new Date();
+}
+
+/**
+ * 남은 체험 일수 계산
+ */
+export function getTrialDaysRemaining(user: UserProfile): number {
+  if (!user.trialEndsAt) return 0;
+  const trialEnds = new Date(user.trialEndsAt);
+  const now = new Date();
+  if (trialEnds <= now) return 0;
+  return Math.ceil((trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * 서비스 사용 가능 여부 (체험 중이거나 유료 구독)
+ */
+export function canUseService(user: UserProfile): boolean {
+  // 체험 중이면 사용 가능
+  if (isTrialActive(user)) return true;
+  // 크레딧 남아있으면 사용 가능 (유료 사용자)
+  return getRemainingCredits(user) > 0 || user.credits > 0;
+}
+
+/**
  * DB row를 UserProfile로 변환
  */
 export function toUserProfile(row: Record<string, unknown>): UserProfile {
+  const trialEndsAt = row.trial_ends_at as string | undefined;
+  const trialEnds = trialEndsAt ? new Date(trialEndsAt) : null;
+  const now = new Date();
+
   return {
     id: row.id as string,
     email: row.email as string,
@@ -205,6 +248,11 @@ export function toUserProfile(row: Record<string, unknown>): UserProfile {
     plan: (row.plan as PlanType) ?? 'starter',
     credits: (row.credits as number) ?? 0,
     creditsUsedThisMonth: (row.credits_used_this_month as number) ?? 0,
+    trialEndsAt: trialEndsAt,
+    isTrialActive: trialEnds ? trialEnds > now : false,
+    trialDaysRemaining: trialEnds && trialEnds > now
+      ? Math.ceil((trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      : 0,
     consentsCompleted: (row.consents_completed as boolean) ?? false,
     consentsCompletedAt: row.consents_completed_at as string | undefined,
     createdAt: row.created_at as string,
