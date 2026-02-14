@@ -329,6 +329,7 @@ pnpm e2e            # Playwright E2E 테스트
 | Multi-Agent Pipeline | `docs/architecture/MULTI_AGENT_PIPELINE.md` | 멀티에이전트 파이프라인 아키텍처 |
 | System Architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | 전체 시스템 토폴로지 |
 | Phase 1 요구사항 | `docs/architecture/PHASE1_DEVELOPMENT_REQUIREMENTS.md` | Phase 1 개발 요구사항 및 설계 |
+| Phase 1 개발 계획 | `docs/plans/PHASE1_DEVELOPMENT_PLAN.md` | 스프린트/마일스톤/WBS/배포 전략 |
 | 운영 백로그 | `docs/backlog/20260214.md` | TIER 0-4 우선순위별 작업 목록 |
 | OpenAPI Spec | `openapi.yaml` | API 명세 |
 | 배포 가이드 | `DEPLOYMENT.md` | 배포 절차 |
