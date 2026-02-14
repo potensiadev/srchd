@@ -15,10 +15,14 @@ from datetime import datetime
 from dataclasses import dataclass, field
 
 from config import get_settings, AnalysisMode
-from schemas.resume_schema import RESUME_JSON_SCHEMA, RESUME_SCHEMA_PROMPT
+from schemas.resume_schema import (
+    RESUME_JSON_SCHEMA, RESUME_SCHEMA_PROMPT,
+    get_strict_schema, get_enhanced_prompt,
+)
 from schemas.canonical_labels import CanonicalLabel
 from utils.section_separator import get_section_separator, SemanticIR
 from services.llm_manager import get_llm_manager, LLMProvider, LLMResponse
+from orchestrator.feature_flags import get_feature_flags
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -93,6 +97,8 @@ class AnalystAgent:
         self.section_separator = get_section_separator()
         self.llm_manager = get_llm_manager()
         self.mode = settings.ANALYSIS_MODE
+        self.feature_flags = get_feature_flags()
+
         # Feature flag for conditional calling
         self.use_conditional_llm = settings.USE_CONDITIONAL_LLM if hasattr(settings, 'USE_CONDITIONAL_LLM') else True
         # Feature flag for parallel LLM calling (speed optimization for bulk uploads)
@@ -103,10 +109,19 @@ class AnalystAgent:
             if hasattr(settings, 'LLM_CONFIDENCE_THRESHOLD')
             else self.DEFAULT_CONFIDENCE_THRESHOLD
         )
+
+        # T4 Feature flags
+        self.use_strict_schema = self.feature_flags.use_strict_schema
+        self.use_cot_prompting = self.feature_flags.use_cot_prompting
+        self.use_few_shot = self.feature_flags.use_few_shot_examples
+        self.use_three_way = self.feature_flags.use_three_way_crosscheck
+        self.three_way_threshold = self.feature_flags.three_way_confidence_threshold
+
         # Monitoring counters (for logging)
         self._single_model_count = 0
         self._multi_model_count = 0
         self._parallel_call_count = 0
+        self._three_way_count = 0
     
     @property
     def CONFIDENCE_THRESHOLD(self):
@@ -271,10 +286,19 @@ class AnalystAgent:
             return merged_data, merged_confidence, warnings, token_usage, providers_used, per_provider
 
         # ─────────────────────────────────────────────────────────────────
-        # Step 3: Phase 2 only - Claude deep verification
+        # Step 3: 3-Way Cross-Check (Phase 2 OR feature flag enabled)
+        # T4-5: Enable 3-way via feature flag for all modes
         # ─────────────────────────────────────────────────────────────────
-        if analysis_mode == AnalysisMode.PHASE_2:
-            logger.info("[AnalystAgent] Step 3: Calling Claude for deep verification (Phase 2)")
+        should_use_three_way = (
+            analysis_mode == AnalysisMode.PHASE_2 or
+            (self.use_three_way and merged_confidence < self.three_way_threshold)
+        )
+
+        if should_use_three_way:
+            logger.info(
+                f"[AnalystAgent] Step 3: Calling Claude for 3-way verification "
+                f"(mode={analysis_mode.value}, three_way_flag={self.use_three_way})"
+            )
             claude_response = await self._call_single_llm(LLMProvider.CLAUDE, messages)
             all_responses[LLMProvider.CLAUDE] = claude_response
 
@@ -283,6 +307,8 @@ class AnalystAgent:
                 merged_data, merged_confidence, merge_warnings, _, _ = self._merge_responses(responses)
                 warnings = [w for w in warnings if w.type != "mismatch"]  # Re-evaluate mismatches
                 warnings.extend(merge_warnings)
+                self._three_way_count += 1
+                logger.info(f"[AnalystAgent] ✓ 3-way cross-check completed (count={self._three_way_count})")
 
         self._multi_model_count += 1
         self._log_call_ratio()
@@ -511,10 +537,23 @@ class AnalystAgent:
         return True, 1.0
 
     def _create_messages(self, text: str, filename: Optional[str]) -> List[Dict[str, str]]:
-        """Create optimized prompt"""
+        """Create optimized prompt with optional CoT and few-shot"""
+        # T4-2: Use enhanced prompt if CoT or few-shot is enabled
+        if self.use_cot_prompting or self.use_few_shot:
+            schema_prompt = get_enhanced_prompt(
+                use_cot=self.use_cot_prompting,
+                use_few_shot=self.use_few_shot
+            )
+            logger.info(
+                f"[AnalystAgent] Using enhanced prompt: "
+                f"CoT={self.use_cot_prompting}, Few-shot={self.use_few_shot}"
+            )
+        else:
+            schema_prompt = RESUME_SCHEMA_PROMPT
+
         system_prompt = f"""You are an expert Resume Parser. Extract ALL information from the resume.
 
-{RESUME_SCHEMA_PROMPT}
+{schema_prompt}
 
 Return a single JSON object with all extracted fields. If a field is not found, omit it.
 IMPORTANT: Generate a high-quality 'match_reason' (Aha Moment) that explains why this candidate is a strong hire for their target roles.

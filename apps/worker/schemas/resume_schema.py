@@ -313,3 +313,219 @@ OX퀴즈 리텐션 및 상품 가입 전환 엔진 기획 (전북은행) 2025.09
 → 이 내용은 '경력 상세' 아래에 있지만, **projects 배열에 추출해야 합니다.**
 
 """
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T4-1: Strict Schema Support
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Critical fields that should use strict validation
+STRICT_CRITICAL_FIELDS = ["name", "phone", "email", "careers"]
+
+
+def get_strict_schema(base_schema: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Generate strict version of the resume schema.
+
+    OpenAI Structured Outputs requires:
+    - "strict": True
+    - "additionalProperties": False
+    - All properties must have explicit types
+
+    Note: Use with caution - strict mode may reject valid resumes
+    with unusual formats.
+    """
+    import copy
+    schema = copy.deepcopy(base_schema or RESUME_JSON_SCHEMA)
+
+    strict_schema = {
+        **schema,
+        "strict": True,
+        "schema": {
+            **schema["schema"],
+            "additionalProperties": False,
+            "properties": _make_properties_nullable(schema["schema"]["properties"]),
+            "required": STRICT_CRITICAL_FIELDS,
+        }
+    }
+
+    return strict_schema
+
+
+def _make_properties_nullable(properties: Dict[str, Any]) -> Dict[str, Any]:
+    """Make all properties accept null values for strict mode."""
+    import copy
+    result = {}
+    for key, prop in properties.items():
+        prop_copy = copy.deepcopy(prop)
+        prop_type = prop_copy.get("type")
+
+        if prop_type == "array":
+            result[key] = {**prop_copy, "type": ["array", "null"]}
+        elif prop_type == "object":
+            result[key] = {**prop_copy, "type": ["object", "null"]}
+        elif prop_type in ("string", "number", "integer", "boolean"):
+            result[key] = {**prop_copy, "type": [prop_type, "null"]}
+        else:
+            result[key] = prop_copy
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T4-2: Chain-of-Thought (CoT) Prompting
+# ─────────────────────────────────────────────────────────────────────────────
+
+COT_EXTRACTION_PROMPT = """
+## Chain-of-Thought 이력서 분석 가이드
+
+당신은 한국 이력서 분석 전문가입니다. 아래 단계를 순차적으로 수행하세요.
+
+### Step 1: 문서 구조 파악 (Document Structure)
+먼저 문서의 전체 구조를 파악하세요:
+- 어떤 섹션들이 있는가? (기본정보, 경력, 학력, 스킬, 프로젝트 등)
+- 각 섹션의 시작과 끝은 어디인가?
+- 특이한 형식이나 레이아웃이 있는가?
+
+### Step 2: 기본 정보 추출 (Profile Extraction)
+이름, 연락처 등 기본 정보를 추출하세요:
+- 문서 상단/헤더에서 이름 찾기
+- 파일명에서 이름 힌트 확인
+- 연락처 (전화번호, 이메일) 패턴 매칭
+- 나이/출생년도 추론 (주민번호 앞자리, 나이 표기 등)
+
+### Step 3: 경력 추출 (Career Extraction)
+경력 정보를 시간순으로 정리하세요:
+- 각 경력의 회사명, 직책, 기간 명확히 구분
+- 날짜 형식 통일 (YYYY-MM)
+- 현재 재직 여부 판단
+- 업무 내용 요약
+
+### Step 4: 교육 및 스킬 (Education & Skills)
+학력과 기술 스택을 추출하세요:
+- 최종 학력, 전공 확인
+- 명시된 기술/도구 목록화
+- 자격증/인증 포함
+
+### Step 5: 프로젝트 추출 (Project Extraction)
+**중요**: "프로젝트" 섹션뿐만 아니라 "경력 상세", "주요 업무", "성과" 등에서도 프로젝트를 추출하세요.
+다음 특성이 있으면 프로젝트로 분류:
+- 구체적인 과제/이니셔티브 이름
+- 정량적 성과 (숫자, %)
+- 사용 기술 명시
+- 기간 정보
+
+### Step 6: 요약 및 강점 생성 (Summary Generation)
+추출한 정보를 바탕으로:
+- 300자 내외 후보자 요약문 작성
+- 3-5개 핵심 강점 도출
+- 왜 이 후보자가 매력적인지 한 문장으로 표현
+
+### 추출 원칙
+- 확실하지 않은 정보는 생략 (추측 금지)
+- 원문에 없는 내용 생성 금지 (할루시네이션 방지)
+- 날짜 형식 통일 (YYYY-MM)
+- JSON 형식 엄격 준수
+
+이제 위 단계를 따라 이력서를 분석하세요.
+"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T4-2: Few-Shot Examples
+# ─────────────────────────────────────────────────────────────────────────────
+
+FEW_SHOT_EXAMPLE_INPUT = """
+김철수
+서울특별시 강남구
+010-1234-5678 | chulsu@email.com
+1990년생
+
+[경력]
+ABC 주식회사 | PM | 2020.03 - 현재
+- 신규 서비스 기획 및 런칭 (DAU 50만 달성)
+- 개발팀 5명 리드
+
+XYZ 스타트업 | 기획자 | 2018.01 - 2020.02
+- B2B SaaS 제품 기획
+- 고객사 20개 온보딩
+
+[학력]
+서울대학교 | 컴퓨터공학 | 2018년 졸업
+"""
+
+FEW_SHOT_EXAMPLE_OUTPUT = {
+    "name": "김철수",
+    "birth_year": 1990,
+    "phone": "010-1234-5678",
+    "email": "chulsu@email.com",
+    "address": "서울특별시 강남구",
+    "location_city": "서울",
+    "exp_years": 6.0,
+    "last_company": "ABC 주식회사",
+    "last_position": "PM",
+    "careers": [
+        {
+            "company": "ABC 주식회사",
+            "position": "PM",
+            "start_date": "2020-03",
+            "end_date": None,
+            "is_current": True,
+            "description": "신규 서비스 기획 및 런칭 (DAU 50만 달성), 개발팀 5명 리드"
+        },
+        {
+            "company": "XYZ 스타트업",
+            "position": "기획자",
+            "start_date": "2018-01",
+            "end_date": "2020-02",
+            "is_current": False,
+            "description": "B2B SaaS 제품 기획, 고객사 20개 온보딩"
+        }
+    ],
+    "education_level": "대졸",
+    "education_school": "서울대학교",
+    "education_major": "컴퓨터공학",
+    "skills": ["PM", "서비스 기획", "B2B SaaS"],
+    "summary": "6년차 PM으로 ABC 주식회사에서 DAU 50만을 달성한 신규 서비스를 런칭한 경험이 있습니다.",
+    "strengths": ["6년차 PM 경력", "DAU 50만 서비스 런칭", "B2B SaaS 전문성"],
+    "match_reason": "대규모 서비스 런칭과 B2B 경험을 모두 갖춘 시니어 PM입니다."
+}
+
+
+def get_few_shot_prompt() -> str:
+    """Generate few-shot examples prompt."""
+    import json
+    return f"""
+### 추출 예시
+
+**입력 이력서:**
+```
+{FEW_SHOT_EXAMPLE_INPUT.strip()}
+```
+
+**추출 결과:**
+```json
+{json.dumps(FEW_SHOT_EXAMPLE_OUTPUT, ensure_ascii=False, indent=2)}
+```
+"""
+
+
+def get_enhanced_prompt(use_cot: bool = False, use_few_shot: bool = False) -> str:
+    """
+    Get enhanced prompt with optional CoT and few-shot examples.
+
+    Args:
+        use_cot: Include Chain-of-Thought reasoning steps
+        use_few_shot: Include few-shot examples
+
+    Returns:
+        Enhanced system prompt
+    """
+    prompt_parts = []
+
+    if use_cot:
+        prompt_parts.append(COT_EXTRACTION_PROMPT)
+    else:
+        prompt_parts.append(RESUME_SCHEMA_PROMPT)
+
+    if use_few_shot:
+        prompt_parts.append(get_few_shot_prompt())
+
+    return "\n".join(prompt_parts)

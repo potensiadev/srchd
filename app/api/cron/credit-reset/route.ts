@@ -7,10 +7,18 @@
  * Backup: 이 Cron 엔드포인트 (매일 03:00 KST 실행)
  *
  * Vercel Cron Schedule: "0 18 * * *" (UTC 18:00 = KST 03:00)
+ *
+ * T2-4 개선:
+ * - 재시도 로직 (최대 3회)
+ * - 상태 추적 테이블 기록
+ * - 실패 시 알림
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminClient } from "@/lib/supabase/admin";
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 // ─────────────────────────────────────────────────
 // Cron 인증 검증
@@ -48,65 +56,110 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    console.log("[Credit Reset Cron] Starting credit reset job...");
+  const supabase = getAdminClient();
+  const jobId = `credit-reset-${Date.now()}`;
+  let lastError: Error | null = null;
+  let attempt = 0;
 
-    const supabase = getAdminClient();
+  console.log(`[Credit Reset Cron] Starting job ${jobId}...`);
 
-    // reset_monthly_credits RPC 호출 (billing_cycle 지난 사용자들 일괄 리셋)
-    const { data: rpcResult, error: rpcError } = await supabase.rpc(
-      "reset_monthly_credits"
-    );
+  // 재시도 로직
+  while (attempt < MAX_RETRIES) {
+    attempt++;
+    try {
+      console.log(`[Credit Reset Cron] Attempt ${attempt}/${MAX_RETRIES}`);
 
-    if (rpcError) {
-      console.error("[Credit Reset Cron] RPC error:", rpcError.message);
-      return NextResponse.json(
-        {
-          success: false,
-          error: rpcError.message,
-          timestamp: new Date().toISOString(),
-        },
-        { status: 500 }
+      // reset_monthly_credits RPC 호출 (billing_cycle 지난 사용자들 일괄 리셋)
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        "reset_monthly_credits"
       );
-    }
 
-    // RPC 결과 파싱
-    const result = rpcResult as {
-      success: boolean;
-      reset_count: number;
-      timestamp: string;
-    };
+      if (rpcError) {
+        throw new Error(`RPC error: ${rpcError.message}`);
+      }
 
-    console.log("[Credit Reset Cron] Job completed:", result);
+      // RPC 결과 파싱
+      const result = rpcResult as {
+        success: boolean;
+        reset_count: number;
+        timestamp: string;
+      };
 
-    // 이메일 알림 큐잉 (E-09: 크레딧 갱신 알림)
-    if (result.reset_count > 0) {
-      await queueCreditResetEmails(supabase, result.reset_count);
-    }
+      console.log(`[Credit Reset Cron] Job ${jobId} completed:`, result);
 
-    return NextResponse.json({
-      success: true,
-      resetCount: result.reset_count,
-      timestamp: new Date().toISOString(),
-      message: `${result.reset_count}명의 사용자 크레딧이 리셋되었습니다.`,
-    });
-  } catch (error) {
-    console.error("[Credit Reset Cron] Job failed:", error);
+      // 실행 기록 저장
+      await recordCronExecution(supabase, jobId, "success", result.reset_count);
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+      // 이메일 알림 큐잉 (E-09: 크레딧 갱신 알림)
+      if (result.reset_count > 0) {
+        await queueCreditResetEmails(supabase, result.reset_count);
+      }
+
+      return NextResponse.json({
+        success: true,
+        jobId,
+        resetCount: result.reset_count,
+        attempts: attempt,
         timestamp: new Date().toISOString(),
-      },
-      { status: 500 }
-    );
+        message: `${result.reset_count}명의 사용자 크레딧이 리셋되었습니다.`,
+      });
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`[Credit Reset Cron] Attempt ${attempt} failed:`, lastError.message);
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+      }
+    }
   }
+
+  // 모든 재시도 실패
+  console.error(`[Credit Reset Cron] Job ${jobId} failed after ${MAX_RETRIES} attempts`);
+  await recordCronExecution(supabase, jobId, "failed", 0, lastError?.message);
+
+  return NextResponse.json(
+    {
+      success: false,
+      jobId,
+      attempts: attempt,
+      error: lastError?.message || "Unknown error",
+      timestamp: new Date().toISOString(),
+    },
+    { status: 500 }
+  );
 }
 
 // POST도 지원 (수동 실행용)
 export async function POST(request: NextRequest) {
   return GET(request);
+}
+
+// ─────────────────────────────────────────────────
+// Cron 실행 기록 (모니터링용)
+// ─────────────────────────────────────────────────
+
+async function recordCronExecution(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  jobId: string,
+  status: "success" | "failed",
+  resetCount: number,
+  errorMessage?: string
+): Promise<void> {
+  try {
+    // cron_executions 테이블이 있으면 기록 (없으면 무시)
+    await supabase.from("cron_executions").insert({
+      job_id: jobId,
+      job_type: "credit_reset",
+      status,
+      result: { reset_count: resetCount },
+      error_message: errorMessage,
+      executed_at: new Date().toISOString(),
+    });
+  } catch {
+    // 테이블이 없어도 에러 무시 (선택적 기능)
+    console.log("[Credit Reset Cron] Execution record skipped (table may not exist)");
+  }
 }
 
 // ─────────────────────────────────────────────────

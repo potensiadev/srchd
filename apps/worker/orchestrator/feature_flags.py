@@ -68,9 +68,32 @@ class FeatureFlags:
     min_coverage_score: float = 50.0                # 최소 전체 커버리지 (0-100)
     min_critical_coverage: float = 70.0             # 최소 Critical 필드 커버리지 (0-100)
 
+    # 🆕 Field-Based Analyst (P1 정확도 향상)
+    use_field_based_analyst: bool = True            # FieldBasedAnalyst 활성화
+    use_conditional_cross_validation: bool = True   # 조건부 교차검증 (신뢰도 낮을 때만)
+    use_mini_model_for_simple_fields: bool = True   # 간단 필드에 gpt-4o-mini 사용
+    evidence_required_for_critical: bool = True     # Critical 필드에 evidence 필수
+    field_analyst_providers: list = None            # 사용할 LLM 제공자 목록
+
+    # 🆕 T4-1: Strict Schema 설정
+    use_strict_schema: bool = False                 # OpenAI strict mode 활성화
+    strict_schema_fields: list = None               # strict 적용 필드 목록 (None=전체)
+
+    # 🆕 T4-2: CoT/Few-shot 프롬프트 설정
+    use_cot_prompting: bool = False                 # Chain-of-Thought 프롬프팅 활성화
+    use_few_shot_examples: bool = False             # Few-shot 예제 포함
+
+    # 🆕 T4-5: 3-Way Cross-Check 설정
+    use_three_way_crosscheck: bool = False          # Claude 포함 3-Way 검증 활성화
+    three_way_confidence_threshold: float = 0.7     # 3-Way 필요 판단 임계값
+
     def __post_init__(self):
         if self.new_pipeline_user_ids is None:
             self.new_pipeline_user_ids = []
+        if self.field_analyst_providers is None:
+            self.field_analyst_providers = []
+        if self.strict_schema_fields is None:
+            self.strict_schema_fields = []
 
     @classmethod
     def from_env(cls) -> "FeatureFlags":
@@ -121,6 +144,21 @@ class FeatureFlags:
             enable_quality_gate=parse_bool("ENABLE_QUALITY_GATE", True),
             min_coverage_score=parse_float("MIN_COVERAGE_SCORE", 50.0),
             min_critical_coverage=parse_float("MIN_CRITICAL_COVERAGE", 70.0),
+            # 🆕 Field-Based Analyst
+            use_field_based_analyst=parse_bool("USE_FIELD_BASED_ANALYST", True),
+            use_conditional_cross_validation=parse_bool("USE_CONDITIONAL_CROSS_VALIDATION", True),
+            use_mini_model_for_simple_fields=parse_bool("USE_MINI_MODEL_FOR_SIMPLE_FIELDS", True),
+            evidence_required_for_critical=parse_bool("EVIDENCE_REQUIRED_FOR_CRITICAL", True),
+            field_analyst_providers=parse_list("FIELD_ANALYST_PROVIDERS"),
+            # 🆕 T4-1: Strict Schema
+            use_strict_schema=parse_bool("USE_STRICT_SCHEMA", False),
+            strict_schema_fields=parse_list("STRICT_SCHEMA_FIELDS"),
+            # 🆕 T4-2: CoT/Few-shot
+            use_cot_prompting=parse_bool("USE_COT_PROMPTING", False),
+            use_few_shot_examples=parse_bool("USE_FEW_SHOT_EXAMPLES", False),
+            # 🆕 T4-5: 3-Way Cross-Check
+            use_three_way_crosscheck=parse_bool("USE_THREE_WAY_CROSSCHECK", False),
+            three_way_confidence_threshold=parse_float("THREE_WAY_CONFIDENCE_THRESHOLD", 0.7),
         )
 
     def should_use_new_pipeline(self, user_id: str = None, job_id: str = None) -> bool:
@@ -188,6 +226,12 @@ class FeatureFlags:
         logger.info(f"  - enable_quality_gate: {self.enable_quality_gate}")
         logger.info(f"  - min_coverage_score: {self.min_coverage_score}")
         logger.info(f"  - min_critical_coverage: {self.min_critical_coverage}")
+        # Field-Based Analyst
+        logger.info(f"  [Field-Based Analyst]")
+        logger.info(f"  - use_field_based_analyst: {self.use_field_based_analyst}")
+        logger.info(f"  - use_conditional_cross_validation: {self.use_conditional_cross_validation}")
+        logger.info(f"  - use_mini_model_for_simple_fields: {self.use_mini_model_for_simple_fields}")
+        logger.info(f"  - evidence_required_for_critical: {self.evidence_required_for_critical}")
 
 
 # 싱글톤 인스턴스

@@ -155,6 +155,44 @@ function templateE11(metadata: Record<string, unknown>): string {
 }
 
 /**
+ * E-09: 크레딧 갱신 알림
+ */
+function templateE09(metadata: Record<string, unknown>): string {
+  const planName = (metadata.plan as string) === "pro" ? "Pro" : "Starter";
+  const credits = planName === "Pro" ? 200 : 10;
+  const dashboardUrl = `${APP_URL}/candidates`;
+
+  return emailLayout(`
+    <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #18181b;">크레딧이 갱신되었습니다</h2>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      안녕하세요, 서치드입니다.
+    </p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      ${planName} 플랜의 월간 크레딧이 갱신되었습니다.
+    </p>
+    <div style="padding: 20px; background-color: #f0fdf4; border-radius: 8px; margin: 24px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">현재 플랜</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${planName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #3f3f46;">이번 달 크레딧</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #18181b; text-align: right; font-weight: 500;">${credits}개</td>
+        </tr>
+      </table>
+    </div>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #3f3f46; line-height: 1.6;">
+      지금 바로 이력서를 분석하고 최고의 인재를 찾아보세요.
+    </p>
+    ${ctaButton("대시보드로 이동", dashboardUrl)}
+    <p style="margin: 24px 0 0 0; font-size: 14px; color: #71717a;">
+      서치드를 이용해 주셔서 감사합니다.
+    </p>
+  `);
+}
+
+/**
  * E-12: 구독 취소 확인
  */
 function templateE12(metadata: Record<string, unknown>): string {
@@ -210,6 +248,8 @@ export function generateEmailHtml(
   metadata: Record<string, unknown>
 ): string {
   switch (emailType) {
+    case "E-09":
+      return templateE09(metadata);
     case "E-10":
       return templateE10(metadata);
     case "E-11":
