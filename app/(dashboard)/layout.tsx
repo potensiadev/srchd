@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Sidebar from "@/components/layout/Sidebar";
-import { OnboardingProvider } from "@/components/onboarding";
+
 
 export const metadata: Metadata = {
   title: "서치드 - Dashboard",
@@ -13,16 +13,14 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <OnboardingProvider>
-      <div className="relative flex min-h-screen bg-gray-50/50">
-        {/* Content Layer */}
-        <div className="relative z-10 flex w-full">
-          <Sidebar />
-          <main className="flex-1 ml-64 p-8 md:p-12 max-w-[1600px] mx-auto w-full">
-            {children}
-          </main>
-        </div>
+    <div className="relative flex min-h-screen bg-gray-50/50">
+      {/* Content Layer */}
+      <div className="relative z-10 flex w-full">
+        <Sidebar />
+        <main className="flex-1 ml-64 p-8 md:p-12 max-w-[1600px] mx-auto w-full">
+          {children}
+        </main>
       </div>
-    </OnboardingProvider>
+    </div>
   );
 }

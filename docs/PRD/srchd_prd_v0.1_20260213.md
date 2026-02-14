@@ -1131,6 +1131,8 @@ RESEND_API_KEY                  # 이메일 발송 (NEW)
 
 ## 21. Code Review Action Plan
 
+> 연계 문서: 통합 백로그 `docs/backlog/20260214.md`, 아키텍처 상세 `docs/architecture/MULTI_AGENT_PIPELINE.md`를 함께 참조하세요.
+
 > **배경**: 2026-02-13 외부 코드 리뷰를 통해 Multi-Agent Pipeline의 문서-코드 괴리, 메트릭 정확도, 프롬프트 견고성 등 주요 개선점이 식별되었습니다. 본 섹션은 리뷰 결과를 코드 검증 후 확정된 액션 아이템으로 정리합니다.
 
 ### 21.1. 아키텍처 현실 보정

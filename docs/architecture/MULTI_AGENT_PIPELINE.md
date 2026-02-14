@@ -5,12 +5,18 @@
 
 ---
 
-### ⚠️ 구현 현황 (Implementation Status)
+## 🚦 Implementation Status (Code-Aligned)
+
+> This document distinguishes **current implementation** and **Phase 1 planned** items to avoid doc-code drift.
+
+- **Current (implemented):** RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent
+- **Phase 1 (planned):** CoverageCalculator, GapFillerAgent, ResumeIntentGuard
+- **Core invariant:** Every agent/orchestrator/sub-agent must receive a **unified resume context** (`resume_intent=true`, `resume_id`, `raw_text`, `sections`, `evidence_map`) before running.
 
 | 상태 | 에이전트 |
 |------|---------|
 | ✅ **구현 완료** (6개) | RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent |
-| 📋 **Phase 1 [PLANNED]** (3개) | DocumentClassifier, CoverageCalculator, GapFillerAgent |
+| 📋 **Phase 1 [PLANNED]** (3개) | CoverageCalculator, GapFillerAgent, ResumeIntentGuard |
 
 > 본 문서에서 `[PLANNED]` 태그가 붙은 기능은 설계 완료 상태이나 아직 구현되지 않았습니다.
 
@@ -46,15 +52,15 @@ The Multi-Agent Pipeline is the core AI processing engine of SRCHD. It transform
 ### Pipeline Statistics
 
 | Metric | Current (구현됨) | Phase 1 목표 [PLANNED] |
-|--------|------------------|------------------------|
-| Total Agents | 6 | 9 (+DocumentClassifier, +CoverageCalculator, +GapFiller) |
-| LLM Calls | 3 | 4-5 (+ classification, + gap fill) |
-| Average Processing Time | 8-15 sec | 10-18 sec |
-| Success Rate | ~95% | ~97% (better rejection) |
-| Cost per Resume | ~$0.02-0.05 | ~$0.03-0.06 |
-| Field Coverage Score | ~78% | 90%+ target |
+|--------|------------------|-------------------------|
+| Agent Count | 6 specialized agents | 9 agents (6 + 3 planned) |
+| LLM Calls | 3 (1 cheap + 2 primary) | 3~5 (field-level selective retry) |
+| Average Processing Time | 8-15 seconds | P95 < 10s (fast queue), < 18s (slow queue) |
+| Success Rate | ~95% | >98% pipeline success |
+| Field Coverage@source-present | Not guaranteed | >99% |
+| Cost per Resume | ~$0.02-0.05 | <$0.06 with adaptive escalation |
 
-> **구현 상태**: 현재 6개 에이전트가 운영 중입니다. Phase 1 에이전트(DocumentClassifier, CoverageCalculator, GapFillerAgent)는 **설계 완료, 구현 예정** 상태입니다.
+> **구현 상태**: 현재 6개 에이전트가 운영 중입니다. Phase 1 에이전트(CoverageCalculator, GapFillerAgent, ResumeIntentGuard)는 **설계 완료, 구현 예정** 상태입니다.
 
 ---
 
@@ -199,6 +205,32 @@ The Multi-Agent Pipeline is the core AI processing engine of SRCHD. It transform
 ### 2.2 Pipeline Orchestrator
 
 The `PipelineOrchestrator` (`apps/worker/orchestrator/pipeline_orchestrator.py`) coordinates all agents:
+
+### 2.3 Unified Resume Context Contract
+
+To satisfy resume-only understanding and prevent cross-domain drift, all workers operate under a shared context contract.
+
+```json
+{
+  "resume_intent": true,
+  "document_type": "resume",
+  "resume_id": "uuid",
+  "raw_text": "...",
+  "sections": ["profile", "career", "education", "skills", "projects"],
+  "evidence_map": {"field": ["char_span", "page"]},
+  "missing_policy": "allow_null_only_if_not_found_in_source"
+}
+```
+
+**Rules:**
+1. If `document_type != resume`, pipeline must stop before LLM-heavy stages.
+2. All agent outputs must include field-level evidence references.
+3. Orchestrator can only persist fields with `value + evidence` or explicit `missing_reason`.
+4. Gap filling retries only empty fields and keeps the same `resume_id` context.
+
+---
+
+### 2.4 Pipeline Orchestrator Details
 
 ```python
 class PipelineOrchestrator:

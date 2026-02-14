@@ -1,7 +1,7 @@
 # CLAUDE.md — 서치드(srchd) 프로젝트 컨텍스트
 
 > 이 파일은 AI 어시스턴트가 코드베이스를 이해하기 위한 **프로젝트 컨텍스트 문서**입니다.
-> 마지막 업데이트: 2026-02-13
+> 마지막 업데이트: 2026-02-14
 
 ---
 
@@ -110,12 +110,24 @@ srchd/
 │       │   ├── visual_agent.py   # 증명사진 추출 (OpenCV), 포트폴리오 캡처
 │       │   ├── identity_checker.py # 다중 인물 감지
 │       │   └── validation_agent.py # 유효성 검증
+│       ├── orchestrator/         # 파이프라인 오케스트레이션
+│       │   ├── pipeline_orchestrator.py # 9단계 파이프라인 실행
+│       │   ├── feature_flags.py  # Feature Flag 관리
+│       │   └── validation_wrapper.py   # LLM 검증 래퍼
+│       ├── context/              # 중앙 컨텍스트 허브
+│       │   ├── pipeline_context.py     # 모든 에이전트 정보 공유
+│       │   ├── layers.py         # 데이터 레이어 (RawInput, ParsedData 등)
+│       │   ├── decision.py       # 제안-결정 패턴 (Proposal → Decision)
+│       │   ├── evidence.py       # LLM 추론 근거 추적
+│       │   ├── hallucination.py  # 환각 탐지
+│       │   └── warnings.py       # 경고 수집
 │       ├── services/             # 서비스 레이어
 │       │   ├── llm_manager.py    # OpenAI/Gemini/Claude 통합 클라이언트
 │       │   ├── embedding_service.py # 청킹 + 벡터 임베딩
 │       │   ├── database_service.py  # Supabase 데이터 저장
 │       │   ├── queue_service.py     # Redis Queue 관리
-│       │   └── storage_service.py   # 파일 스토리지
+│       │   ├── storage_service.py   # 파일 스토리지
+│       │   └── metrics_service.py   # 파이프라인 메트릭 수집
 │       ├── utils/                # 파일 파서
 │       │   ├── hwp_parser.py     # HWP 3단계 Fallback (olefile → LibreOffice → 한컴API)
 │       │   ├── pdf_parser.py     # PDF 파싱 (pdfplumber)
@@ -166,6 +178,15 @@ srchd/
 ## 4. 핵심 아키텍처 패턴
 
 ### 4.1. 업로드 → AI 분석 파이프라인
+
+### Multi-Agent Pipeline (Current vs Phase 1 [PLANNED])
+
+| 구분 | 구성 | 비고 |
+|------|------|------|
+| Current (구현) | RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent | 총 6개 |
+| Phase 1 [PLANNED] | CoverageCalculator, GapFillerAgent, ResumeIntentGuard | +3개 예정 |
+
+**Unified Context Rule:** 모든 agent/orchestrator/sub-agent는 `document_type=resume`와 공통 `resume_id`를 공유해야 하며, field-level evidence를 함께 전달해야 한다.
 
 ```
 사용자 업로드 → Next.js API (파일 검증 + S3 저장 + Job 생성)
@@ -305,6 +326,10 @@ pnpm e2e            # Playwright E2E 테스트
 | PRD v0.3 | `docs/rai_prd_v0.3.md` | 공식 요구사항 명세서 (코드 검증 완료) |
 | 개발 가이드 | `docs/rai_development_guide.md` | 상세 개발 가이드 |
 | 로드맵 | `docs/PRODUCT_ROADMAP_FROM_INTERVIEW.md` | 인터뷰 기반 제품 로드맵 |
+| Multi-Agent Pipeline | `docs/architecture/MULTI_AGENT_PIPELINE.md` | 멀티에이전트 파이프라인 아키텍처 |
+| System Architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | 전체 시스템 토폴로지 |
+| Phase 1 요구사항 | `docs/architecture/PHASE1_DEVELOPMENT_REQUIREMENTS.md` | Phase 1 개발 요구사항 및 설계 |
+| 운영 백로그 | `docs/backlog/20260214.md` | TIER 0-4 우선순위별 작업 목록 |
 | OpenAPI Spec | `openapi.yaml` | API 명세 |
 | 배포 가이드 | `DEPLOYMENT.md` | 배포 절차 |
 
@@ -312,8 +337,22 @@ pnpm e2e            # Playwright E2E 테스트
 
 ## 10. 알려진 이슈 & 주의사항
 
-1. **가격 불일치**: `types/auth.ts`와 `lib/paddle/config.ts`의 플랜 가격이 다름 → 통일 필요
-2. **Paddle Webhook 미구현**: 결제 완료 후 구독 상태 동기화 불가
-3. **PlanType 불일치**: `types/auth.ts`에는 `starter | pro`만 정의, PRD에는 `enterprise` 포함
-4. **package.json 이름**: `temp_app`으로 되어 있음 → `srchd` 또는 `rai`로 변경 권장
-5. **한컴 API**: 코드 구현 완료되었으나 API 키 미설정 상태 (환경변수 설정 시 자동 활성화)
+### 운영 이슈 (TIER 0-1)
+1. **Paddle Webhook 미구현**: 결제 완료 후 구독 상태 동기화 불가
+2. **이메일 알림 미구현**: 분석 완료/실패 시 사용자에게 알림 불가
+3. **Sentry 미연동**: 장애 인지 및 모니터링 불가
+
+### 기술 이슈
+4. **가격 불일치**: `types/auth.ts`와 `lib/paddle/config.ts`의 플랜 가격이 다름 → 통일 필요
+5. **PlanType 불일치**: `types/auth.ts`에는 `starter | pro`만 정의, PRD에는 `enterprise` 포함
+6. **package.json 이름**: `temp_app`으로 되어 있음 → `srchd` 또는 `rai`로 변경 권장
+7. **한컴 API**: 코드 구현 완료되었으나 API 키 미설정 상태 (환경변수 설정 시 자동 활성화)
+
+### Phase 1 계획 에이전트 (TIER 4 - 피드백 기반)
+> 아래 에이전트들은 설계 완료되었으나 **Beta 피드백 수집 후** 구현 예정
+
+8. **DocumentClassifier (ResumeIntentGuard)**: 이력서 vs 비이력서 분류 → 비이력서 업로드 >5% 시 구현
+9. **CoverageCalculator**: 필드 완성도 점수 + missing_reason 추적 → 필드 누락 불만 10건+ 시 구현
+10. **GapFillerAgent**: 빈 필드 타겟 재추출 (최대 2회) → CoverageCalculator와 함께 구현
+
+상세 설계: `docs/architecture/PHASE1_DEVELOPMENT_REQUIREMENTS.md`
