@@ -391,3 +391,54 @@ COVERAGE_THRESHOLD=0.85             # 이 이상이면 GapFiller 스킵
 - 필드 누락 불만 10건+ → CoverageCalculator + GapFiller 활성화
 
 상세 설계: `docs/architecture/PHASE1_DEVELOPMENT_REQUIREMENTS.md`
+
+### P1 정확도 향상: Field-Based Analyst (✅ 활성화됨)
+> 6개의 전문 Extractor로 병렬 추출 + 교차검증 + 품질 게이트
+
+11. **FieldBasedAnalyst**: 필드별 전문 Extractor 오케스트레이션 (기본 활성화)
+    - Stage 5.1: 6개 Extractor 병렬 실행 (Profile, Career, Education, Skills, Projects, Summary)
+    - Stage 5.2: ConsensusBuilder로 합의 도출 + RuleValidator 정규화 + EvidenceEnforcer 검증
+    - 파이프라인 위치: Stage 5 (기존 AnalystAgent 대체)
+
+**신규 모듈**:
+```
+apps/worker/agents/
+├── field_based_analyst.py          # 메인 오케스트레이터
+├── aggregator.py                   # 합의/집계
+└── extractors/                     # 전문 Extractor
+    ├── base_extractor.py
+    ├── profile_extractor.py
+    ├── career_extractor.py
+    ├── education_extractor.py
+    ├── skills_extractor.py
+    ├── projects_extractor.py
+    └── summary_generator.py
+
+apps/worker/context/
+├── consensus.py                    # ConsensusBuilder
+├── rule_validator.py               # 날짜/회사명/학위 정규화
+├── evidence_enforcer.py            # Evidence 강제 검증
+└── quality_metrics.py              # QualityGate
+
+apps/worker/schemas/
+└── extractor_schemas.py            # Extractor별 JSON 스키마
+```
+
+**환경 변수** (기본값):
+```
+USE_FIELD_BASED_ANALYST=true           # 기본 활성화 (비활성화: false)
+USE_CONDITIONAL_CROSS_VALIDATION=true  # 조건부 교차검증
+USE_MINI_MODEL_FOR_SIMPLE_FIELDS=true  # 간단 필드에 gpt-4o-mini 사용
+EVIDENCE_REQUIRED_FOR_CRITICAL=true    # Critical 필드 evidence 필수
+FIELD_ANALYST_PROVIDERS=openai,gemini  # 사용할 LLM 제공자
+```
+
+**품질 게이트 임계값** (기본값):
+| 지표 | 임계값 |
+|------|--------|
+| coverage_score | >= 60% |
+| critical_coverage | >= 80% |
+| evidence_backed_ratio | >= 50% |
+| consensus_ratio | >= 60% |
+
+**비활성화 방법**: `USE_FIELD_BASED_ANALYST=false` 환경 변수 설정

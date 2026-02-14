@@ -55,3 +55,6 @@ nul
 # Claude temp files
 tmpclaude-*
 tests/.auth/
+
+# Sentry Config File
+.env.sentry-build-plugin

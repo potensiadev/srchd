@@ -1,27 +1,20 @@
-/**
- * Sentry Edge Runtime Configuration
- *
- * Edge 함수에서 발생하는 에러를 추적합니다.
- */
+// This file configures the initialization of Sentry for edge features (middleware, edge routes, and so on).
+// The config you add here will be used whenever one of the edge features is loaded.
+// Note that this config is unrelated to the Vercel Edge Runtime and is also required when running locally.
+// https://docs.sentry.io/platforms/javascript/guides/nextjs/
+
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  dsn: "https://20c324f151e84a8e3999e77c48e80e55@o4510883550396416.ingest.us.sentry.io/4510883557146624",
 
-  // 환경 설정
-  environment: process.env.NODE_ENV,
+  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
+  tracesSampleRate: 1,
 
-  // 트레이스 샘플링 비율
-  tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+  // Enable logs to be sent to Sentry
+  enableLogs: true,
 
-  // 디버그 모드 (개발 환경에서만)
-  debug: process.env.NODE_ENV === "development",
-
-  // 민감한 데이터 필터링
-  beforeSend(event) {
-    if (process.env.NODE_ENV === "development") {
-      return null;
-    }
-    return event;
-  },
+  // Enable sending user PII (Personally Identifiable Information)
+  // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
+  sendDefaultPii: true,
 });

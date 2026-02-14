@@ -725,6 +725,12 @@ class PipelineOrchestrator:
     async def _stage_analysis(self, ctx: PipelineContext, mode: str) -> Dict[str, Any]:
         """Stage 5: AI 분석"""
         stage_start = time.time()
+
+        # Feature Flag: FieldBasedAnalyst 사용 여부
+        if self.feature_flags.use_field_based_analyst:
+            return await self._stage_field_based_analysis(ctx, mode, stage_start)
+
+        # 기존 AnalystAgent 사용
         ctx.start_stage("analysis", "analyst_agent")
 
         try:
@@ -796,6 +802,205 @@ class PipelineOrchestrator:
         except Exception as e:
             ctx.fail_stage("analysis", str(e))
             return {"success": False, "error": str(e)}
+
+    async def _stage_field_based_analysis(
+        self,
+        ctx: PipelineContext,
+        mode: str,
+        stage_start: float
+    ) -> Dict[str, Any]:
+        """
+        Stage 5 (Alternative): Field-Based Analyst를 사용한 분석
+
+        6개의 전문 Extractor로 병렬 추출 후 합의 도출
+        """
+        ctx.start_stage("analysis", "field_based_analyst")
+
+        try:
+            from services.llm_manager import LLMProvider
+
+            field_analyst = self._get_field_based_analyst()
+            if not field_analyst:
+                logger.warning("[Orchestrator] FieldBasedAnalyst not available, falling back to AnalystAgent")
+                ctx.complete_stage("analysis", {"fallback": True})
+                # Fallback to standard analysis
+                return await self._stage_analysis_fallback(ctx, mode, stage_start)
+
+            # 마스킹된 텍스트 사용 (PII 보호)
+            text = ctx.get_text_for_llm()
+            filename = ctx.raw_input.filename
+
+            # Provider 설정
+            providers = [LLMProvider.OPENAI, LLMProvider.GEMINI]
+            if self.feature_flags.field_analyst_providers:
+                providers = [
+                    LLMProvider(p) for p in self.feature_flags.field_analyst_providers
+                    if p in [e.value for e in LLMProvider]
+                ]
+
+            # 교차검증 활성화 여부
+            enable_cross_validation = not self.feature_flags.use_conditional_cross_validation
+
+            result = await field_analyst.analyze(
+                text=text,
+                filename=filename,
+                enable_cross_validation=enable_cross_validation,
+                providers=providers
+            )
+
+            if not result.success:
+                error = result.error or "Field-Based 분석 실패"
+                ctx.fail_stage("analysis", error, "FIELD_ANALYSIS_FAILED")
+                return {"success": False, "error": error}
+
+            # T3-2: LLM 사용량 기록
+            total_tokens = result.total_input_tokens + result.total_output_tokens
+            ctx.record_llm_call("field_analysis", total_tokens)
+
+            # 분석 결과를 제안으로 변환
+            self._process_field_based_result(ctx, result)
+
+            ctx.complete_stage("analysis", {
+                "confidence_score": result.overall_confidence,
+                "warning_count": len(result.warnings),
+                "mode": "field_based",
+                "total_input_tokens": result.total_input_tokens,
+                "total_output_tokens": result.total_output_tokens,
+                "providers_used": result.providers_used,
+                "extractors_used": result.extractors_used,
+                "cross_validation": result.cross_validation_performed,
+                "quality_gate_passed": result.quality_gate_passed,
+            })
+
+            # 스테이지 메트릭 기록
+            stage_duration = int((time.time() - stage_start) * 1000)
+            metrics_collector = _get_metrics_collector()
+            if metrics_collector:
+                metrics_collector.record_stage(ctx.metadata.pipeline_id, "analysis", stage_duration)
+
+                for provider in result.providers_used:
+                    tokens_per_provider = (
+                        result.total_input_tokens // max(1, len(result.providers_used)),
+                        result.total_output_tokens // max(1, len(result.providers_used))
+                    )
+                    metrics_collector.record_llm_call(
+                        ctx.metadata.pipeline_id,
+                        provider,
+                        "gpt-4o" if provider == "openai" else provider,
+                        tokens_input=tokens_per_provider[0],
+                        tokens_output=tokens_per_provider[1],
+                    )
+
+            logger.info(
+                f"[Orchestrator] Field-Based Analysis complete: "
+                f"confidence={result.overall_confidence:.2f}, "
+                f"extractors={len(result.extractors_used)}, "
+                f"cross_val={result.cross_validation_performed}, "
+                f"tokens_in={result.total_input_tokens}, tokens_out={result.total_output_tokens}"
+            )
+
+            return {
+                "success": True,
+                "result": result,
+                "total_input_tokens": result.total_input_tokens,
+                "total_output_tokens": result.total_output_tokens,
+            }
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] Field-Based Analysis error: {e}", exc_info=True)
+            ctx.fail_stage("analysis", str(e))
+            return {"success": False, "error": str(e)}
+
+    async def _stage_analysis_fallback(
+        self,
+        ctx: PipelineContext,
+        mode: str,
+        stage_start: float
+    ) -> Dict[str, Any]:
+        """FieldBasedAnalyst 사용 불가 시 기존 AnalystAgent로 Fallback"""
+        from agents.analyst_agent import get_analyst_agent
+        from config import AnalysisMode
+
+        text = ctx.get_text_for_llm()
+        filename = ctx.raw_input.filename
+        analysis_mode = AnalysisMode.PHASE_2 if mode == "phase_2" else AnalysisMode.PHASE_1
+
+        analyst = get_analyst_agent()
+        result = await analyst.analyze(
+            resume_text=text,
+            mode=analysis_mode,
+            filename=filename
+        )
+
+        if not result.success or not result.data:
+            error = result.error or "분석 실패"
+            return {"success": False, "error": error}
+
+        self._process_analysis_result(ctx, result)
+
+        return {
+            "success": True,
+            "result": result,
+            "total_input_tokens": result.total_input_tokens,
+            "total_output_tokens": result.total_output_tokens,
+        }
+
+    def _process_field_based_result(self, ctx: PipelineContext, result):
+        """
+        FieldBasedAnalyst 결과를 PipelineContext 제안으로 변환
+        """
+        data = result.data
+        field_confidence = result.confidence_map
+
+        # 모든 필드 제안
+        for field_name, value in data.items():
+            if value is None:
+                continue
+
+            confidence = field_confidence.get(field_name, 0.7)
+
+            # 증거 추가
+            if self.feature_flags.use_evidence_tracking:
+                ctx.add_evidence(
+                    field_name=field_name,
+                    value=value,
+                    llm_provider="field_based_analyst",
+                    confidence=confidence,
+                    reasoning="Field-Based Analyst 추출"
+                )
+
+            # 제안 추가
+            if isinstance(value, list):
+                ctx.propose(
+                    "field_based_analyst", field_name,
+                    value,
+                    confidence,
+                    f"Field-Based 추출 ({len(value)}개)"
+                )
+            else:
+                ctx.propose(
+                    "field_based_analyst", field_name,
+                    value,
+                    confidence,
+                    "Field-Based 추출"
+                )
+
+        # 경고 변환
+        for warning in result.warnings:
+            ctx.warning_collector.add(
+                "FIELD_ANALYST_WARNING",
+                warning if isinstance(warning, str) else str(warning),
+                severity="info"
+            )
+
+        # 품질 경고 추가
+        for quality_warning in result.quality_warnings:
+            ctx.warning_collector.add(
+                "QUALITY_WARNING",
+                quality_warning,
+                severity="warning",
+                user_visible=True
+            )
 
     def _process_analysis_result(self, ctx: PipelineContext, result):
         """분석 결과를 PipelineContext 제안으로 변환"""
