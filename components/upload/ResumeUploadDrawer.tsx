@@ -224,18 +224,8 @@ export default function ResumeUploadDrawer({ isOpen, onClose }: ResumeUploadDraw
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
 
-      const { data: { user: clientUser } } = await supabase.auth.getUser();
-
-      if (!clientUser) {
-        throw new Error("로그인 세션이 만료되었습니다. 페이지를 새로고침하고 다시 로그인해주세요.");
-      }
-
-      const pathParts = presign.storagePath.split('/');
-      const pathUserId = pathParts[1];
-
-      if (pathUserId !== clientUser.id) {
-        throw new Error("세션 정보가 일치하지 않습니다. 페이지를 새로고침하고 다시 시도해주세요.");
-      }
+      // Storage RLS가 인증을 확인하므로 클라이언트 측 user 체크 불필요
+      // Presign API에서 이미 서버 측 인증 완료됨
 
       const { error: uploadError } = await supabase.storage
         .from("resumes")

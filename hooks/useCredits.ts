@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiResponse, type PlanType } from "@/types";
 
 interface CreditsData {
+  email: string;             // 사용자 이메일
   credits: number;           // 추가 구매 크레딧
   creditsUsedThisMonth: number;
   plan: PlanType;

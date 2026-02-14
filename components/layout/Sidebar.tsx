@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Users, BarChart3, Settings, Briefcase, LogOut, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,21 +21,13 @@ const NAV_ITEMS = [
 export default function Sidebar() {
     const pathname = usePathname();
     const router = useRouter();
-    const [userEmail, setUserEmail] = useState<string>("");
     const { data: creditsData } = useCredits();
-    const supabase = createClient();
 
-    useEffect(() => {
-        const fetchUserEmail = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user?.email) {
-                setUserEmail(user.email);
-            }
-        };
-        fetchUserEmail();
-    }, [supabase.auth]);
+    // 이메일은 useCredits에서 가져옴 (서버 측 인증 기반)
+    const userEmail = creditsData?.email || "";
 
     const handleLogout = async () => {
+        const supabase = createClient();
         await supabase.auth.signOut();
         router.push("/?logged_out=true");
     };
