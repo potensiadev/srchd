@@ -109,7 +109,10 @@ srchd/
 │       │   ├── privacy_agent.py  # AES-256-GCM 암호화, PII 마스킹
 │       │   ├── visual_agent.py   # 증명사진 추출 (OpenCV), 포트폴리오 캡처
 │       │   ├── identity_checker.py # 다중 인물 감지
-│       │   └── validation_agent.py # 유효성 검증
+│       │   ├── validation_agent.py # 유효성 검증
+│       │   ├── document_classifier.py # [Phase 1] 이력서 vs 비이력서 분류
+│       │   ├── coverage_calculator.py # [Phase 1] 필드 완성도 점수 산출
+│       │   └── gap_filler_agent.py    # [Phase 1] 빈 필드 타겟 재추출
 │       ├── orchestrator/         # 파이프라인 오케스트레이션
 │       │   ├── pipeline_orchestrator.py # 9단계 파이프라인 실행
 │       │   ├── feature_flags.py  # Feature Flag 관리
@@ -134,6 +137,7 @@ srchd/
 │       │   ├── docx_parser.py    # DOCX 파싱 (python-docx)
 │       │   └── ...               # 경력 계산, 날짜 파서, URL 추출 등
 │       ├── schemas/              # Pydantic 스키마
+│       │   └── phase1_types.py   # [Phase 1] 공통 타입 정의
 │       ├── tasks.py              # RQ 태스크 정의
 │       └── main.py               # FastAPI 엔트리포인트
 ├── components/                   # React 컴포넌트
@@ -179,12 +183,17 @@ srchd/
 
 ### 4.1. 업로드 → AI 분석 파이프라인
 
-### Multi-Agent Pipeline (Current vs Phase 1 [PLANNED])
+### Multi-Agent Pipeline
 
 | 구분 | 구성 | 비고 |
 |------|------|------|
-| Current (구현) | RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent | 총 6개 |
-| Phase 1 [PLANNED] | CoverageCalculator, GapFillerAgent, ResumeIntentGuard | +3개 예정 |
+| Core (6개) | RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent | 운영 중 |
+| Phase 1 (3개) | DocumentClassifier, CoverageCalculator, GapFillerAgent | ✅ 구현 완료 (Feature Flag 비활성) |
+
+**Phase 1 에이전트 (Feature Flag로 활성화)**:
+- `DocumentClassifier`: 이력서 vs 비이력서 분류 (LLM 0-1회)
+- `CoverageCalculator`: 필드 완성도 점수 산출 (LLM 0회)
+- `GapFillerAgent`: 빈 필드 타겟 재추출 (LLM 0-2회)
 
 **Unified Context Rule:** 모든 agent/orchestrator/sub-agent는 `document_type=resume`와 공통 `resume_id`를 공유해야 하며, field-level evidence를 함께 전달해야 한다.
 
@@ -193,10 +202,15 @@ srchd/
   → Redis Queue → Python Worker 수신
     → RouterAgent (파일 타입, DRM, 페이지 수 검증)
     → Parser (HWP 3-Stage / PDF / DOCX)
+    → [DocumentClassifier] (이력서 vs 비이력서, Feature Flag)
+    → IdentityChecker (다중 인물 감지)
     → AnalystAgent (GPT-4o + Gemini Cross-Check)
+    → ValidationAgent (유효성 검증)
+    → [CoverageCalculator] (필드 완성도, Feature Flag)
+    → [GapFillerAgent] (빈 필드 재추출, Feature Flag)
     → PrivacyAgent (PII 마스킹, AES-256-GCM 암호화)
-    → VisualAgent (증명사진 추출, 포트폴리오 캡처)
     → EmbeddingService (청킹 + 벡터 생성)
+    → VisualAgent (증명사진 추출, 포트폴리오 캡처)
     → DB 저장 → Webhook 알림 → 프론트엔드 업데이트
 ```
 
@@ -349,11 +363,15 @@ pnpm e2e            # Playwright E2E 테스트
 6. **package.json 이름**: `temp_app`으로 되어 있음 → `srchd` 또는 `rai`로 변경 권장
 7. **한컴 API**: 코드 구현 완료되었으나 API 키 미설정 상태 (환경변수 설정 시 자동 활성화)
 
-### Phase 1 계획 에이전트 (TIER 4 - 피드백 기반)
-> 아래 에이전트들은 설계 완료되었으나 **Beta 피드백 수집 후** 구현 예정
+### Phase 1 에이전트 (구현 완료, Feature Flag 비활성)
+> 아래 에이전트들은 **구현 완료**되었으며, Feature Flag로 활성화 가능
 
-8. **DocumentClassifier (ResumeIntentGuard)**: 이력서 vs 비이력서 분류 → 비이력서 업로드 >5% 시 구현
-9. **CoverageCalculator**: 필드 완성도 점수 + missing_reason 추적 → 필드 누락 불만 10건+ 시 구현
-10. **GapFillerAgent**: 빈 필드 타겟 재추출 (최대 2회) → CoverageCalculator와 함께 구현
+8. **DocumentClassifier**: 이력서 vs 비이력서 분류 (`USE_DOCUMENT_CLASSIFIER=true`)
+9. **CoverageCalculator**: 필드 완성도 점수 + missing_reason 추적 (`USE_COVERAGE_CALCULATOR=true`)
+10. **GapFillerAgent**: 빈 필드 타겟 재추출 (최대 2회) (`USE_GAP_FILLER=true`)
+
+**활성화 조건** (Beta 피드백 기반):
+- 비이력서 업로드 >5% → DocumentClassifier 활성화
+- 필드 누락 불만 10건+ → CoverageCalculator + GapFiller 활성화
 
 상세 설계: `docs/architecture/PHASE1_DEVELOPMENT_REQUIREMENTS.md`

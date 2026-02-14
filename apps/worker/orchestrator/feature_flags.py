@@ -44,6 +44,19 @@ class FeatureFlags:
     # 디버그 모드 (상세 로깅)
     debug_pipeline: bool = False
 
+    # Phase 1 신규 플래그
+    use_document_classifier: bool = False    # DocumentClassifier 활성화
+    use_coverage_calculator: bool = False    # CoverageCalculator 활성화
+    use_gap_filler: bool = False             # GapFillerAgent 활성화
+
+    # GapFiller 설정
+    gap_filler_max_retries: int = 2          # 필드당 최대 재시도 횟수
+    gap_filler_timeout: int = 5              # 필드당 타임아웃 (초)
+    coverage_threshold: float = 0.85         # 이상이면 GapFiller 스킵
+
+    # DocumentClassifier 설정
+    document_classifier_confidence_threshold: float = 0.7  # LLM fallback 임계값
+
     def __post_init__(self):
         if self.new_pipeline_user_ids is None:
             self.new_pipeline_user_ids = []
@@ -80,6 +93,14 @@ class FeatureFlags:
             new_pipeline_rollout_percentage=parse_float("NEW_PIPELINE_ROLLOUT_PERCENTAGE", 0.0),
             new_pipeline_user_ids=parse_list("NEW_PIPELINE_USER_IDS"),
             debug_pipeline=parse_bool("DEBUG_PIPELINE", False),
+            # Phase 1 플래그
+            use_document_classifier=parse_bool("USE_DOCUMENT_CLASSIFIER", False),
+            use_coverage_calculator=parse_bool("USE_COVERAGE_CALCULATOR", False),
+            use_gap_filler=parse_bool("USE_GAP_FILLER", False),
+            gap_filler_max_retries=int(parse_float("GAP_FILLER_MAX_RETRIES", 2)),
+            gap_filler_timeout=int(parse_float("GAP_FILLER_TIMEOUT", 5)),
+            coverage_threshold=parse_float("COVERAGE_THRESHOLD", 0.85),
+            document_classifier_confidence_threshold=parse_float("DOCUMENT_CLASSIFIER_CONFIDENCE_THRESHOLD", 0.7),
         )
 
     def should_use_new_pipeline(self, user_id: str = None, job_id: str = None) -> bool:
@@ -134,6 +155,12 @@ class FeatureFlags:
         logger.info(f"  - new_pipeline_rollout_percentage: {self.new_pipeline_rollout_percentage}")
         logger.info(f"  - new_pipeline_user_ids: {len(self.new_pipeline_user_ids)} users")
         logger.info(f"  - debug_pipeline: {self.debug_pipeline}")
+        # Phase 1 플래그
+        logger.info(f"  [Phase 1]")
+        logger.info(f"  - use_document_classifier: {self.use_document_classifier}")
+        logger.info(f"  - use_coverage_calculator: {self.use_coverage_calculator}")
+        logger.info(f"  - use_gap_filler: {self.use_gap_filler}")
+        logger.info(f"  - coverage_threshold: {self.coverage_threshold}")
 
 
 # 싱글톤 인스턴스
