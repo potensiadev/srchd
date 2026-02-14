@@ -1,7 +1,7 @@
 # CLAUDE.md — 서치드(srchd) 프로젝트 컨텍스트
 
 > 이 파일은 AI 어시스턴트가 코드베이스를 이해하기 위한 **프로젝트 컨텍스트 문서**입니다.
-> 마지막 업데이트: 2026-02-14
+> 마지막 업데이트: 2026-02-14 (온보딩 제외, TIER 3 완료, Sentry/Paddle 설정 완료)
 
 ---
 
@@ -39,9 +39,12 @@
 프리랜서/소규모 헤드헌팅 에이전시 서치펌 (한국 시장)
 
 ### 현재 단계
-- **Phase 1 (Core MVP)**: 95% 완료 — Closed Beta 진행 중
-- **결제(Paddle) Webhook**: 미구현 (Phase 1 잔여 작업)
-- **Phase 2 (Premium)**: 계획 단계 (Sales Radar, 공고-후보자 매칭, Team CRM)
+- **Phase 1 (Core MVP)**: 98% 완료 — MVP 런칭 준비 중
+- **결제(Paddle)**: Sandbox 설정 완료, 통합 테스트 대기
+- **에러 모니터링**: Sentry DSN 설정 완료 (Frontend + Worker)
+- **이메일 알림**: 결제 이메일 완료, 분석 이메일 대기
+- **온보딩**: Phase 2로 이동
+- **Phase 2 (Premium)**: 계획 단계 (온보딩, Sales Radar, 공고-후보자 매칭, Team CRM)
 
 ---
 
@@ -59,9 +62,9 @@
 | **File Storage** | Supabase Storage (S3 호환) | |
 | **AI — 분석** | OpenAI GPT-4o (Primary), Gemini 2.0 Flash (Secondary), Claude 3.5 Sonnet (Tertiary) | |
 | **AI — 임베딩** | text-embedding-3-small (1536 dim) | |
-| **결제** | Paddle (Sandbox) | Webhook 미구현 |
+| **결제** | Paddle (Sandbox) | 설정 완료, 통합 테스트 대기 |
 | **Hosting** | Vercel (Frontend), Railway (Worker), Supabase Cloud | 리전: ICN (서울) |
-| **Monitoring** | Sentry | |
+| **Monitoring** | Sentry | DSN 설정 완료 |
 | **Testing** | Vitest (Unit), Playwright (E2E) | |
 
 ---
@@ -353,9 +356,9 @@ pnpm e2e            # Playwright E2E 테스트
 ## 10. 알려진 이슈 & 주의사항
 
 ### 운영 이슈 (TIER 0-1)
-1. **Paddle Webhook 미구현**: 결제 완료 후 구독 상태 동기화 불가
-2. **이메일 알림 미구현**: 분석 완료/실패 시 사용자에게 알림 불가
-3. **Sentry 미연동**: 장애 인지 및 모니터링 불가
+1. ~~**Paddle Webhook 미구현**~~: ✅ Sandbox 설정 완료, 통합 테스트 대기 (T0-2)
+2. **이메일 알림 부분 구현**: 결제 이메일 완료 (E-10/E-11/E-12), 분석 이메일 대기 (T1-1, T1-2, T1-3)
+3. ~~**Sentry 미연동**~~: ✅ DSN 설정 완료 (Frontend + Worker), Slack 알림 대기 (T1-5)
 
 ### 기술 이슈
 4. **가격 불일치**: `types/auth.ts`와 `lib/paddle/config.ts`의 플랜 가격이 다름 → 통일 필요
