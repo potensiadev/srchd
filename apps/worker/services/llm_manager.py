@@ -116,11 +116,11 @@ class LLMManager:
         else:
             logger.warning("[LLMManager] ⚠️ ANTHROPIC_API_KEY 없음")
 
-        # 기본 모델 설정
+        # 기본 모델 설정 - config에서 가져옴 (BUG-004 수정)
         self.models = {
-            LLMProvider.OPENAI: "gpt-4o",
-            LLMProvider.GEMINI: "gemini-2.0-flash",  # 최신 google-genai SDK 모델명
-            LLMProvider.CLAUDE: "claude-3-5-sonnet-20241022",
+            LLMProvider.OPENAI: settings.OPENAI_MODEL,
+            LLMProvider.GEMINI: settings.GEMINI_MODEL,
+            LLMProvider.CLAUDE: settings.ANTHROPIC_MODEL,
         }
 
         available = self.get_available_providers()

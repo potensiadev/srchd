@@ -51,6 +51,10 @@ class AnalysisResult:
     processing_time_ms: int = 0
     mode: AnalysisMode = AnalysisMode.PHASE_1
     error: Optional[str] = None
+    # 🟡 실제 토큰 사용량
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    providers_used: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -61,7 +65,10 @@ class AnalysisResult:
             "warnings": [w.to_dict() for w in self.warnings],
             "processing_time_ms": self.processing_time_ms,
             "mode": self.mode.value,
-            "error": self.error
+            "error": self.error,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "providers_used": self.providers_used,
         }
 
 
@@ -147,14 +154,18 @@ class AnalystAgent:
             else:
                 # Fallback to original parallel calling
                 result = await self._parallel_llm_call(messages, analysis_mode)
-            
-            merged_data, confidence, warnings = result
+
+            # 🟡 토큰 사용량 포함된 반환값 처리
+            merged_data, confidence, warnings, token_usage, providers_used = result
 
             if not merged_data:
                 raise Exception("All LLM providers failed to extract data")
 
             processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
-            logger.info(f"[AnalystAgent] Completed in {processing_time}ms. Confidence: {confidence:.2f}")
+            logger.info(
+                f"[AnalystAgent] Completed in {processing_time}ms. Confidence: {confidence:.2f}, "
+                f"Tokens: in={token_usage.get('input', 0)}, out={token_usage.get('output', 0)}"
+            )
 
             return AnalysisResult(
                 success=True,
@@ -162,7 +173,10 @@ class AnalystAgent:
                 confidence_score=confidence,
                 warnings=warnings,
                 processing_time_ms=processing_time,
-                mode=analysis_mode
+                mode=analysis_mode,
+                total_input_tokens=token_usage.get("input", 0),
+                total_output_tokens=token_usage.get("output", 0),
+                providers_used=providers_used,
             )
 
         except Exception as e:
@@ -180,85 +194,97 @@ class AnalystAgent:
         self,
         messages: List[Dict[str, str]],
         analysis_mode: AnalysisMode
-    ) -> tuple[Dict[str, Any], float, List[Warning]]:
+    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str]]:
         """
         Progressive LLM calling for cost optimization.
-        
+
         Step 1: GPT-4o alone
         Step 2: + Gemini if needed
         Step 3: + Claude for Phase 2 deep verification
+
+        Returns:
+            tuple: (merged_data, confidence, warnings, token_usage, providers_used)
         """
         warnings = []
-        
+        all_responses = {}  # 🟡 토큰 추적을 위해 모든 응답 저장
+
         # ─────────────────────────────────────────────────────────────────
         # Step 1: Primary model (GPT-4o)
         # ─────────────────────────────────────────────────────────────────
         logger.info("[AnalystAgent] Step 1: Calling primary model (GPT-4o)")
         primary_response = await self._call_single_llm(LLMProvider.OPENAI, messages)
-        
+        all_responses[LLMProvider.OPENAI] = primary_response
+
         if not primary_response.success:
             # Fallback: try Gemini as primary
             logger.warning("[AnalystAgent] GPT-4o failed, trying Gemini as fallback")
             primary_response = await self._call_single_llm(LLMProvider.GEMINI, messages)
-            
+            all_responses[LLMProvider.GEMINI] = primary_response
+
             if not primary_response.success:
-                return {}, 0.0, [Warning("critical", "all", "All primary models failed")]
-        
+                token_usage, providers_used = self._collect_token_usage(all_responses)
+                return {}, 0.0, [Warning("critical", "all", "All primary models failed")], token_usage, providers_used
+
         # Evaluate first response
         confidence, missing_fields = self._evaluate_first_response(primary_response)
         logger.info(
             f"[AnalystAgent] Primary result - Confidence: {confidence:.2f}, "
             f"Missing fields: {missing_fields}"
         )
-        
+
         # Check if single model is sufficient
         if confidence >= self.confidence_threshold and not missing_fields:
             logger.info("[AnalystAgent] ✓ Single model sufficient - skipping cross-check")
             self._single_model_count += 1
             self._log_call_ratio()
             warnings.append(Warning(
-                "optimization", "llm_calls", 
+                "optimization", "llm_calls",
                 "Single model result accepted (high confidence)",
                 "info"
             ))
-            return primary_response.content, confidence, warnings
-        
+            token_usage, providers_used = self._collect_token_usage(all_responses)
+            return primary_response.content, confidence, warnings, token_usage, providers_used
+
         # ─────────────────────────────────────────────────────────────────
         # Step 2: Secondary model (Gemini) for cross-check
         # ─────────────────────────────────────────────────────────────────
         logger.info("[AnalystAgent] Step 2: Calling secondary model (Gemini) for cross-check")
         secondary_response = await self._call_single_llm(LLMProvider.GEMINI, messages)
-        
+        all_responses[LLMProvider.GEMINI] = secondary_response
+
         responses = {LLMProvider.OPENAI: primary_response}
         if secondary_response.success:
             responses[LLMProvider.GEMINI] = secondary_response
-        
-        merged_data, merged_confidence, merge_warnings = self._merge_responses(responses)
+
+        merged_data, merged_confidence, merge_warnings, _, _ = self._merge_responses(responses)
         warnings.extend(merge_warnings)
-        
+
         # Check if 2-way is sufficient
         if merged_confidence >= self.confidence_threshold:
             logger.info("[AnalystAgent] ✓ 2-way cross-check sufficient")
             self._multi_model_count += 1
             self._log_call_ratio()
-            return merged_data, merged_confidence, warnings
-        
+            token_usage, providers_used = self._collect_token_usage(all_responses)
+            return merged_data, merged_confidence, warnings, token_usage, providers_used
+
         # ─────────────────────────────────────────────────────────────────
         # Step 3: Phase 2 only - Claude deep verification
         # ─────────────────────────────────────────────────────────────────
         if analysis_mode == AnalysisMode.PHASE_2:
             logger.info("[AnalystAgent] Step 3: Calling Claude for deep verification (Phase 2)")
             claude_response = await self._call_single_llm(LLMProvider.CLAUDE, messages)
-            
+            all_responses[LLMProvider.CLAUDE] = claude_response
+
             if claude_response.success:
                 responses[LLMProvider.CLAUDE] = claude_response
-                merged_data, merged_confidence, merge_warnings = self._merge_responses(responses)
+                merged_data, merged_confidence, merge_warnings, _, _ = self._merge_responses(responses)
                 warnings = [w for w in warnings if w.type != "mismatch"]  # Re-evaluate mismatches
                 warnings.extend(merge_warnings)
-        
+
         self._multi_model_count += 1
         self._log_call_ratio()
-        return merged_data, merged_confidence, warnings
+        token_usage, providers_used = self._collect_token_usage(all_responses)
+        return merged_data, merged_confidence, warnings, token_usage, providers_used
     
     def _log_call_ratio(self):
         """
@@ -274,14 +300,44 @@ class AnalystAgent:
                 f"total={total}"
             )
 
+    def _collect_token_usage(
+        self,
+        responses: Dict[LLMProvider, LLMResponse]
+    ) -> tuple[Dict[str, int], List[str]]:
+        """
+        🟡 모든 LLM 응답에서 토큰 사용량 수집
+
+        Args:
+            responses: LLM 응답 딕셔너리
+
+        Returns:
+            tuple: (token_usage, providers_used)
+            - token_usage: {"input": total_input, "output": total_output}
+            - providers_used: 사용된 프로바이더 이름 목록
+        """
+        total_input = 0
+        total_output = 0
+        providers_used = []
+
+        for provider, response in responses.items():
+            providers_used.append(provider.value)
+            if response.usage:
+                total_input += response.usage.get("prompt_tokens", 0)
+                total_output += response.usage.get("completion_tokens", 0)
+
+        return {"input": total_input, "output": total_output}, providers_used
+
     async def _parallel_llm_call(
         self,
         messages: List[Dict[str, str]],
         analysis_mode: AnalysisMode
-    ) -> tuple[Dict[str, Any], float, List[Warning]]:
+    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str]]:
         """
         Parallel LLM calling for speed optimization.
         GPT-4o + Gemini (+ Claude for Phase 2) 동시 호출
+
+        Returns:
+            tuple: (merged_data, confidence, warnings, token_usage, providers_used)
         """
         providers = self._get_providers(analysis_mode)
         logger.info(f"[AnalystAgent] Parallel calling {len(providers)} providers: {[p.value for p in providers]}")
@@ -369,7 +425,7 @@ class AnalystAgent:
             confidence += 0.05
         if data.get("skills") and len(data.get("skills", [])) > 0:
             confidence += 0.05
-        if data.get("education") and len(data.get("education", [])) > 0:
+        if data.get("educations") and len(data.get("educations", [])) > 0:
             confidence += 0.05
         if data.get("match_reason") and len(str(data.get("match_reason"))) > 10:
             confidence += 0.05
@@ -525,13 +581,19 @@ Return valid JSON only."""
     def _merge_responses(
         self,
         responses: Dict[LLMProvider, LLMResponse]
-    ) -> tuple[Dict[str, Any], float, List[Warning]]:
+    ) -> tuple[Dict[str, Any], float, List[Warning], Dict[str, int], List[str]]:
         """
         Merge responses with cross-check on critical fields.
 
         2-Way (Phase 1): OpenAI + Gemini 교차 검증
         3-Way (Phase 2): OpenAI + Gemini + Claude 다수결 검증 (Pro plan)
+
+        Returns:
+            tuple: (merged_data, confidence, warnings, token_usage, providers_used)
         """
+        # 🟡 토큰 사용량 수집
+        token_usage, providers_used = self._collect_token_usage(responses)
+
         warnings_precheck = []
 
         # 타임아웃 에러 감지 및 경고 추가
@@ -558,11 +620,11 @@ Return valid JSON only."""
         valid_responses = [r for r in responses.values() if r.success and r.content]
 
         if not valid_responses:
-            return {}, 0.0, warnings_precheck + [Warning("critical", "all", "All LLM providers failed")]
+            return {}, 0.0, warnings_precheck + [Warning("critical", "all", "All LLM providers failed")], token_usage, providers_used
 
         # If only one response, use it
         if len(valid_responses) == 1:
-            return valid_responses[0].content, 0.7, warnings_precheck + [Warning("info", "cross_check", "Only one provider available")]
+            return valid_responses[0].content, 0.7, warnings_precheck + [Warning("info", "cross_check", "Only one provider available")], token_usage, providers_used
 
         # Get all provider responses
         openai_data = responses.get(LLMProvider.OPENAI)
@@ -577,7 +639,7 @@ Return valid JSON only."""
         elif claude_data and claude_data.success:
             base_data = claude_data.content.copy()
         else:
-            return {}, 0.0, [Warning("critical", "all", "No valid responses")]
+            return {}, 0.0, [Warning("critical", "all", "No valid responses")], token_usage, providers_used
 
         warnings = []
         confidence_sum = 0
@@ -667,7 +729,7 @@ Return valid JSON only."""
 
         avg_confidence = confidence_sum / max(1, field_count) if field_count > 0 else 0.8
 
-        return base_data, avg_confidence, warnings_precheck + warnings
+        return base_data, avg_confidence, warnings_precheck + warnings, token_usage, providers_used
 
 
 # Singleton

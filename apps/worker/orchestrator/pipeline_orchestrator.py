@@ -58,6 +58,26 @@ class OrchestratorResult:
     coverage_score: float = 0.0
     gap_fill_count: int = 0
 
+    # 품질 플래그 (BUG-003: fail-open 추적)
+    quality_flags: Dict[str, bool] = field(default_factory=dict)
+    # 가능한 플래그:
+    # - classification_failed: 문서 분류 실패
+    # - classification_retried: 분류 재시도 수행됨
+    # - identity_check_failed: 신원 확인 실패
+    # - identity_check_retried: 신원 확인 재시도 수행됨
+    # - coverage_calc_failed: 커버리지 계산 실패
+    # - gap_fill_failed: 갭 필링 실패
+    # - low_confidence: confidence < 0.7
+    # - quality_gate_warning: 품질 게이트 경고 (낮은 커버리지)
+
+    # 🟡 품질 게이트 상태
+    completed_with_warnings: bool = False  # True면 품질 조건 미달 (커버리지 < 최소값)
+    quality_gate_passed: bool = True       # 품질 게이트 통과 여부
+
+    # 🟡 실제 토큰 사용량
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+
     # 디버그 정보
     context_summary: Optional[Dict[str, Any]] = None
 
@@ -81,6 +101,11 @@ class OrchestratorResult:
             "doc_classification_confidence": self.doc_classification_confidence,
             "coverage_score": self.coverage_score,
             "gap_fill_count": self.gap_fill_count,
+            "quality_flags": self.quality_flags,
+            "completed_with_warnings": self.completed_with_warnings,
+            "quality_gate_passed": self.quality_gate_passed,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
         }
 
 
@@ -249,6 +274,9 @@ class PipelineOrchestrator:
             # Stage 6.6: 갭 필링 (Phase 1)
             gap_fill_result = await self._stage_gap_filling(ctx, coverage_result)
 
+            # 🟡 품질 게이트 체크
+            quality_gate_result = self._check_quality_gate(coverage_result, ctx)
+
             # Stage 7: PII 마스킹 + 암호화
             privacy_result = await self._stage_privacy(ctx)
 
@@ -282,6 +310,34 @@ class PipelineOrchestrator:
                 f"candidate={save_result['candidate_id']}, time={processing_time}ms"
             )
 
+            # 품질 플래그 수집 (BUG-003: fail-open 추적)
+            quality_flags = {}
+            if classification_result.get("quality_flag"):
+                flag = classification_result["quality_flag"]
+                quality_flags[flag] = True
+            if identity_result.get("quality_flag"):
+                flag = identity_result["quality_flag"]
+                quality_flags[flag] = True
+            if coverage_result.get("quality_flag"):
+                quality_flags["coverage_calc_failed"] = True
+            if gap_fill_result.get("quality_flag"):
+                quality_flags["gap_fill_failed"] = True
+            if final_result["confidence"] < 0.7:
+                quality_flags["low_confidence"] = True
+            # 🟡 품질 게이트 경고
+            if quality_gate_result.get("quality_flag"):
+                quality_flags["quality_gate_warning"] = True
+
+            # 품질 저하 시 로깅
+            if quality_flags:
+                logger.warning(
+                    f"[Orchestrator] Quality flags detected: {list(quality_flags.keys())}"
+                )
+
+            # 🟡 품질 게이트 결과 반영
+            completed_with_warnings = not quality_gate_result.get("passed", True)
+            quality_gate_passed = quality_gate_result.get("passed", True)
+
             return OrchestratorResult(
                 success=True,
                 candidate_id=save_result["candidate_id"],
@@ -299,6 +355,12 @@ class PipelineOrchestrator:
                 doc_classification_confidence=classification_result.get("confidence", 0.0),
                 coverage_score=coverage_result.get("coverage_score", 0.0),
                 gap_fill_count=gap_fill_result.get("filled_count", 0),
+                quality_flags=quality_flags,
+                completed_with_warnings=completed_with_warnings,
+                quality_gate_passed=quality_gate_passed,
+                # 🟡 실제 토큰 사용량
+                total_input_tokens=analysis_result.get("total_input_tokens", 0),
+                total_output_tokens=analysis_result.get("total_output_tokens", 0),
                 context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
             )
 
@@ -413,6 +475,7 @@ class PipelineOrchestrator:
         Stage 2.5: 문서 분류 (Phase 1)
 
         이력서 vs 비이력서 분류 후 비이력서는 거부합니다.
+        🟡 조건부 fail-closed: 분류 실패 시 재시도 후 확정
         """
         if not self.feature_flags.use_document_classifier:
             logger.debug("[Orchestrator] Document classification disabled")
@@ -420,60 +483,114 @@ class PipelineOrchestrator:
 
         ctx.start_stage("document_classification", "document_classifier")
 
-        try:
-            classifier = self._get_document_classifier()
-            if not classifier:
-                ctx.complete_stage("document_classification", {"skipped": True})
-                return {"success": True, "document_kind": "resume", "confidence": 1.0}
+        max_attempts = 1 + (
+            self.feature_flags.max_classification_retries
+            if self.feature_flags.enable_classification_retry else 0
+        )
+        last_error = None
+        retried = False
 
-            text = ctx.parsed_data.raw_text
-            filename = ctx.raw_input.filename
+        for attempt in range(max_attempts):
+            try:
+                classifier = self._get_document_classifier()
+                if not classifier:
+                    ctx.complete_stage("document_classification", {"skipped": True})
+                    return {"success": True, "document_kind": "resume", "confidence": 1.0}
 
-            result = await classifier.classify(text, filename)
+                text = ctx.parsed_data.raw_text
+                filename = ctx.raw_input.filename
 
-            ctx.complete_stage("document_classification", {
-                "document_kind": result.document_kind.value,
-                "confidence": result.confidence,
-                "non_resume_type": result.non_resume_type.value if result.non_resume_type else None,
-                "signals_found": len(result.signals_found),
-                "used_llm": result.used_llm,
-            })
-
-            # 이력서가 아닌 경우 거부
-            if result.should_reject:
-                error_msg = f"이력서가 아닙니다: {result.rejection_reason}"
-                ctx.warning_collector.add(
-                    "NOT_RESUME",
-                    error_msg,
-                    severity="error"
+                # 재시도 시 LLM fallback 강제 (confidence_threshold를 0으로 설정)
+                confidence_threshold = (
+                    0.0 if attempt > 0
+                    else self.feature_flags.document_classifier_confidence_threshold
                 )
+
+                result = await classifier.classify(
+                    text, filename,
+                    confidence_threshold=confidence_threshold
+                )
+
+                # UNCERTAIN 결과면서 재시도 가능하면 재시도
+                if result.document_kind.value == "uncertain" and attempt < max_attempts - 1:
+                    logger.info(
+                        f"[Orchestrator] Classification uncertain (attempt {attempt + 1}), retrying with LLM..."
+                    )
+                    retried = True
+                    continue
+
+                ctx.complete_stage("document_classification", {
+                    "document_kind": result.document_kind.value,
+                    "confidence": result.confidence,
+                    "non_resume_type": result.non_resume_type.value if result.non_resume_type else None,
+                    "signals_found": len(result.signals_found),
+                    "used_llm": result.used_llm,
+                    "attempts": attempt + 1,
+                    "retried": retried,
+                })
+
+                # 이력서가 아닌 경우 거부
+                if result.should_reject:
+                    error_msg = f"이력서가 아닙니다: {result.rejection_reason}"
+                    ctx.warning_collector.add(
+                        "NOT_RESUME",
+                        error_msg,
+                        severity="error"
+                    )
+                    logger.info(
+                        f"[Orchestrator] Document rejected: {result.document_kind.value}, "
+                        f"reason={result.rejection_reason}"
+                    )
+                    return {
+                        "success": False,
+                        "should_reject": True,
+                        "error": error_msg,
+                        "document_kind": result.document_kind.value,
+                        "confidence": result.confidence,
+                    }
+
                 logger.info(
-                    f"[Orchestrator] Document rejected: {result.document_kind.value}, "
-                    f"reason={result.rejection_reason}"
+                    f"[Orchestrator] Document classified: {result.document_kind.value}, "
+                    f"confidence={result.confidence:.2f}, attempts={attempt + 1}"
                 )
-                return {
-                    "success": False,
-                    "should_reject": True,
-                    "error": error_msg,
+                return_result = {
+                    "success": True,
                     "document_kind": result.document_kind.value,
                     "confidence": result.confidence,
                 }
+                if retried:
+                    return_result["quality_flag"] = "classification_retried"
+                return return_result
 
-            logger.info(
-                f"[Orchestrator] Document classified: {result.document_kind.value}, "
-                f"confidence={result.confidence:.2f}"
-            )
-            return {
-                "success": True,
-                "document_kind": result.document_kind.value,
-                "confidence": result.confidence,
-            }
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"[Orchestrator] Document classification error (attempt {attempt + 1}): {e}"
+                )
+                if attempt < max_attempts - 1:
+                    retried = True
+                    await asyncio.sleep(0.5)  # 재시도 전 짧은 대기
+                    continue
 
-        except Exception as e:
-            logger.warning(f"[Orchestrator] Document classification error (continuing): {e}")
-            ctx.complete_stage("document_classification", {"error": str(e)})
-            # 분류 실패 시 이력서로 가정하고 계속 진행
-            return {"success": True, "document_kind": "uncertain", "confidence": 0.0}
+        # 모든 시도 실패
+        logger.warning(f"[Orchestrator] Document classification failed after {max_attempts} attempts")
+        ctx.complete_stage("document_classification", {
+            "error": str(last_error),
+            "quality_degraded": True,
+            "attempts": max_attempts,
+        })
+        ctx.warning_collector.add(
+            "CLASSIFICATION_FAILED",
+            f"문서 분류 실패로 이력서로 가정하여 처리됨: {str(last_error)[:100]}",
+            severity="warning",
+            user_visible=True
+        )
+        return {
+            "success": True,
+            "document_kind": "uncertain",
+            "confidence": 0.0,
+            "quality_flag": "classification_failed"
+        }
 
     async def _stage_pii_extraction(self, ctx: PipelineContext) -> Dict[str, Any]:
         """Stage 3: PII 추출 (정규식 전용)"""
@@ -521,47 +638,79 @@ class PipelineOrchestrator:
             return {"success": False, "error": str(e)}
 
     async def _stage_identity_check(self, ctx: PipelineContext) -> Dict[str, Any]:
-        """Stage 4: 신원 확인 (Multi-Identity 체크)"""
+        """
+        Stage 4: 신원 확인 (Multi-Identity 체크)
+        🟡 조건부 fail-closed: 신원 확인 실패 시 재시도 후 확정
+        """
         ctx.start_stage("identity_check", "identity_checker")
 
-        try:
-            from agents.identity_checker import get_identity_checker
+        max_attempts = 1 + (
+            self.feature_flags.max_identity_check_retries
+            if self.feature_flags.enable_identity_check_retry else 0
+        )
+        last_error = None
+        retried = False
 
-            identity_checker = get_identity_checker()
-            text = ctx.parsed_data.raw_text
+        for attempt in range(max_attempts):
+            try:
+                from agents.identity_checker import get_identity_checker
 
-            result = await identity_checker.check(text)
+                identity_checker = get_identity_checker()
+                text = ctx.parsed_data.raw_text
 
-            if result.should_reject:
-                error = f"다중 신원 감지: {result.person_count}명의 정보 ({result.reason})"
-                ctx.fail_stage("identity_check", error, "MULTI_IDENTITY")
-                ctx.warning_collector.add(
-                    "MULTI_IDENTITY",
-                    error,
-                    severity="error"
+                result = await identity_checker.check(text)
+
+                if result.should_reject:
+                    error = f"다중 신원 감지: {result.person_count}명의 정보 ({result.reason})"
+                    ctx.fail_stage("identity_check", error, "MULTI_IDENTITY")
+                    ctx.warning_collector.add(
+                        "MULTI_IDENTITY",
+                        error,
+                        severity="error"
+                    )
+                    return {"success": False, "should_reject": True, "error": error}
+
+                ctx.complete_stage("identity_check", {
+                    "person_count": result.person_count,
+                    "result": result.result.value,
+                    "attempts": attempt + 1,
+                    "retried": retried,
+                })
+
+                return_result = {"success": True, "should_reject": False}
+                if retried:
+                    return_result["quality_flag"] = "identity_check_retried"
+                return return_result
+
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"[Orchestrator] Identity check error (attempt {attempt + 1}): {e}"
                 )
-                return {"success": False, "should_reject": True, "error": error}
+                if attempt < max_attempts - 1:
+                    retried = True
+                    await asyncio.sleep(0.5)  # 재시도 전 짧은 대기
+                    continue
 
-            ctx.complete_stage("identity_check", {
-                "person_count": result.person_count,
-                # "confidence": result.confidence,
-                # IdentityCheckResponse에는 confidence 필드가 없음
-                # (result enum/사유 정보만 제공)
-                "result": result.result.value,
-            })
-
-            return {"success": True, "should_reject": False}
-
-        except Exception as e:
-            # Identity check 실패는 경고만 하고 계속 진행
-            ctx.warning_collector.add(
-                "IDENTITY_CHECK_FAILED",
-                f"신원 확인 실패: {e}",
-                severity="warning",
-                user_visible=False
-            )
-            ctx.complete_stage("identity_check", {"skipped": True, "error": str(e)})
-            return {"success": True, "should_reject": False}
+        # 모든 시도 실패
+        logger.warning(f"[Orchestrator] Identity check failed after {max_attempts} attempts")
+        ctx.warning_collector.add(
+            "IDENTITY_CHECK_FAILED",
+            f"신원 확인 실패로 검증 생략됨: {str(last_error)[:100]}",
+            severity="warning",
+            user_visible=True
+        )
+        ctx.complete_stage("identity_check", {
+            "skipped": True,
+            "error": str(last_error),
+            "quality_degraded": True,
+            "attempts": max_attempts,
+        })
+        return {
+            "success": True,
+            "should_reject": False,
+            "quality_flag": "identity_check_failed"
+        }
 
     async def _stage_analysis(self, ctx: PipelineContext, mode: str) -> Dict[str, Any]:
         """Stage 5: AI 분석"""
@@ -600,6 +749,10 @@ class PipelineOrchestrator:
                 "confidence_score": result.confidence_score,
                 "warning_count": len(result.warnings),
                 "mode": analysis_mode.value,
+                # 🟡 실제 토큰 사용량 추가
+                "total_input_tokens": result.total_input_tokens,
+                "total_output_tokens": result.total_output_tokens,
+                "providers_used": result.providers_used,
             })
 
             # 스테이지 메트릭 기록
@@ -608,19 +761,26 @@ class PipelineOrchestrator:
             if metrics_collector:
                 metrics_collector.record_stage(ctx.metadata.pipeline_id, "analysis", stage_duration)
 
-                # LLM 호출 메트릭 (추정치 - 실제 토큰 수는 AnalystAgent에서 가져와야 함)
-                # TODO: AnalystAgent에서 실제 토큰 수 반환하도록 수정
-                estimated_tokens = len(text) // 4  # 대략적인 추정
-                metrics_collector.record_llm_call(
-                    ctx.metadata.pipeline_id,
-                    "openai",  # 기본 프로바이더
-                    "gpt-4o",
-                    tokens_input=estimated_tokens,
-                    tokens_output=500,  # 추정치
-                )
+                # 🟡 실제 토큰 사용량 사용 (AnalysisResult에서 제공)
+                for provider in result.providers_used:
+                    metrics_collector.record_llm_call(
+                        ctx.metadata.pipeline_id,
+                        provider,
+                        "gpt-4o" if provider == "openai" else provider,
+                        tokens_input=result.total_input_tokens // max(1, len(result.providers_used)),
+                        tokens_output=result.total_output_tokens // max(1, len(result.providers_used)),
+                    )
 
-            logger.info(f"[Orchestrator] Analysis complete: confidence={result.confidence_score:.2f}")
-            return {"success": True, "result": result}
+            logger.info(
+                f"[Orchestrator] Analysis complete: confidence={result.confidence_score:.2f}, "
+                f"tokens_in={result.total_input_tokens}, tokens_out={result.total_output_tokens}"
+            )
+            return {
+                "success": True,
+                "result": result,
+                "total_input_tokens": result.total_input_tokens,
+                "total_output_tokens": result.total_output_tokens,
+            }
 
         except Exception as e:
             ctx.fail_stage("analysis", str(e))
@@ -872,8 +1032,20 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.warning(f"[Orchestrator] Coverage calculation error (continuing): {e}")
-            ctx.complete_stage("coverage_calculation", {"error": str(e)})
-            return {"success": True, "coverage_score": 0.0, "gap_fill_candidates": []}
+            ctx.complete_stage("coverage_calculation", {"error": str(e), "quality_degraded": True})
+            # 커버리지 계산 실패 - 품질 점수를 알 수 없음
+            ctx.warning_collector.add(
+                "COVERAGE_CALC_FAILED",
+                f"필드 완성도 계산 실패: {str(e)[:100]}",
+                severity="warning",
+                user_visible=False  # 내부 메트릭이므로 사용자에게 미표시
+            )
+            return {
+                "success": True,
+                "coverage_score": 0.0,
+                "gap_fill_candidates": [],
+                "quality_flag": "coverage_calc_failed"
+            }
 
     async def _stage_gap_filling(
         self,
@@ -955,8 +1127,102 @@ class PipelineOrchestrator:
 
         except Exception as e:
             logger.warning(f"[Orchestrator] Gap filling error (continuing): {e}")
-            ctx.complete_stage("gap_filling", {"error": str(e)})
-            return {"success": True, "filled_count": 0}
+            ctx.complete_stage("gap_filling", {"error": str(e), "quality_degraded": True})
+            # 갭 필링 실패 - 빈 필드가 채워지지 않음
+            ctx.warning_collector.add(
+                "GAP_FILL_FAILED",
+                f"빈 필드 재추출 실패: {str(e)[:100]}",
+                severity="warning",
+                user_visible=False  # 내부 프로세스이므로 사용자에게 미표시
+            )
+            return {
+                "success": True,
+                "filled_count": 0,
+                "quality_flag": "gap_fill_failed"
+            }
+
+    def _check_quality_gate(
+        self,
+        coverage_result: Dict[str, Any],
+        ctx: PipelineContext
+    ) -> Dict[str, Any]:
+        """
+        🟡 품질 게이트 체크
+
+        최소 품질 조건을 확인하고 경고/통과 여부를 반환합니다.
+
+        Args:
+            coverage_result: 커버리지 계산 결과
+            ctx: PipelineContext
+
+        Returns:
+            Dict with:
+            - passed: 품질 게이트 통과 여부
+            - warnings: 품질 경고 목록
+            - quality_flag: 품질 플래그 (있는 경우)
+        """
+        if not self.feature_flags.enable_quality_gate:
+            return {"passed": True, "warnings": []}
+
+        warnings = []
+        quality_flags = []
+
+        coverage_score = coverage_result.get("coverage_score", 0.0)
+        critical_coverage = coverage_result.get("critical_coverage", 0.0)
+
+        # 전체 커버리지 체크
+        if coverage_score < self.feature_flags.min_coverage_score:
+            warning_msg = (
+                f"필드 완성도가 낮습니다: {coverage_score:.1f}% "
+                f"(최소 권장: {self.feature_flags.min_coverage_score:.1f}%)"
+            )
+            warnings.append(warning_msg)
+            ctx.warning_collector.add(
+                "LOW_COVERAGE",
+                warning_msg,
+                severity="warning",
+                user_visible=True
+            )
+            quality_flags.append("low_coverage")
+            logger.warning(f"[Orchestrator] Quality gate warning: {warning_msg}")
+
+        # Critical 필드 커버리지 체크
+        if critical_coverage < self.feature_flags.min_critical_coverage:
+            warning_msg = (
+                f"핵심 필드 완성도가 낮습니다: {critical_coverage:.1f}% "
+                f"(최소 권장: {self.feature_flags.min_critical_coverage:.1f}%)"
+            )
+            warnings.append(warning_msg)
+            ctx.warning_collector.add(
+                "LOW_CRITICAL_COVERAGE",
+                warning_msg,
+                severity="warning",
+                user_visible=True
+            )
+            quality_flags.append("low_critical_coverage")
+            logger.warning(f"[Orchestrator] Quality gate warning: {warning_msg}")
+
+        passed = len(warnings) == 0
+        result = {
+            "passed": passed,
+            "warnings": warnings,
+        }
+
+        if quality_flags:
+            result["quality_flag"] = "quality_gate_warning"
+
+        if not passed:
+            logger.info(
+                f"[Orchestrator] Quality gate: WARNINGS ({len(warnings)} issues), "
+                f"coverage={coverage_score:.1f}%, critical={critical_coverage:.1f}%"
+            )
+        else:
+            logger.info(
+                f"[Orchestrator] Quality gate: PASSED, "
+                f"coverage={coverage_score:.1f}%, critical={critical_coverage:.1f}%"
+            )
+
+        return result
 
     async def _stage_privacy(self, ctx: PipelineContext) -> Dict[str, Any]:
         """Stage 7: PII 마스킹 + 암호화"""
@@ -1343,6 +1609,9 @@ class PipelineOrchestrator:
             # Stage 6.6: 갭 필링 (Phase 1)
             gap_fill_result = await self._stage_gap_filling(ctx, coverage_result)
 
+            # 🟡 품질 게이트 체크
+            quality_gate_result = self._check_quality_gate(coverage_result, ctx)
+
             # Stage 7: PII 마스킹 + 암호화
             privacy_result = await self._stage_privacy(ctx)
 
@@ -1374,6 +1643,34 @@ class PipelineOrchestrator:
             final_result = ctx.finalize()
             processing_time = int((time.time() - start_time) * 1000)
 
+            # 품질 플래그 수집 (BUG-003: fail-open 추적)
+            quality_flags = {}
+            if classification_result.get("quality_flag"):
+                flag = classification_result["quality_flag"]
+                quality_flags[flag] = True
+            if identity_result.get("quality_flag"):
+                flag = identity_result["quality_flag"]
+                quality_flags[flag] = True
+            if coverage_result.get("quality_flag"):
+                quality_flags["coverage_calc_failed"] = True
+            if gap_fill_result.get("quality_flag"):
+                quality_flags["gap_fill_failed"] = True
+            if final_result["confidence"] < 0.7:
+                quality_flags["low_confidence"] = True
+            # 🟡 품질 게이트 경고
+            if quality_gate_result.get("quality_flag"):
+                quality_flags["quality_gate_warning"] = True
+
+            # 품질 저하 시 로깅
+            if quality_flags:
+                logger.warning(
+                    f"[Orchestrator] Quality flags detected: {list(quality_flags.keys())}"
+                )
+
+            # 🟡 품질 게이트 결과 반영
+            completed_with_warnings = not quality_gate_result.get("passed", True)
+            quality_gate_passed = quality_gate_result.get("passed", True)
+
             result = OrchestratorResult(
                 success=True,
                 candidate_id=save_result["candidate_id"],
@@ -1391,6 +1688,12 @@ class PipelineOrchestrator:
                 doc_classification_confidence=classification_result.get("confidence", 0.0),
                 coverage_score=coverage_result.get("coverage_score", 0.0),
                 gap_fill_count=gap_fill_result.get("filled_count", 0),
+                quality_flags=quality_flags,
+                completed_with_warnings=completed_with_warnings,
+                quality_gate_passed=quality_gate_passed,
+                # 🟡 실제 토큰 사용량
+                total_input_tokens=analysis_result.get("total_input_tokens", 0),
+                total_output_tokens=analysis_result.get("total_output_tokens", 0),
                 context_summary=ctx.to_dict() if self.feature_flags.debug_pipeline else None,
             )
 

@@ -11,6 +11,7 @@ DocumentClassifier (ResumeIntentGuard)
 RouterAgent → Parser → [DocumentClassifier] → IdentityChecker → ...
 """
 
+import json
 import logging
 import time
 import re
@@ -24,6 +25,8 @@ from schemas.phase1_types import (
     RESUME_SIGNALS_EN,
     NON_RESUME_SIGNALS,
 )
+from services.llm_manager import LLMProvider
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -252,10 +255,20 @@ Respond in JSON format:
 Respond ONLY with valid JSON. Do not include any other text."""
 
         try:
-            response = await self.llm_manager.call_openai(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                model="gpt-4o-mini",
+            # OpenAI 메시지 형식으로 변환
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+
+            # 모델명은 config에서 가져옴 (BUG-004 수정)
+            settings = get_settings()
+            response = await self.llm_manager.call_json(
+                provider=LLMProvider.OPENAI,
+                messages=messages,
+                model=settings.OPENAI_MINI_MODEL,
+                temperature=0.1,
+                max_tokens=500,
             )
 
             if response.error:
@@ -267,9 +280,8 @@ Respond ONLY with valid JSON. Do not include any other text."""
                     llm_used=True,
                 )
 
-            # JSON 파싱
-            import json
-            result_data = json.loads(response.content)
+            # call_json은 이미 파싱된 dict를 반환
+            result_data = response.content if isinstance(response.content, dict) else json.loads(response.content)
 
             # document_type 매핑
             doc_type_map = {

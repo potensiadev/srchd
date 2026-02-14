@@ -26,6 +26,8 @@ from schemas.phase1_types import (
     GapFillResult,
     COVERAGE_THRESHOLD,
 )
+from services.llm_manager import LLMProvider
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -293,14 +295,25 @@ Respond with ONLY valid JSON in this format:
 If the information is not found, return null or empty array.
 Respond with ONLY valid JSON. No explanations."""
 
+        # OpenAI 메시지 형식으로 변환
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        # 모델명은 config에서 가져옴 (BUG-004 수정)
+        settings = get_settings()
+
         for attempt in range(self.max_retries + 1):  # 첫 시도 + 재시도
             try:
                 # 타임아웃 적용
                 response = await asyncio.wait_for(
-                    self.llm_manager.call_openai(
-                        prompt=prompt,
-                        system_prompt=system_prompt,
-                        model="gpt-4o-mini",
+                    self.llm_manager.call_json(
+                        provider=LLMProvider.OPENAI,
+                        messages=messages,
+                        model=settings.OPENAI_MINI_MODEL,
+                        temperature=0.1,
+                        max_tokens=500,
                     ),
                     timeout=self.timeout_seconds,
                 )
@@ -322,8 +335,8 @@ Respond with ONLY valid JSON. No explanations."""
                             processing_time_ms=int((time.time() - start_time) * 1000),
                         )
 
-                # JSON 파싱
-                result_data = json.loads(response.content)
+                # call_json은 이미 파싱된 dict를 반환
+                result_data = response.content if isinstance(response.content, dict) else json.loads(response.content)
                 value = result_data.get(field_name)
 
                 # 값 검증

@@ -13,9 +13,10 @@ class TestGapFillerAgent:
 
     @pytest.fixture
     def mock_llm_manager(self):
-        """Mock LLM Manager"""
+        """Mock LLM Manager - call_json 메서드 mock"""
         manager = MagicMock()
-        manager.call_openai = AsyncMock()
+        # GapFillerAgent는 call_json을 사용함
+        manager.call_json = AsyncMock()
         return manager
 
     @pytest.fixture
@@ -76,9 +77,10 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_successful_phone_extraction(self, agent, mock_llm_manager):
         """전화번호 성공적 추출"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        # call_json은 파싱된 dict를 content로 반환
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"phone": "010-1234-5678"}'
+            content={"phone": "010-1234-5678"}
         )
 
         result = await agent.fill_gaps(
@@ -96,9 +98,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_successful_email_extraction(self, agent, mock_llm_manager):
         """이메일 성공적 추출"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"email": "test@example.com"}'
+            content={"email": "test@example.com"}
         )
 
         result = await agent.fill_gaps(
@@ -115,9 +117,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_successful_skills_extraction(self, agent, mock_llm_manager):
         """스킬 목록 추출"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"skills": ["Python", "JavaScript", "PostgreSQL"]}'
+            content={"skills": ["Python", "JavaScript", "PostgreSQL"]}
         )
 
         result = await agent.fill_gaps(
@@ -134,9 +136,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_null_value_not_filled(self, agent, mock_llm_manager):
         """null 값은 채우지 않음"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"phone": null}'
+            content={"phone": None}
         )
 
         result = await agent.fill_gaps(
@@ -152,9 +154,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_empty_array_not_filled(self, agent, mock_llm_manager):
         """빈 배열은 채우지 않음"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"skills": []}'
+            content={"skills": []}
         )
 
         result = await agent.fill_gaps(
@@ -171,9 +173,9 @@ class TestGapFillerAgent:
     async def test_llm_error_retry(self, agent, mock_llm_manager):
         """LLM 오류 시 재시도"""
         # 첫 번째 호출: 오류, 두 번째 호출: 성공
-        mock_llm_manager.call_openai.side_effect = [
+        mock_llm_manager.call_json.side_effect = [
             MagicMock(error="API error", content=None),
-            MagicMock(error=None, content='{"phone": "010-1234-5678"}'),
+            MagicMock(error=None, content={"phone": "010-1234-5678"}),
         ]
 
         result = await agent.fill_gaps(
@@ -191,9 +193,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_multiple_fields(self, agent, mock_llm_manager):
         """여러 필드 동시 추출"""
-        mock_llm_manager.call_openai.side_effect = [
-            MagicMock(error=None, content='{"phone": "010-1234-5678"}'),
-            MagicMock(error=None, content='{"email": "test@example.com"}'),
+        mock_llm_manager.call_json.side_effect = [
+            MagicMock(error=None, content={"phone": "010-1234-5678"}),
+            MagicMock(error=None, content={"email": "test@example.com"}),
         ]
 
         result = await agent.fill_gaps(
@@ -219,14 +221,15 @@ class TestGapFillerAgent:
         )
 
         assert "unknown_field" in result.still_missing
-        assert mock_llm_manager.call_openai.call_count == 0
+        assert mock_llm_manager.call_json.call_count == 0
 
     @pytest.mark.asyncio
     async def test_json_parse_error_retry(self, agent, mock_llm_manager):
-        """JSON 파싱 오류 시 재시도"""
-        mock_llm_manager.call_openai.side_effect = [
-            MagicMock(error=None, content='not valid json'),
-            MagicMock(error=None, content='{"phone": "010-1234-5678"}'),
+        """JSON 파싱 오류 시 재시도 (call_json이 실패 후 성공)"""
+        # call_json이 처음엔 에러를 반환하고 두 번째엔 성공
+        mock_llm_manager.call_json.side_effect = [
+            MagicMock(error="JSON parse error", content=None),
+            MagicMock(error=None, content={"phone": "010-1234-5678"}),
         ]
 
         result = await agent.fill_gaps(
@@ -242,9 +245,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_processing_time_tracked(self, agent, mock_llm_manager):
         """처리 시간 추적"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"phone": "010-1234-5678"}'
+            content={"phone": "010-1234-5678"}
         )
 
         result = await agent.fill_gaps(
@@ -261,9 +264,9 @@ class TestGapFillerAgent:
     @pytest.mark.asyncio
     async def test_careers_extraction(self, agent, mock_llm_manager):
         """경력 정보 추출"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='''{
+            content={
                 "careers": [
                     {
                         "company": "테스트회사",
@@ -272,7 +275,7 @@ class TestGapFillerAgent:
                         "end_date": "present"
                     }
                 ]
-            }'''
+            }
         )
 
         result = await agent.fill_gaps(
@@ -293,8 +296,9 @@ class TestGapFillerAgentEdgeCases:
 
     @pytest.fixture
     def mock_llm_manager(self):
+        """Mock LLM Manager - call_json 메서드 mock"""
         manager = MagicMock()
-        manager.call_openai = AsyncMock()
+        manager.call_json = AsyncMock()
         return manager
 
     @pytest.mark.asyncio
@@ -318,9 +322,9 @@ class TestGapFillerAgentEdgeCases:
     @pytest.mark.asyncio
     async def test_coverage_just_below_threshold(self, mock_llm_manager):
         """coverage가 threshold 바로 아래일 때"""
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error=None,
-            content='{"phone": "010-1234-5678"}'
+            content={"phone": "010-1234-5678"}
         )
 
         agent = GapFillerAgent(
@@ -337,13 +341,13 @@ class TestGapFillerAgentEdgeCases:
 
         # 스킵하지 않음
         assert result.skipped is False
-        assert mock_llm_manager.call_openai.called
+        assert mock_llm_manager.call_json.called
 
     @pytest.mark.asyncio
     async def test_max_retries_exceeded(self, mock_llm_manager):
         """최대 재시도 초과"""
         # 모든 시도 실패
-        mock_llm_manager.call_openai.return_value = MagicMock(
+        mock_llm_manager.call_json.return_value = MagicMock(
             error="API error",
             content=None
         )
@@ -363,4 +367,4 @@ class TestGapFillerAgentEdgeCases:
         assert result.success is False
         assert "phone" in result.still_missing
         # 첫 시도 + 2번 재시도 = 3번 호출
-        assert mock_llm_manager.call_openai.call_count == 3
+        assert mock_llm_manager.call_json.call_count == 3

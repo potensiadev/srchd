@@ -57,6 +57,17 @@ class FeatureFlags:
     # DocumentClassifier 설정
     document_classifier_confidence_threshold: float = 0.7  # LLM fallback 임계값
 
+    # 🟡 Fail-open → 조건부 fail-closed 설정
+    enable_classification_retry: bool = True        # 분류 실패 시 재시도 활성화
+    max_classification_retries: int = 1             # 분류 최대 재시도 횟수
+    enable_identity_check_retry: bool = True        # 신원 확인 실패 시 재시도 활성화
+    max_identity_check_retries: int = 1             # 신원 확인 최대 재시도 횟수
+
+    # 🟡 품질 게이트 설정
+    enable_quality_gate: bool = True                # 품질 게이트 활성화
+    min_coverage_score: float = 50.0                # 최소 전체 커버리지 (0-100)
+    min_critical_coverage: float = 70.0             # 최소 Critical 필드 커버리지 (0-100)
+
     def __post_init__(self):
         if self.new_pipeline_user_ids is None:
             self.new_pipeline_user_ids = []
@@ -101,6 +112,15 @@ class FeatureFlags:
             gap_filler_timeout=int(parse_float("GAP_FILLER_TIMEOUT", 5)),
             coverage_threshold=parse_float("COVERAGE_THRESHOLD", 0.85),
             document_classifier_confidence_threshold=parse_float("DOCUMENT_CLASSIFIER_CONFIDENCE_THRESHOLD", 0.7),
+            # 🟡 Fail-open → 조건부 fail-closed
+            enable_classification_retry=parse_bool("ENABLE_CLASSIFICATION_RETRY", True),
+            max_classification_retries=int(parse_float("MAX_CLASSIFICATION_RETRIES", 1)),
+            enable_identity_check_retry=parse_bool("ENABLE_IDENTITY_CHECK_RETRY", True),
+            max_identity_check_retries=int(parse_float("MAX_IDENTITY_CHECK_RETRIES", 1)),
+            # 🟡 품질 게이트
+            enable_quality_gate=parse_bool("ENABLE_QUALITY_GATE", True),
+            min_coverage_score=parse_float("MIN_COVERAGE_SCORE", 50.0),
+            min_critical_coverage=parse_float("MIN_CRITICAL_COVERAGE", 70.0),
         )
 
     def should_use_new_pipeline(self, user_id: str = None, job_id: str = None) -> bool:
@@ -161,6 +181,13 @@ class FeatureFlags:
         logger.info(f"  - use_coverage_calculator: {self.use_coverage_calculator}")
         logger.info(f"  - use_gap_filler: {self.use_gap_filler}")
         logger.info(f"  - coverage_threshold: {self.coverage_threshold}")
+        # 🟡 Fail-open → 조건부 fail-closed
+        logger.info(f"  [Quality Control]")
+        logger.info(f"  - enable_classification_retry: {self.enable_classification_retry}")
+        logger.info(f"  - enable_identity_check_retry: {self.enable_identity_check_retry}")
+        logger.info(f"  - enable_quality_gate: {self.enable_quality_gate}")
+        logger.info(f"  - min_coverage_score: {self.min_coverage_score}")
+        logger.info(f"  - min_critical_coverage: {self.min_critical_coverage}")
 
 
 # 싱글톤 인스턴스
