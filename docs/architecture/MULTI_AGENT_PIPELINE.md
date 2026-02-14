@@ -1,7 +1,20 @@
 # Multi-Agent Pipeline Architecture
 
 > **Last Updated**: 2026-02-14
-> **Version**: 1.0.0
+> **Version**: 1.1.0
+
+---
+
+### ⚠️ 구현 현황 (Implementation Status)
+
+| 상태 | 에이전트 |
+|------|---------|
+| ✅ **구현 완료** (6개) | RouterAgent, IdentityChecker, AnalystAgent, ValidationAgent, PrivacyAgent, VisualAgent |
+| 📋 **Phase 1 [PLANNED]** (3개) | DocumentClassifier, CoverageCalculator, GapFillerAgent |
+
+> 본 문서에서 `[PLANNED]` 태그가 붙은 기능은 설계 완료 상태이나 아직 구현되지 않았습니다.
+
+---
 
 ## Table of Contents
 
@@ -12,6 +25,7 @@
 5. [Error Handling & Recovery](#5-error-handling--recovery)
 6. [Performance Optimization](#6-performance-optimization)
 7. [Extension Points](#7-extension-points)
+8. [Roadmap: Phase 1 & Phase 2 Enhancements](#8-roadmap-phase-1--phase-2-enhancements)
 
 ---
 
@@ -31,13 +45,16 @@ The Multi-Agent Pipeline is the core AI processing engine of SRCHD. It transform
 
 ### Pipeline Statistics
 
-| Metric | Value |
-|--------|-------|
-| Total Agents | 6 specialized agents |
-| LLM Calls | 3 (1 cheap + 2 primary) |
-| Average Processing Time | 8-15 seconds |
-| Success Rate | ~95% |
-| Cost per Resume | ~$0.02-0.05 |
+| Metric | Current (구현됨) | Phase 1 목표 [PLANNED] |
+|--------|------------------|------------------------|
+| Total Agents | 6 | 9 (+DocumentClassifier, +CoverageCalculator, +GapFiller) |
+| LLM Calls | 3 | 4-5 (+ classification, + gap fill) |
+| Average Processing Time | 8-15 sec | 10-18 sec |
+| Success Rate | ~95% | ~97% (better rejection) |
+| Cost per Resume | ~$0.02-0.05 | ~$0.03-0.06 |
+| Field Coverage Score | ~78% | 90%+ target |
+
+> **구현 상태**: 현재 6개 에이전트가 운영 중입니다. Phase 1 에이전트(DocumentClassifier, CoverageCalculator, GapFillerAgent)는 **설계 완료, 구현 예정** 상태입니다.
 
 ---
 
@@ -79,6 +96,15 @@ The Multi-Agent Pipeline is the core AI processing engine of SRCHD. It transform
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                         STAGE 2: PRE-SCREENING                            │   │
 │  │  ┌────────────────┐                                                       │   │
+│  │  │ Document       │  • Resume vs Non-resume classification   [PLANNED]   │   │
+│  │  │ Classifier     │  • Rule-based + GPT-4o-mini fallback                 │   │
+│  │  │  [PLANNED]     │  • Outputs: document_kind, doc_confidence            │   │
+│  │  │  0-1 LLM calls │                                                       │   │
+│  │  └───────┬────────┘                                                       │   │
+│  │          │ ✓ Resume                     ✗ Non-resume                      │   │
+│  │          │                               └──► Reject + refund             │   │
+│  │          ▼                                                                │   │
+│  │  ┌────────────────┐                                                       │   │
 │  │  │IdentityChecker │  • Detect multi-person documents                     │   │
 │  │  │                │  • Fast rejection for abuse prevention               │   │
 │  │  │  [LLM: GPT-4o  │  • Uses cheap, fast model                            │   │
@@ -107,6 +133,22 @@ The Multi-Agent Pipeline is the core AI processing engine of SRCHD. It transform
 │  │  │                │  • Korean name pattern validation                    │   │
 │  │  │  [Rule-based]  │  • Contact format verification                       │   │
 │  │  │  0 LLM calls   │  • Career duration consistency                       │   │
+│  │  └───────┬────────┘                                                       │   │
+│  │          │                                                                │   │
+│  │          ▼                                                                │   │
+│  │  ┌────────────────┐                                                       │   │
+│  │  │ Coverage       │  • Calculate field coverage score        [Phase 1]   │   │
+│  │  │ Calculator     │  • Track missing_reason per field                    │   │
+│  │  │  [PLANNED]     │  • Evidence extraction from raw text                 │   │
+│  │  │  0 LLM calls   │                                                       │   │
+│  │  └───────┬────────┘                                                       │   │
+│  │          │                                                                │   │
+│  │          ▼                                                                │   │
+│  │  ┌────────────────┐                                                       │   │
+│  │  │ GapFiller      │  • Targeted re-extraction for empty fields [Phase 1] │   │
+│  │  │ Agent          │  • Max 2 retries, 5s timeout                         │   │
+│  │  │  [PLANNED]     │  • Skip if coverage >= 85%                           │   │
+│  │  │  0-2 LLM calls │                                                       │   │
 │  │  └───────┬────────┘                                                       │   │
 │  │          │                                                                │   │
 │  └──────────┼────────────────────────────────────────────────────────────────┘   │
@@ -994,8 +1036,137 @@ MASKING_RULES = {
 
 ---
 
+## 8. Pipeline Evolution Roadmap
+
+> 📖 **상세 설계**: [`PHASE1_PHASE2_DETAILED_DESIGN.md`](PHASE1_PHASE2_DETAILED_DESIGN.md)
+
+### 8.1 Phase 1: Field Completeness Enhancement (즉시)
+
+**목표**: 필드 완성도 개선 (현재 78% → 목표 90%+)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENHANCED PIPELINE (Phase 1)                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  RouterAgent → Parser → [NEW] DocumentClassifier                │
+│                              │                                  │
+│                              ▼                                  │
+│                         IdentityChecker                         │
+│                              │                                  │
+│                              ▼                                  │
+│                        AnalystAgent                             │
+│                              │                                  │
+│                              ▼                                  │
+│                      ValidationAgent                            │
+│                              │                                  │
+│                              ▼                                  │
+│                   [NEW] CoverageCalculator ←── Field Weights    │
+│                              │                                  │
+│                              ▼                                  │
+│                    [NEW] GapFillerAgent ←── Targeted Prompts    │
+│                              │                                  │
+│                              ▼                                  │
+│                        PrivacyAgent                             │
+│                              │                                  │
+│                              ▼                                  │
+│                    EmbeddingService → DatabaseService           │
+│                              │                                  │
+│                              ▼                                  │
+│                        VisualAgent                              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Phase 1 신규 컴포넌트**:
+
+| Component | 역할 | LLM 호출 |
+|-----------|------|----------|
+| **DocumentClassifier** | 이력서 vs 비이력서 분류 (규칙 + GPT-4o-mini) | 0~1 |
+| **CoverageCalculator** | 필드 완성도 점수 산출 + missing_reason 추적 | 0 |
+| **GapFillerAgent** | 빈 필드 타겟 재추출 (최대 2회 재시도) | 0~2 |
+
+**구현 세부**:
+
+1. **DocumentClassifier** (`apps/worker/agents/document_classifier.py`)
+   - 규칙 기반 신호: 이름/연락처/경력 존재 여부
+   - Fallback: GPT-4o-mini (신뢰도 < 0.7 시)
+   - 출력: `document_kind`, `doc_confidence`, `non_resume_type`
+
+2. **CoverageCalculator** (`apps/worker/agents/coverage_calculator.py`)
+   - 필드 가중치: Critical (0.3) / Important (0.15) / Optional (0.05)
+   - 출력: `coverage_score`, `evidence_backed_ratio`, `missing_reason`
+
+3. **GapFillerAgent** (`apps/worker/agents/gap_filler_agent.py`)
+   - 타겟 필드만 재추출 (phone, email, skills, careers 우선)
+   - 타임아웃: 5초, 최대 재시도: 2회
+   - 출력: 개선된 필드 데이터
+
+**DB 스키마 변경**:
+
+```sql
+-- candidates 테이블 확장
+ALTER TABLE candidates ADD COLUMN field_metadata JSONB DEFAULT '{}';
+ALTER TABLE candidates ADD COLUMN document_kind document_kind_enum DEFAULT 'resume';
+ALTER TABLE candidates ADD COLUMN doc_confidence DECIMAL(3,2);
+
+-- ENUM 타입
+CREATE TYPE document_kind_enum AS ENUM ('resume', 'non_resume', 'uncertain');
+CREATE TYPE missing_reason_enum AS ENUM (
+  'not_found_in_source', 'parser_error', 'llm_extraction_failed',
+  'low_confidence', 'schema_mismatch', 'timeout'
+);
+```
+
+### 8.2 Phase 2: Advanced Pipeline Features (조건부)
+
+> Phase 1 완료 후, 데이터 기반 의사결정으로 진행 여부 결정
+
+**Phase 2A: retry_gapfill 큐**
+```
+GapFillerAgent 실패 시 → retry_gapfill 큐로 이동
+                       → 24시간 후 배치 재처리
+                       → 인간 검토 연계 가능
+```
+
+**Phase 2B: KPI 대시보드**
+- 필드별 완성도 트렌드
+- 에이전트별 성공/실패율
+- 파일 타입별 분석 통계
+
+**Phase 2C: 도메인 병렬화 POC** (신중히 검토)
+```
+현재: Sequential
+  AnalystAgent → [Basic] → [Contact] → [Career] → [Skills] → ...
+
+제안: Domain Parallelization (조건부)
+                    ┌─► [Career+Skills Agent]
+  AnalystAgent ─────┤
+                    └─► [Basic+Contact Agent]
+
+전제조건:
+- 병렬화 이점 > 복잡성 비용 증명 필요
+- 현재 2-Way Cross-Check로 충분히 빠름 (~4초)
+- LLM 비용 증가 우려
+```
+
+### 8.3 Deferred (Phase 3+)
+
+다음 항목들은 현재 시점에서 **명시적으로 제외**:
+
+| 제외 항목 | 제외 근거 |
+|-----------|-----------|
+| Separate Orchestrators (Latency/Completeness) | 단일 오케스트레이터로 충분, 복잡성 대비 이점 불명확 |
+| Evidence Agent (별도 에이전트) | ValidationAgent에 evidence 필드 추가로 대체 |
+| Conflict Resolver Agent | 2-Way Cross-Check merge 로직에서 처리 |
+| Normalizer Agent | PrivacyAgent의 후처리 단계에서 처리 |
+| 3-Way Cross-Check (Claude 포함) | Phase 2 이후 비용/정확도 분석 후 결정 |
+
+---
+
 ## Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2026-02-14 | Phase 1/2 로드맵 추가, DocumentClassifier/CoverageCalculator/GapFillerAgent 설계 |
 | 1.0.0 | 2026-02-14 | Initial multi-agent pipeline documentation |

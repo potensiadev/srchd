@@ -1,7 +1,7 @@
 # SRCHD Architecture Documentation
 
 > **Last Updated**: 2026-02-14
-> **Version**: 1.0.0
+> **Version**: 1.1.0
 > **Status**: Production (Closed Beta)
 
 ## Overview
@@ -13,7 +13,8 @@ This directory contains comprehensive architecture documentation for **srchd (Re
 | Document | Description |
 |----------|-------------|
 | [System Architecture](./SYSTEM_ARCHITECTURE.md) | High-level system design, component relationships, and deployment topology |
-| [Multi-Agent Pipeline](./MULTI_AGENT_PIPELINE.md) | Deep dive into the AI processing pipeline with 6 specialized agents |
+| [Multi-Agent Pipeline](./MULTI_AGENT_PIPELINE.md) | Deep dive into the AI processing pipeline with 6 agents (+ 3 planned for Phase 1) |
+| [Phase 1/2 Detailed Design](./PHASE1_PHASE2_DETAILED_DESIGN.md) | DocumentClassifier, GapFillerAgent, CoverageCalculator 상세 설계 |
 | [Data Architecture](./DATA_ARCHITECTURE.md) | Database schema, data flows, encryption strategy, and RLS policies |
 | [API Architecture](./API_ARCHITECTURE.md) | RESTful API design, authentication, rate limiting, and webhook integrations |
 | [Security Architecture](./SECURITY_ARCHITECTURE.md) | Encryption, authentication, authorization, and compliance considerations |
@@ -62,7 +63,9 @@ Search Flow:
   User → API → Cache Check → Synonym Expansion → RDB Filter → Vector Search → Results
 
 AI Pipeline:
-  File → Router → Parser → Identity Check → Analysis → Privacy → Embedding → Storage
+  Current (6 Agents): File → Router → Parser → Identity → Analysis → Validation → Privacy → Embedding → Storage
+  Phase 1 [PLANNED]: File → Router → Parser → DocClassifier* → Identity → Analysis → Validation → Coverage* → GapFiller* → Privacy → Embedding → Storage
+  (* = PLANNED, not yet implemented)
 ```
 
 ## Architecture Decision Records (ADRs)
@@ -77,6 +80,8 @@ Key architectural decisions documented in this codebase:
 | ADR-004 | Hybrid Search (RDB + Vector) | Short queries use RDB, long queries use vectors |
 | ADR-005 | Redis RQ over SQS/Pub-Sub | Simplicity for Korean market, Railway deployment |
 | ADR-006 | Version Stacking for Duplicates | Maintain audit trail, support rollback |
+| ADR-007 | Phase 1 Field Completeness Enhancement | DocumentClassifier + GapFillerAgent for 78%→90% coverage |
+| ADR-008 | Phase 2 Conditional Adoption | Domain parallelization requires POC validation first |
 
 ## Diagrams
 
