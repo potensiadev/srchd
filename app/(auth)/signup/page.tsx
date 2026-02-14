@@ -20,6 +20,9 @@ export default function SignupPage() {
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent("/consent")}`,
+        queryParams: {
+          prompt: "select_account",  // 항상 계정 선택 화면 표시
+        },
       },
     });
 
