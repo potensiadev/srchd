@@ -357,8 +357,8 @@ pnpm e2e            # Playwright E2E 테스트
 
 ### 운영 이슈 (TIER 0-1)
 1. ~~**Paddle Webhook 미구현**~~: ✅ Sandbox 설정 완료, 통합 테스트 대기 (T0-2)
-2. **이메일 알림 부분 구현**: 결제 이메일 완료 (E-10/E-11/E-12), 분석 이메일 대기 (T1-1, T1-2, T1-3)
-3. ~~**Sentry 미연동**~~: ✅ DSN 설정 완료 (Frontend + Worker), Slack 알림 대기 (T1-5)
+2. ~~**이메일 알림 부분 구현**~~: ✅ 결제 이메일 (E-10/E-11/E-12) + 분석 이메일 (E-04/E-05/E-07/E-08) 완료
+3. ~~**Sentry 미연동**~~: ✅ DSN 설정 완료 (Frontend + Worker)
 
 ### 기술 이슈
 4. **가격 불일치**: `types/auth.ts`와 `lib/paddle/config.ts`의 플랜 가격이 다름 → 통일 필요

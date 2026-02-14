@@ -712,7 +712,7 @@ CREATE TABLE email_preferences (
 | 4 | Source Maps 업로드 | ❌ 미설정 | Vercel CI에 Sentry sourcemap 연동 |
 | 5 | Custom Tags | ❌ 미설정 | `user_plan`, `feature_area` 태그 추가 |
 | 6 | Performance 트레이싱 | ❌ 미설정 | `tracesSampleRate: 0.1` |
-| 7 | Slack Webhook 연동 | ❌ 미설정 | Sentry → Slack integration |
+| 7 | ~~Slack Webhook 연동~~ | ❌ **스펙 제외** | ~~Sentry → Slack integration~~ |
 | 8 | Health Check 엔드포인트 | ✅ `/api/health` | 외부 모니터링 연동 |
 
 ### 13.4. 핵심 대시보드 지표
