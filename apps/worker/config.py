@@ -39,7 +39,9 @@ class RetrySettings(BaseModel):
     storage_delay: float = Field(default=1.0, description="Storage 재시도 기본 대기(초)")
 
     # LLM
-    llm_max: int = Field(default=2, description="LLM API 최대 재시도")
+    llm_max: int = Field(default=3, description="LLM API 최대 재시도")
+    llm_base_delay: float = Field(default=1.0, description="LLM 재시도 기본 대기(초) - exponential backoff")
+    llm_max_delay: float = Field(default=8.0, description="LLM 재시도 최대 대기(초)")
 
     # Embedding
     embedding_max: int = Field(default=3, description="Embedding API 최대 재시도")

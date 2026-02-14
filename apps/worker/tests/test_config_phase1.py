@@ -31,8 +31,10 @@ class TestRetrySettings:
         assert retry.storage_max == 3
         assert retry.storage_delay == 1.0
 
-        # LLM
-        assert retry.llm_max == 2
+        # LLM (T3-1: exponential backoff 지원을 위해 3으로 변경)
+        assert retry.llm_max == 3
+        assert retry.llm_base_delay == 1.0
+        assert retry.llm_max_delay == 8.0
 
         # Embedding
         assert retry.embedding_max == 3
@@ -65,7 +67,7 @@ class TestRetrySettings:
 
         assert retry.webhook_max == 10
         assert retry.webhook_delay == 1.0  # 기본값 유지
-        assert retry.llm_max == 2  # 기본값 유지
+        assert retry.llm_max == 3  # 기본값 유지 (T3-1: 3으로 변경됨)
 
 
 class TestTimeoutSettings:
@@ -167,7 +169,7 @@ class TestSettingsNestedAccess:
 
         assert hasattr(settings, 'retry')
         assert settings.retry.webhook_max == 3
-        assert settings.retry.llm_max == 2
+        assert settings.retry.llm_max == 3  # T3-1: 3으로 변경
 
     def test_timeout_settings_accessible(self):
         """Settings.timeout 접근 가능"""
@@ -368,7 +370,7 @@ class TestRealWorldUsagePhase1:
             "wait_max": settings.retry.embedding_max_wait,
         }
 
-        assert retry_config["max_attempts"] == 2
+        assert retry_config["max_attempts"] == 3  # T3-1: 3으로 변경
         assert retry_config["wait_min"] == 1.0
         assert retry_config["wait_max"] == 10.0
 

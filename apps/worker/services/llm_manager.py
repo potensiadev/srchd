@@ -30,6 +30,28 @@ logger = logging.getLogger(__name__)
 LLM_TIMEOUT_SECONDS = settings.timeout.llm  # 기본 120초
 LLM_CONNECT_TIMEOUT = settings.timeout.llm_connect  # 기본 10초
 
+# T3-1: LLM 재시도 설정
+LLM_MAX_RETRIES = settings.retry.llm_max  # 기본 3회
+LLM_BASE_DELAY = settings.retry.llm_base_delay  # 기본 1초
+LLM_MAX_DELAY = settings.retry.llm_max_delay  # 기본 8초
+
+# 재시도 대상 에러 패턴 (대소문자 무시)
+RETRYABLE_ERROR_PATTERNS = [
+    "timeout",
+    "rate limit",
+    "rate_limit",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "overloaded",
+    "capacity",
+    "temporarily unavailable",
+    "connection",
+    "network",
+]
+
 
 class LLMProvider(str, Enum):
     """지원하는 LLM 제공자"""
@@ -127,6 +149,91 @@ class LLMManager:
         logger.info(f"[LLMManager] 사용 가능한 프로바이더: {[p.value for p in available]}")
         logger.info("=" * 60)
 
+    def _is_retryable_error(self, error_message: str) -> bool:
+        """
+        T3-1: 재시도 가능한 에러인지 판단
+
+        재시도 대상:
+        - Timeout 에러
+        - Rate limit (429)
+        - Server errors (5xx)
+        - Connection/Network 에러
+
+        재시도 불가:
+        - API key 에러 (401, 403)
+        - Validation 에러 (400)
+        - JSON 파싱 에러
+        """
+        if not error_message:
+            return False
+
+        error_lower = error_message.lower()
+        return any(pattern in error_lower for pattern in RETRYABLE_ERROR_PATTERNS)
+
+    async def _call_with_retry(
+        self,
+        provider: LLMProvider,
+        call_func,
+        *args,
+        **kwargs
+    ) -> LLMResponse:
+        """
+        T3-1: Exponential backoff 재시도 래퍼
+
+        - 최대 재시도: LLM_MAX_RETRIES (기본 3회)
+        - 백오프: 1s, 2s, 4s (base_delay * 2^attempt)
+        - 최대 대기: LLM_MAX_DELAY (기본 8초)
+
+        Args:
+            provider: LLM 제공자
+            call_func: 실제 API 호출 함수
+            *args, **kwargs: call_func에 전달할 인자
+
+        Returns:
+            LLMResponse (성공 또는 마지막 실패)
+        """
+        last_response: Optional[LLMResponse] = None
+
+        for attempt in range(LLM_MAX_RETRIES + 1):  # 초기 시도 + 재시도
+            response = await call_func(*args, **kwargs)
+
+            # 성공하면 바로 반환
+            if response.success:
+                if attempt > 0:
+                    logger.info(f"[LLMManager] ✅ {provider.value} 재시도 {attempt}회 만에 성공")
+                return response
+
+            last_response = response
+
+            # 재시도 가능한 에러가 아니면 바로 반환
+            if not self._is_retryable_error(response.error or ""):
+                logger.debug(f"[LLMManager] {provider.value} 에러는 재시도 불가: {response.error}")
+                return response
+
+            # 마지막 시도였으면 반환
+            if attempt >= LLM_MAX_RETRIES:
+                logger.warning(
+                    f"[LLMManager] ⚠️ {provider.value} 최대 재시도 횟수({LLM_MAX_RETRIES}) 초과, 실패"
+                )
+                return response
+
+            # Exponential backoff 대기
+            delay = min(LLM_BASE_DELAY * (2 ** attempt), LLM_MAX_DELAY)
+            logger.warning(
+                f"[LLMManager] ⚠️ {provider.value} 재시도 가능한 에러 감지, "
+                f"{delay:.1f}초 후 재시도 ({attempt + 1}/{LLM_MAX_RETRIES}): {response.error}"
+            )
+            await asyncio.sleep(delay)
+
+        # 여기까지 오면 안되지만 안전을 위해
+        return last_response or LLMResponse(
+            provider=provider,
+            content=None,
+            raw_response="",
+            model="unknown",
+            error="Unexpected retry loop exit"
+        )
+
     async def call_with_structured_output(
         self,
         provider: LLMProvider,
@@ -149,8 +256,9 @@ class LLMManager:
 
         Returns:
             LLMResponse with parsed JSON content
+
+        T3-1: Exponential backoff 재시도 적용
         """
-        start_time = datetime.now()
         logger.info(f"[LLMManager] call_with_structured_output 시작 - provider: {provider.value}")
 
         if provider != LLMProvider.OPENAI:
@@ -173,6 +281,25 @@ class LLMManager:
                 model=model or self.models[provider],
                 error="OpenAI API key not configured"
             )
+
+        # T3-1: 재시도 래퍼 적용
+        return await self._call_with_retry(
+            provider,
+            self._call_openai_structured_output,
+            messages, json_schema, model, temperature, max_tokens
+        )
+
+    async def _call_openai_structured_output(
+        self,
+        messages: List[Dict[str, str]],
+        json_schema: Dict[str, Any],
+        model: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        """OpenAI Structured Output 내부 호출 (재시도 래퍼용)"""
+        start_time = datetime.now()
+        provider = LLMProvider.OPENAI
 
         try:
             model_name = model or self.models[provider]
@@ -246,19 +373,26 @@ class LLMManager:
         JSON 응답 요청 (모든 프로바이더 지원)
 
         스키마를 프롬프트에 포함시켜 JSON 응답 유도
+        T3-1: Exponential backoff 재시도 적용
         """
         logger.info(f"[LLMManager] call_json 시작 - provider: {provider.value}")
 
         if provider == LLMProvider.OPENAI:
-            return await self._call_openai_json(
+            return await self._call_with_retry(
+                provider,
+                self._call_openai_json,
                 messages, json_schema, model, temperature, max_tokens
             )
         elif provider == LLMProvider.GEMINI:
-            return await self._call_gemini_json(
+            return await self._call_with_retry(
+                provider,
+                self._call_gemini_json,
                 messages, json_schema, model, temperature, max_tokens
             )
         elif provider == LLMProvider.CLAUDE:
-            return await self._call_claude_json(
+            return await self._call_with_retry(
+                provider,
+                self._call_claude_json,
                 messages, json_schema, model, temperature, max_tokens
             )
         else:
@@ -513,13 +647,31 @@ class LLMManager:
         temperature: float = 0.7,
         max_tokens: int = 2048,
     ) -> LLMResponse:
-        """일반 텍스트 응답 요청"""
+        """
+        일반 텍스트 응답 요청
+
+        T3-1: Exponential backoff 재시도 적용
+        """
+        logger.info(f"[LLMManager] call_text 시작 - provider: {provider.value}")
+
         if provider == LLMProvider.OPENAI:
-            return await self._call_openai_text(messages, model, temperature, max_tokens)
+            return await self._call_with_retry(
+                provider,
+                self._call_openai_text,
+                messages, model, temperature, max_tokens
+            )
         elif provider == LLMProvider.GEMINI:
-            return await self._call_gemini_text(messages, model, temperature, max_tokens)
+            return await self._call_with_retry(
+                provider,
+                self._call_gemini_text,
+                messages, model, temperature, max_tokens
+            )
         elif provider == LLMProvider.CLAUDE:
-            return await self._call_claude_text(messages, model, temperature, max_tokens)
+            return await self._call_with_retry(
+                provider,
+                self._call_claude_text,
+                messages, model, temperature, max_tokens
+            )
         else:
             return LLMResponse(
                 provider=provider,
