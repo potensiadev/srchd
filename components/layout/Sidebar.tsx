@@ -3,11 +3,10 @@
 import { motion } from "framer-motion";
 import { Users, BarChart3, Settings, Briefcase, LogOut, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import CreditCounter from "./CreditCounter";
 import { useCredits } from "@/hooks";
-import { createClient } from "@/lib/supabase/client";
 import { PLAN_CONFIG, type PlanId } from "@/lib/paddle/config";
 
 const NAV_ITEMS = [
@@ -20,16 +19,14 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
     const pathname = usePathname();
-    const router = useRouter();
     const { data: creditsData } = useCredits();
 
     // 이메일은 useCredits에서 가져옴 (서버 측 인증 기반)
     const userEmail = creditsData?.email || "";
 
-    const handleLogout = async () => {
-        const supabase = createClient();
-        await supabase.auth.signOut();
-        router.push("/?logged_out=true");
+    const handleLogout = () => {
+        // 서버 측 signOut API 사용 (쿠키 완전 삭제)
+        window.location.href = "/api/auth/signout";
     };
 
     const isActive = (href: string) => {
