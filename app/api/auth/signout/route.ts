@@ -6,8 +6,8 @@ export async function GET(request: NextRequest) {
     const requestUrl = new URL(request.url);
     const supabase = await createClient();
 
-    // 서버 사이드 로그아웃
-    await supabase.auth.signOut();
+    // 서버 사이드 로그아웃 (모든 세션 종료)
+    await supabase.auth.signOut({ scope: "global" });
 
     // 응답 생성
     const response = NextResponse.redirect(`${requestUrl.origin}/?logged_out=true`);
@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
             response.cookies.set(cookie.name, "", {
                 expires: new Date(0),
                 path: "/",
+                maxAge: 0,
             });
         }
     }

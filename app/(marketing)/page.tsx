@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   Sparkles,
@@ -101,6 +102,7 @@ const searchResults: Record<string, {
 // ============================================
 
 export default function LandingPageContent() {
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [, setIsLoggedIn] = useState(false);
@@ -123,6 +125,21 @@ export default function LandingPageContent() {
   const [demo3IsTyping, setDemo3IsTyping] = useState(false);
   const demo3IntervalRef = useRef<NodeJS.Timeout | null>(null);
   const demo3TimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 로그아웃 후 클라이언트 측 세션 정리
+  useEffect(() => {
+    const loggedOut = searchParams.get("logged_out");
+    if (loggedOut === "true") {
+      const clearSession = async () => {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+        setIsLoggedIn(false);
+        // URL에서 logged_out 파라미터 제거
+        window.history.replaceState({}, "", "/");
+      };
+      clearSession();
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     setMounted(true);
