@@ -127,6 +127,7 @@ class FieldBasedAnalyst:
             )
 
             # Stage 5.1: 병렬 추출
+            logger.info(f"[FieldBasedAnalyst] Stage 5.1: 병렬 추출 시작 (cross_val={enable_cross_validation})")
             if enable_cross_validation and len(providers) > 1:
                 # 교차검증 모드: 여러 provider로 병렬 추출
                 extractor_results, cross_val_results = await self._extract_with_cross_validation(
@@ -140,9 +141,15 @@ class FieldBasedAnalyst:
                 )
                 cross_val_results = None
 
+            logger.info(f"[FieldBasedAnalyst] Stage 5.1 완료: {len(extractor_results)} extractors")
+            for ext_type, ext_result in extractor_results.items():
+                logger.info(f"  - {ext_type}: success={ext_result.success}, fields={len(ext_result.data)}")
+
             # Stage 5.2: 집계 및 합의
+            logger.info(f"[FieldBasedAnalyst] Stage 5.2: Aggregation 시작...")
             aggregator = create_aggregator(text)
             aggregated = aggregator.aggregate(extractor_results, cross_val_results)
+            logger.info(f"[FieldBasedAnalyst] Stage 5.2 완료: {len(aggregated.data)} 필드, confidence={aggregated.overall_confidence:.2f}")
 
             # 결과 복사
             result.success = aggregated.success
@@ -213,12 +220,25 @@ class FieldBasedAnalyst:
             else:
                 extractor_results[extractor_type] = result
 
+        logger.info(f"[FieldBasedAnalyst] 5개 Extractor 완료, Summary 생성 시작...")
+
         # Summary는 다른 추출 결과를 컨텍스트로 사용
-        extracted_data = self._merge_extracted_data(extractor_results)
-        summary_result = await self.summary_generator.generate(
-            text, extracted_data, filename, provider
-        )
-        extractor_results["summary"] = summary_result
+        try:
+            extracted_data = self._merge_extracted_data(extractor_results)
+            logger.info(f"[FieldBasedAnalyst] 데이터 병합 완료: {len(extracted_data)} 필드")
+
+            summary_result = await self.summary_generator.generate(
+                text, extracted_data, filename, provider
+            )
+            extractor_results["summary"] = summary_result
+            logger.info(f"[FieldBasedAnalyst] Summary 생성 완료: success={summary_result.success}")
+        except Exception as e:
+            logger.error(f"[FieldBasedAnalyst] Summary 생성 실패: {e}", exc_info=True)
+            extractor_results["summary"] = ExtractionResult(
+                success=False,
+                extractor_type="summary",
+                error=str(e)
+            )
 
         return extractor_results
 
