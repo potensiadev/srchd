@@ -19,6 +19,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { PADDLE_CONFIG, getPlanByPriceId } from "@/lib/paddle/config";
+import { queueEmail } from "@/lib/email/service";
+import { generateEmailSubject } from "@/lib/email/templates";
 import crypto from "crypto";
 
 // Service Role 클라이언트 (webhook은 인증 없이 호출됨)
@@ -220,47 +222,102 @@ export async function POST(request: NextRequest) {
 
     switch (event_type) {
       case "subscription.created":
-      case "subscription.activated":
+      case "subscription.activated": {
+        const activatedPlan = plan?.id || "pro";
         await updateSubscription(user.id, {
-          plan: plan?.id || "pro",
+          plan: activatedPlan,
           paddle_customer_id: data.customer_id,
           paddle_subscription_id: data.id,
           subscription_status: "active",
           current_period_end: data.current_billing_period?.ends_at ?? undefined,
           cancel_at_period_end: false,
         });
-        console.log(`[Paddle Webhook] Subscription activated for ${user.email}: ${plan?.id || "pro"}`);
-        break;
+        console.log(`[Paddle Webhook] Subscription activated for ${user.email}: ${activatedPlan}`);
 
-      case "subscription.updated":
+        // E-11: 구독 시작 이메일
+        const e11Metadata = {
+          plan_name: activatedPlan === "pro" ? "Pro" : "Starter",
+          credits: activatedPlan === "pro" ? 200 : 10,
+          next_billing_date: data.current_billing_period?.ends_at
+            ? new Date(data.current_billing_period.ends_at).toLocaleDateString("ko-KR")
+            : undefined,
+          is_renewal: false,
+        };
+        await queueEmail(
+          user.id,
+          "E-11",
+          generateEmailSubject("E-11", e11Metadata),
+          e11Metadata
+        );
+        break;
+      }
+
+      case "subscription.updated": {
+        const updatedPlan = plan?.id || user.plan;
         await updateSubscription(user.id, {
-          plan: plan?.id || user.plan,
+          plan: updatedPlan,
           subscription_status: data.status === "active" ? "active" : data.status,
           current_period_end: data.current_billing_period?.ends_at ?? undefined,
           cancel_at_period_end: data.scheduled_change?.action === "cancel",
         });
         console.log(`[Paddle Webhook] Subscription updated for ${user.email}: ${data.status}`);
         break;
+      }
 
-      case "subscription.canceled":
+      case "subscription.canceled": {
         await updateSubscription(user.id, {
           subscription_status: "canceled",
           cancel_at_period_end: true,
         });
         console.log(`[Paddle Webhook] Subscription canceled for ${user.email}`);
-        break;
 
-      case "subscription.past_due":
+        // E-12: 구독 취소 확인 이메일
+        // 현재 크레딧 조회
+        const { data: userData } = await supabaseAdmin
+          .from("users")
+          .select("credits_remaining, current_period_end")
+          .eq("id", user.id)
+          .single();
+
+        const e12Metadata = {
+          plan_name: user.plan === "pro" ? "Pro" : "Starter",
+          end_date: userData?.current_period_end
+            ? new Date(userData.current_period_end).toLocaleDateString("ko-KR")
+            : "구독 기간 종료일",
+          remaining_credits: userData?.credits_remaining ?? 0,
+        };
+        await queueEmail(
+          user.id,
+          "E-12",
+          generateEmailSubject("E-12", e12Metadata),
+          e12Metadata
+        );
+        break;
+      }
+
+      case "subscription.past_due": {
         await updateSubscription(user.id, {
           subscription_status: "past_due",
         });
         console.log(`[Paddle Webhook] Subscription past due for ${user.email}`);
+
+        // E-10: 결제 실패 이메일
+        const e10Metadata = {
+          plan_name: user.plan === "pro" ? "Pro" : "Starter",
+        };
+        await queueEmail(
+          user.id,
+          "E-10",
+          generateEmailSubject("E-10", e10Metadata),
+          e10Metadata
+        );
         break;
+      }
 
       // ─────────────────────────────────────────────────
       // Phase 2: Transaction 이벤트 (결제 금액 기록)
       // ─────────────────────────────────────────────────
-      case "transaction.completed":
+      case "transaction.completed": {
         if (data.details?.totals) {
           const paymentAmount = parseInt(data.details.totals.grand_total || data.details.totals.total, 10);
           await supabaseAdmin
@@ -271,8 +328,35 @@ export async function POST(request: NextRequest) {
             })
             .eq("id", user.id);
           console.log(`[Paddle Webhook] Transaction completed for ${user.email}: ${paymentAmount}`);
+
+          // E-11: 구독 갱신 이메일 (구독이 이미 활성화된 경우에만)
+          // subscription.created/activated와 중복 방지를 위해 갱신만 처리
+          const { data: currentUser } = await supabaseAdmin
+            .from("users")
+            .select("plan, subscription_status, current_period_end")
+            .eq("id", user.id)
+            .single();
+
+          if (currentUser?.subscription_status === "active" && currentUser?.plan === "pro") {
+            const renewalMetadata = {
+              plan_name: "Pro",
+              credits: 200,
+              amount: `${(paymentAmount / 100).toLocaleString("ko-KR")}원`,
+              next_billing_date: currentUser.current_period_end
+                ? new Date(currentUser.current_period_end).toLocaleDateString("ko-KR")
+                : undefined,
+              is_renewal: true,
+            };
+            await queueEmail(
+              user.id,
+              "E-11",
+              generateEmailSubject("E-11", renewalMetadata),
+              renewalMetadata
+            );
+          }
         }
         break;
+      }
 
       // ─────────────────────────────────────────────────
       // Phase 2: Adjustment 이벤트 (환불 처리)
