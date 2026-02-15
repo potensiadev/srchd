@@ -615,38 +615,38 @@ EXTRACTOR_SCHEMAS: Dict[str, Dict[str, Any]] = {
     "profile": {
         "schema": PROFILE_EXTRACTOR_SCHEMA,
         "prompt": PROFILE_EXTRACTOR_PROMPT,
-        "max_text_length": 2000,
-        "preferred_model": "gpt-4o-mini",  # 간단한 필드
+        "max_text_length": 3000,  # 프로필은 문서 앞부분에 위치
+        "preferred_model": "gpt-4o-mini",
     },
     "career": {
         "schema": CAREER_EXTRACTOR_SCHEMA,
         "prompt": CAREER_EXTRACTOR_PROMPT,
-        "max_text_length": 6000,
-        "preferred_model": "gpt-4o",  # 복잡한 필드
+        "max_text_length": 12000,  # 6000 → 12000: 긴 이력서의 전체 경력 커버
+        "preferred_model": "gpt-4o",
     },
     "education": {
         "schema": EDUCATION_EXTRACTOR_SCHEMA,
         "prompt": EDUCATION_EXTRACTOR_PROMPT,
-        "max_text_length": 2000,
+        "max_text_length": 3000,  # 학력은 문서 앞부분에 위치
         "preferred_model": "gpt-4o",
     },
     "skills": {
         "schema": SKILLS_EXTRACTOR_SCHEMA,
         "prompt": SKILLS_EXTRACTOR_PROMPT,
-        "max_text_length": 3000,
-        "preferred_model": "gpt-4o-mini",  # 간단한 필드
+        "max_text_length": 8000,  # 3000 → 8000: 경력 상세에서도 스킬 추출
+        "preferred_model": "gpt-4o-mini",
     },
     "projects": {
         "schema": PROJECTS_EXTRACTOR_SCHEMA,
         "prompt": PROJECTS_EXTRACTOR_PROMPT,
-        "max_text_length": 4000,
-        "preferred_model": "gpt-4o",  # 복잡한 필드
+        "max_text_length": 20000,  # 4000 → 20000: 긴 이력서의 모든 프로젝트 커버
+        "preferred_model": "gpt-4o",
     },
     "summary": {
         "schema": SUMMARY_GENERATOR_SCHEMA,
         "prompt": SUMMARY_GENERATOR_PROMPT,
-        "max_text_length": 6000,  # 전체 문맥 필요
-        "preferred_model": "gpt-4o",  # 품질 우선
+        "max_text_length": 15000,  # 6000 → 15000: 전체 문맥 필요
+        "preferred_model": "gpt-4o",
     },
 }
 

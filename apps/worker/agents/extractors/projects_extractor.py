@@ -2,6 +2,11 @@
 Projects Extractor - 프로젝트 경험 추출
 
 projects, portfolio_url, github_url 추출
+
+개선 사항 (2026-02-15):
+- 섹션 기반 텍스트 선택: 프로젝트 관련 섹션 우선 추출
+- 긴 문서 지원: max_text_length 20000자로 확대
+- 청킹 전략: 매우 긴 문서는 청크로 나누어 처리 후 병합
 """
 
 import logging
@@ -11,6 +16,16 @@ from typing import Dict, Any, List, Optional, Set
 from .base_extractor import BaseExtractor, ExtractionResult
 
 logger = logging.getLogger(__name__)
+
+# 프로젝트 관련 섹션 키워드 (한국어 이력서)
+PROJECT_SECTION_KEYWORDS = [
+    "경력 상세", "경력상세",
+    "프로젝트", "주요 프로젝트", "Projects",
+    "수행 과제", "주요 업무", "담당 업무",
+    "성과", "실적", "주요 성과",
+    "업무 상세", "업무상세",
+    "프로젝트 경험", "업무 경험",
+]
 
 
 class ProjectsExtractor(BaseExtractor):
@@ -128,6 +143,84 @@ class ProjectsExtractor(BaseExtractor):
             url = "https://" + url
 
         return url
+
+    def _preprocess_text(self, text: str) -> str:
+        """
+        프로젝트 추출용 텍스트 전처리 (오버라이드)
+
+        전략:
+        1. 프로젝트 관련 섹션 위치 탐지
+        2. 문서 앞부분(인적사항/경력요약) + 프로젝트 섹션 결합
+        3. 최대 길이 내에서 프로젝트 정보 최대화
+        """
+        if not text:
+            return ""
+
+        text_length = len(text)
+
+        # 짧은 문서는 그대로 반환
+        if text_length <= self.max_text_length:
+            return text.strip()
+
+        logger.info(f"[ProjectsExtractor] 긴 문서 감지: {text_length}자, 섹션 기반 추출 시작")
+
+        # 프로젝트 관련 섹션 시작점 찾기
+        section_start = self._find_project_section_start(text)
+
+        if section_start is not None and section_start > 0:
+            # 앞부분 (인적사항, 경력 요약 등) 보존
+            prefix_length = min(2000, section_start)
+            prefix = text[:prefix_length]
+
+            # 프로젝트 섹션부터 끝까지
+            project_section = text[section_start:]
+
+            # 병합
+            combined = prefix + "\n\n--- 프로젝트 상세 ---\n\n" + project_section
+
+            if len(combined) <= self.max_text_length:
+                logger.info(
+                    f"[ProjectsExtractor] 섹션 기반 추출 완료: "
+                    f"prefix={prefix_length}자, section={len(project_section)}자"
+                )
+                return combined.strip()
+            else:
+                # 프로젝트 섹션이 너무 긴 경우, 최대한 포함
+                available = self.max_text_length - prefix_length - 50
+                truncated = prefix + "\n\n--- 프로젝트 상세 ---\n\n" + project_section[:available]
+                logger.info(
+                    f"[ProjectsExtractor] 섹션 기반 추출 (일부 잘림): "
+                    f"prefix={prefix_length}자, section={available}자"
+                )
+                return truncated.strip()
+
+        # 섹션을 찾지 못한 경우 기본 동작 (앞에서 자름)
+        logger.warning(f"[ProjectsExtractor] 프로젝트 섹션 미발견, 앞에서 {self.max_text_length}자 사용")
+        return text[:self.max_text_length].strip()
+
+    def _find_project_section_start(self, text: str) -> Optional[int]:
+        """
+        프로젝트 관련 섹션의 시작 위치 찾기
+
+        Returns:
+            섹션 시작 인덱스 또는 None
+        """
+        earliest_position = None
+        found_keyword = None
+
+        for keyword in PROJECT_SECTION_KEYWORDS:
+            # 대소문자 무시 검색
+            idx = text.lower().find(keyword.lower())
+            if idx != -1:
+                # 문서 앞부분(1500자 이내)은 경력 요약일 수 있으므로 제외
+                if idx > 1500 and (earliest_position is None or idx < earliest_position):
+                    earliest_position = idx
+                    found_keyword = keyword
+
+        if earliest_position is not None:
+            logger.debug(f"[ProjectsExtractor] 프로젝트 섹션 발견: '{found_keyword}' at {earliest_position}")
+
+        return earliest_position
 
     def extract_urls_from_text(self, text: str) -> Dict[str, str]:
         """

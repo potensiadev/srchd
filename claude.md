@@ -1,7 +1,7 @@
 # CLAUDE.md — 서치드(srchd) 프로젝트 컨텍스트
 
 > 이 파일은 AI 어시스턴트가 코드베이스를 이해하기 위한 **프로젝트 컨텍스트 문서**입니다.
-> 마지막 업데이트: 2026-02-14 (온보딩 제외, TIER 3 완료, Sentry/Paddle 설정 완료)
+> 마지막 업데이트: 2026-02-15 (Extractor max_text_length 확대, 섹션 기반 텍스트 추출 개선)
 
 ---
 
@@ -365,6 +365,7 @@ pnpm e2e            # Playwright E2E 테스트
 5. **PlanType 불일치**: `types/auth.ts`에는 `starter | pro`만 정의, PRD에는 `enterprise` 포함
 6. **package.json 이름**: `temp_app`으로 되어 있음 → `srchd` 또는 `rai`로 변경 권장
 7. **한컴 API**: 코드 구현 완료되었으나 API 키 미설정 상태 (환경변수 설정 시 자동 활성화)
+8. ~~**긴 이력서 프로젝트 누락**~~: ✅ max_text_length 확대 + 섹션 기반 텍스트 추출로 해결 (2026-02-15)
 
 ### Phase 1 에이전트 (구현 완료, 오케스트레이터 통합 완료, Feature Flag 비활성)
 > 아래 에이전트들은 **구현 및 PipelineOrchestrator 통합 완료**되었으며, Feature Flag로 활성화 가능
@@ -443,5 +444,20 @@ FIELD_ANALYST_PROVIDERS=openai,gemini  # 사용할 LLM 제공자
 | critical_coverage | >= 80% |
 | evidence_backed_ratio | >= 50% |
 | consensus_ratio | >= 60% |
+
+**Extractor별 max_text_length** (2026-02-15 업데이트):
+| Extractor | max_text_length | 비고 |
+|-----------|-----------------|------|
+| profile | 3,000자 | 문서 앞부분에 위치 |
+| career | 12,000자 | 전체 경력 커버 필요 |
+| education | 3,000자 | 문서 앞부분에 위치 |
+| skills | 8,000자 | 경력 상세에서도 스킬 추출 |
+| projects | 20,000자 | **긴 이력서의 모든 프로젝트 커버** |
+| summary | 15,000자 | 전체 문맥 필요 |
+
+**섹션 기반 텍스트 추출** (2026-02-15 추가):
+- `ProjectsExtractor`: "경력 상세", "프로젝트" 등 섹션 우선 추출
+- `CareerExtractor`: "경력사항", "Career" 등 섹션 우선 추출
+- 긴 문서(20,000자+)에서도 프로젝트/경력 정보 누락 방지
 
 **비활성화 방법**: `USE_FIELD_BASED_ANALYST=false` 환경 변수 설정

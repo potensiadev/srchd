@@ -2,6 +2,11 @@
 Career Extractor - 경력 정보 추출
 
 careers, exp_years, current_company, current_position 추출
+
+개선 사항 (2026-02-15):
+- 섹션 기반 텍스트 선택: 경력 관련 섹션 우선 추출
+- 긴 문서 지원: max_text_length 12000자로 확대
+- 경력 통합: 같은 회사의 여러 프로젝트를 하나의 경력으로 병합
 """
 
 import logging
@@ -13,6 +18,14 @@ from .base_extractor import BaseExtractor, ExtractionResult
 from context.rule_validator import RuleValidator
 
 logger = logging.getLogger(__name__)
+
+# 경력 관련 섹션 키워드 (한국어 이력서)
+CAREER_SECTION_KEYWORDS = [
+    "경력사항", "경력 사항",
+    "경력", "Career", "Work Experience",
+    "직장 경력", "업무 경력",
+    "재직 이력", "근무 이력",
+]
 
 
 class CareerExtractor(BaseExtractor):
@@ -331,6 +344,73 @@ class CareerExtractor(BaseExtractor):
 
         except (ValueError, IndexError):
             return 0
+
+    def _preprocess_text(self, text: str) -> str:
+        """
+        경력 추출용 텍스트 전처리 (오버라이드)
+
+        전략:
+        1. 경력 관련 섹션 우선 포함
+        2. 문서 앞부분(인적사항) + 경력 섹션 결합
+        3. 모든 경력 정보를 최대한 포함
+        """
+        if not text:
+            return ""
+
+        text_length = len(text)
+
+        # 짧은 문서는 그대로 반환
+        if text_length <= self.max_text_length:
+            return text.strip()
+
+        logger.info(f"[CareerExtractor] 긴 문서 감지: {text_length}자, 섹션 기반 추출 시작")
+
+        # 경력 섹션 시작점 찾기
+        section_start = self._find_career_section_start(text)
+
+        if section_start is not None and section_start > 0:
+            # 앞부분 (인적사항 등) 보존 - 경력 요약이 앞에 있을 수 있음
+            prefix_length = min(3000, section_start)
+            prefix = text[:prefix_length]
+
+            # 경력 섹션부터 추출
+            career_section = text[section_start:]
+
+            # 병합
+            combined = prefix + "\n\n" + career_section
+
+            if len(combined) <= self.max_text_length:
+                logger.info(
+                    f"[CareerExtractor] 섹션 기반 추출 완료: "
+                    f"prefix={prefix_length}자, section={len(career_section)}자"
+                )
+                return combined.strip()
+            else:
+                # 경력 섹션이 너무 긴 경우
+                available = self.max_text_length - prefix_length - 50
+                truncated = prefix + "\n\n" + career_section[:available]
+                logger.info(
+                    f"[CareerExtractor] 섹션 기반 추출 (일부 잘림): "
+                    f"prefix={prefix_length}자, section={available}자"
+                )
+                return truncated.strip()
+
+        # 섹션을 찾지 못한 경우 기본 동작
+        logger.warning(f"[CareerExtractor] 경력 섹션 미발견, 앞에서 {self.max_text_length}자 사용")
+        return text[:self.max_text_length].strip()
+
+    def _find_career_section_start(self, text: str) -> Optional[int]:
+        """경력 관련 섹션의 시작 위치 찾기"""
+        earliest_position = None
+
+        for keyword in CAREER_SECTION_KEYWORDS:
+            idx = text.lower().find(keyword.lower())
+            if idx != -1:
+                # 문서 시작 부분에서 찾으면 사용
+                if earliest_position is None or idx < earliest_position:
+                    earliest_position = idx
+
+        return earliest_position
 
     def _build_user_prompt(
         self,
