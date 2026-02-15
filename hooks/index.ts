@@ -24,12 +24,5 @@ export {
   useHasInsufficientCredits,
 } from "./useCredits";
 
-// Network & Error Recovery (PRD P2)
-export {
-  useNetworkStatus,
-  fetchWithRetry,
-  NetworkError,
-} from "@/lib/hooks/useNetworkStatus";
-
 // UI Components
 export { useToast } from "@/components/ui/toast";

@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -70,6 +70,9 @@ export async function GET(request: NextRequest) {
         allCookies.map(c => c.name).join(", "));
     }
 
+    // 세션 교환 후 설정할 쿠키들을 저장
+    const cookiesToSetOnResponse: { name: string; value: string; options: CookieOptions }[] = [];
+
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -79,14 +82,17 @@ export async function GET(request: NextRequest) {
             return cookieStore.getAll();
           },
           setAll(cookiesToSet) {
+            // 쿠키를 배열에 저장 (나중에 응답에 포함)
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookiesToSetOnResponse.push({ name, value, options });
+            });
+            // cookieStore에도 설정 시도 (Server Component 호환)
             try {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
               );
             } catch {
-              // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
+              // Server Component에서 호출 시 무시 (응답에 직접 설정됨)
             }
           },
         },
@@ -111,6 +117,8 @@ export async function GET(request: NextRequest) {
           .eq("id", user.id)
           .single();
 
+        let redirectPath = next;
+
         if (!existingUser) {
           // public.users 레코드가 없으면 생성 (트리거 실패 대비 안전망)
           const provider = user.app_metadata?.provider || "email";
@@ -124,24 +132,43 @@ export async function GET(request: NextRequest) {
 
           if (insertError) {
             console.error("[Auth Callback] Failed to create user record:", insertError.message, insertError.code);
-            // INSERT 실패해도 consent 페이지로 이동 (트리거로 생성됐을 수 있음)
           }
 
           // 신규 생성 → consent 페이지로
-          return NextResponse.redirect(`${origin}/consent`);
+          redirectPath = "/consent";
+        } else if (!existingUser.consents_completed) {
+          // 동의 미완료 → consent 페이지로
+          redirectPath = "/consent";
         }
 
-        // 동의 완료 여부에 따라 리다이렉트
-        if (!existingUser.consents_completed) {
-          return NextResponse.redirect(`${origin}/consent`);
-        }
+        // 리다이렉트 응답 생성 후 쿠키 포함
+        const response = NextResponse.redirect(`${origin}${redirectPath}`);
 
-        // 동의 완료된 기존 회원 → 요청된 경로로
-        return NextResponse.redirect(`${origin}${next}`);
+        // 세션 쿠키를 응답에 명시적으로 포함
+        cookiesToSetOnResponse.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, {
+            ...options,
+            // 프로덕션에서 보안 설정 강화
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            path: "/",
+          });
+        });
+
+        return response;
       }
 
       // user가 없으면 consent로 (비정상 케이스)
-      return NextResponse.redirect(`${origin}/consent`);
+      const response = NextResponse.redirect(`${origin}/consent`);
+      cookiesToSetOnResponse.forEach(({ name, value, options }) => {
+        response.cookies.set(name, value, {
+          ...options,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+        });
+      });
+      return response;
     }
   }
 
