@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { ToastProviderWrapper } from "@/providers/ToastProviderWrapper";
+import { DisableLegacyOfflineNotice } from "@/components/system/DisableLegacyOfflineNotice";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
       >
         <QueryProvider>
           <ToastProviderWrapper>
+            <DisableLegacyOfflineNotice />
             {children}
           </ToastProviderWrapper>
         </QueryProvider>
