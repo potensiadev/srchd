@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -17,6 +17,15 @@ import {
 import { TESTIMONIALS } from "@/lib/marketing-data";
 import { BlobBackground } from "@/components/marketing/hero-background";
 import SpotlightButton from "@/components/ui/spotlight-button";
+
+// Wrapper component for Suspense boundary
+export default function LandingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <LandingPageContent />
+    </Suspense>
+  );
+}
 
 // ============================================
 // DATA & CONSTANTS
@@ -101,7 +110,7 @@ const searchResults: Record<string, {
 // MAIN COMPONENT
 // ============================================
 
-export default function LandingPageContent() {
+function LandingPageContent() {
   const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
