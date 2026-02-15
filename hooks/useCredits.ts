@@ -21,7 +21,14 @@ interface CreditsData {
 async function fetchUserCredits(): Promise<CreditsData> {
   console.log("[useCredits] Fetching credits...");
 
-  const response = await fetch("/api/user/credits");
+  // 프로덕션에서 API가 지연될 경우 Loading 상태가 무한 지속되지 않도록 타임아웃 적용
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  const response = await fetch("/api/user/credits", {
+    signal: controller.signal,
+    cache: "no-store",
+  }).finally(() => clearTimeout(timeoutId));
   console.log("[useCredits] Response status:", response.status);
 
   if (!response.ok) {
